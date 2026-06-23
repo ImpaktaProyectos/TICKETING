@@ -26,6 +26,13 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 
+// Detecta pantalla pequeña (móvil) para adaptar el layout
+function useIsMobile(bp = 720) {
+  const [m, setM] = useState(typeof window !== "undefined" ? window.innerWidth <= bp : false);
+  useEffect(() => { const f = () => setM(window.innerWidth <= bp); window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, [bp]);
+  return m;
+}
+
 /* ---------------------- Estado inicial (se hidrata desde Supabase) ---------------------- */
 const emptyState = () => ({ events: [], currentEventId: null, currentPuntoId: null, sales: [], closures: [], adminPin: "1234", supervisorPin: "0000", online: typeof navigator !== "undefined" ? navigator.onLine : true });
 const EMPTY_EV = { id: null, name: "", date: "", venue: "", template: "festival", paper: 80, footer: "", logo: "", showEventName: true, showDate: true, showTime: true, showPrice: true, anularPin: false, pin_admin: "1234", pin_supervisor: "0000", puntos: [{ id: null, name: "", archivado: false, products: [] }] };
@@ -56,6 +63,7 @@ function reducer(state, a) {
       const np = state.currentPuntoId === a.puntoId ? (events.find(e => e.id === a.eventId).puntos.find(p => !p.archivado) || events.find(e => e.id === a.eventId).puntos[0]).id : state.currentPuntoId;
       return { ...state, events, currentPuntoId: np };
     }
+    case "UPDATE_PUNTO": return { ...state, events: mapEv(e => mapPunto(e, p => ({ ...p, ...a.patch }))) };
     case "CLOSE_PUNTO_SALES": return { ...state, sales: state.sales.map(s => (s.eventId === a.eventId && s.puntoId === a.puntoId && !s.closureId) ? { ...s, closureId: a.closureId } : s) };
     case "SET_PUNTO": return { ...state, currentPuntoId: a.id };
     case "ADD_PRODUCT": return { ...state, events: mapEv(e => mapPunto(e, p => ({ ...p, products: [...p.products, a.product] }))) };
@@ -194,6 +202,7 @@ export default function App() {
   const [printer, setPrinter] = useState("live");
   const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   const [pending, setPending] = useState(db.pendingCount());
+  const isMobile = useIsMobile();
 
   const ev = state.events.find(e => e.id === state.currentEventId) || state.events[0] || EMPTY_EV;
   const activePuntos = ev.puntos.filter(p => !p.archivado);
@@ -346,7 +355,7 @@ export default function App() {
             <div><div style={{ fontSize: 20, fontWeight: 800 }}>{ev.name}</div><div style={{ color: "var(--muted)", fontSize: 12 }}><b style={{ color: "var(--text)" }}>{punto.name}</b> · {dateFmt(ev.date)}</div></div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.btnGhost}>🔒 Salir</button></div>
           </header>
-          <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
+          <div style={{ padding: isMobile ? 12 : 22, flex: 1, overflow: "auto" }}>
             <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} />
           </div>
         </div>
@@ -355,34 +364,34 @@ export default function App() {
 
       {/* ===== ADMIN / SUPERVISOR ===== */}
       {isPriv && (
-        <div style={{ display: "flex", height: "100%" }}>
-          <aside style={S.side}>
+        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", height: "100%" }}>
+          <aside style={isMobile ? S.sideMobile : S.side}>
             <div style={S.logo}><span style={{ color: "var(--accent)" }}>●</span> TICKETERA</div>
             <div style={{ ...S.roleBadge, color: role === "admin" ? "var(--accent)" : "#3b82f6", borderColor: role === "admin" ? "var(--accent)" : "#3b82f6" }}>{role === "admin" ? "ADMIN" : "SUPERVISOR"}</div>
-            <div style={{ marginTop: 12 }}>
+            <div style={{ marginTop: isMobile ? 0 : 12, flex: isMobile ? "1 1 140px" : "none" }}>
               <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={S.select}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
             </div>
-            <nav style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 14 }}>
-              {navItems.map(n => <button key={n.id} onClick={() => setView(n.id)} className="nav-btn" style={{ ...S.navBtn, ...(safeView === n.id ? S.navActive : {}) }}><span style={{ fontSize: 18 }}>{n.icon}</span>{n.label}</button>)}
+            <nav style={{ display: "flex", flexDirection: isMobile ? "row" : "column", flexWrap: "wrap", gap: 6, marginTop: isMobile ? 0 : 14, width: isMobile ? "100%" : "auto", order: isMobile ? 5 : 0 }}>
+              {navItems.map(n => <button key={n.id} onClick={() => setView(n.id)} className="nav-btn" style={{ ...S.navBtn, ...(safeView === n.id ? S.navActive : {}), ...(isMobile ? { flex: "1 1 auto", justifyContent: "center", padding: "9px 8px" } : {}) }}><span style={{ fontSize: 18 }}>{n.icon}</span>{n.label}</button>)}
             </nav>
-            <div style={{ marginTop: "auto", fontSize: 11, color: "var(--muted)" }}>
-              <div style={{ marginBottom: 8 }}>Punto de venta activo</div>
+            <div style={{ marginTop: isMobile ? 0 : "auto", fontSize: 11, color: "var(--muted)", flex: isMobile ? "1 1 150px" : "none" }}>
+              {!isMobile && <div style={{ marginBottom: 8 }}>Punto de venta activo</div>}
               <select value={punto.id} onChange={e => dispatch({ type: "SET_PUNTO", id: e.target.value })} style={{ ...S.select, fontSize: 13 }}>{activePuntos.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
             </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 10 }}><OnlinePill /><PrinterPill /></div>
-            <button onClick={exitToLogin} style={{ ...S.btnGhost, marginTop: 8, width: "100%" }}>Cambiar de rol</button>
-            <button onClick={() => logout()} style={{ ...S.btnGhost, marginTop: 6, width: "100%", color: "var(--red)", borderColor: "var(--red)" }}>Cerrar sesión</button>
+            <div style={{ display: "flex", gap: 8, marginTop: isMobile ? 0 : 10, flexWrap: "wrap" }}><OnlinePill /><PrinterPill /></div>
+            <button onClick={exitToLogin} style={{ ...S.btnGhost, marginTop: isMobile ? 0 : 8, width: isMobile ? "auto" : "100%" }}>Cambiar de rol</button>
+            <button onClick={() => logout()} style={{ ...S.btnGhost, marginTop: isMobile ? 0 : 6, width: isMobile ? "auto" : "100%", color: "var(--red)", borderColor: "var(--red)" }}>Salir</button>
           </aside>
 
           <main style={S.main}>
-            <header style={S.top}>
-              <div><div style={{ fontSize: 22, fontWeight: 800 }}>{ev.name}</div><div style={{ color: "var(--muted)", fontSize: 13 }}>{dateFmt(ev.date)} · {ev.venue} · <b style={{ color: "var(--accent)" }}>{punto.name}</b></div></div>
+            <header style={{ ...S.top, flexWrap: "wrap", gap: 10 }}>
+              <div><div style={{ fontSize: isMobile ? 18 : 22, fontWeight: 800 }}>{ev.name}</div><div style={{ color: "var(--muted)", fontSize: 13 }}>{dateFmt(ev.date)} · {ev.venue} · <b style={{ color: "var(--accent)" }}>{punto.name}</b></div></div>
               <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
                 <Stat label={`Tickets · ${punto.name}`} value={totals.count} accent="var(--accent)" />
-                <button onClick={() => setAskRevenue(true)} style={S.consultBtn}>💶 Consultar facturación</button>
+                <button onClick={() => setAskRevenue(true)} style={S.consultBtn}>💶 {isMobile ? "Caja" : "Consultar facturación"}</button>
               </div>
             </header>
-            <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
+            <div style={{ padding: isMobile ? 12 : 22, flex: 1, overflow: "auto" }}>
               {safeView === "pos" && <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} />}
               {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
               {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} dispatch={dispatch} flash={flash} />}
@@ -474,6 +483,7 @@ function Stat({ label, value, accent }) {
    POS
    ============================================================ */
 function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint }) {
+  const isMobile = useIsMobile();
   const [qty, setQty] = useState(1);
   const [grouping, setGrouping] = useState(false);
   const [cart, setCart] = useState([]); // [{product, qty}]
@@ -517,11 +527,11 @@ function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint 
         )}
       </div>
 
-      <div style={{ display: "flex", gap: 18, alignItems: "flex-start" }}>
+      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 18, alignItems: "flex-start" }}>
         {/* productos */}
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, width: "100%" }}>
           {punto.products.length === 0 ? <Empty msg={`“${punto.name}” aún no tiene productos.`} /> : (
-            <div style={S.grid}>
+            <div style={{ ...S.grid, gridTemplateColumns: isMobile ? "repeat(auto-fill, minmax(130px,1fr))" : "repeat(auto-fill, minmax(170px,1fr))" }}>
               {punto.products.map(p => {
                 const badge = grouping ? cartQty(p.id) : totals.perProduct[p.id];
                 return (
@@ -541,7 +551,7 @@ function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint 
 
         {/* panel comanda */}
         {grouping && (
-          <div style={S.cart}>
+          <div style={{ ...S.cart, ...(isMobile ? { width: "100%", maxHeight: "none", position: "static" } : {}) }}>
             <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 12 }}>🧾 Comanda <span style={{ color: "var(--muted)", fontWeight: 600, fontSize: 13 }}>· {cartCount} art.</span></div>
             <div style={{ flex: 1, overflow: "auto", marginBottom: 12 }}>
               {cart.length === 0 ? <div style={{ color: "var(--muted)", fontSize: 13, textAlign: "center", padding: "30px 0" }}>Toca productos para añadirlos</div> : cart.map(c => (
@@ -644,12 +654,26 @@ function TemplateDesigner({ ev, dispatch, flash }) {
    EVENT CONFIG
    ============================================================ */
 function EventConfig({ state, ev, punto, evSales, dispatch, flash }) {
+  const isMobile = useIsMobile();
   const [draft, setDraft] = useState({ name: "", price: "", emoji: "🎟️", color: PALETTE[0] });
   const [newEvent, setNewEvent] = useState(null);
   const [newPunto, setNewPunto] = useState("");
   const [confirmDel, setConfirmDel] = useState(null);
+  const [editProd, setEditProd] = useState(null);   // producto en edición
+  const [renamePunto, setRenamePunto] = useState(null); // {id, value}
   const emojis = ["🎟️", "⭐", "🍺", "🍹", "🥤", "💧", "🥪", "🧥", "🥂", "🥃", "🌭", "🍕", "🎫", "🪙"];
   const puntoTieneVentas = (id) => evSales.some(s => s.puntoId === id);
+
+  const saveRename = () => {
+    if (!renamePunto?.value.trim()) { flash("El nombre no puede estar vacío", "warn"); return; }
+    dispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: renamePunto.id, patch: { name: renamePunto.value.trim() } });
+    setRenamePunto(null); flash("Punto renombrado");
+  };
+  const saveProduct = () => {
+    if (!editProd.name.trim() || editProd.price === "" || isNaN(parseFloat(editProd.price))) { flash("Pon nombre y precio válidos", "warn"); return; }
+    dispatch({ type: "UPDATE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: editProd.id, patch: { name: editProd.name.toUpperCase(), price: parseFloat(editProd.price), emoji: editProd.emoji, color: editProd.color, soldOut: editProd.soldOut } });
+    setEditProd(null); flash("Producto actualizado");
+  };
 
   const addProduct = () => {
     if (!draft.name.trim() || !draft.price) { flash("Pon nombre y precio", "warn"); return; }
@@ -661,7 +685,8 @@ function EventConfig({ state, ev, punto, evSales, dispatch, flash }) {
   const createEvent = () => { if (!newEvent.name.trim()) { flash("Falta el nombre", "warn"); return; } dispatch({ type: "ADD_EVENT", event: { id: uid(), name: newEvent.name.toUpperCase(), date: newEvent.date || "2026-01-01", venue: newEvent.venue, template: "festival", paper: 80, footer: "", logo: "", showEventName: true, showDate: true, showTime: true, showPrice: true, anularPin: false, puntos: [{ id: uid(), name: "Taquilla", archivado: false, products: [] }] } }); setNewEvent(null); flash("Evento creado"); };
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, alignItems: "start" }}>
+    <>
+    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 24, alignItems: "start" }}>
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><h3 style={S.h3}>Datos del evento</h3><button onClick={() => setNewEvent({ name: "", date: "", venue: "" })} style={S.btnGhost}>+ Nuevo evento</button></div>
         <div style={S.panel}>
@@ -692,21 +717,31 @@ function EventConfig({ state, ev, punto, evSales, dispatch, flash }) {
               const conVentas = puntoTieneVentas(p.id);
               return (
                 <div key={p.id} style={{ ...S.prodRow, borderColor: active ? "var(--accent)" : "var(--line)", opacity: p.archivado ? 0.55 : 1 }}>
-                  <button onClick={() => !p.archivado && dispatch({ type: "SET_PUNTO", id: p.id })} disabled={p.archivado} style={{ flex: 1, textAlign: "left", background: "transparent", border: "none", color: "var(--text)", cursor: p.archivado ? "default" : "pointer" }}>
-                    <div style={{ fontWeight: 700 }}>{active ? "▶ " : ""}{p.name} {p.archivado && <span style={{ fontSize: 10, color: "var(--muted)", border: "1px solid var(--line)", borderRadius: 6, padding: "1px 6px", marginLeft: 4 }}>ARCHIVADO</span>}</div>
-                    <div style={{ fontSize: 12, color: "var(--muted)" }}>{p.products.length} productos{conVentas ? " · con ventas" : ""}</div>
-                  </button>
-                  {/* Con ventas: archivar/activar (nunca borrar, protege la caja) */}
-                  {conVentas ? (
-                    <button onClick={() => dispatch({ type: "ARCHIVE_PUNTO", eventId: ev.id, puntoId: p.id, value: !p.archivado })} style={{ ...S.smallBtn, color: p.archivado ? "var(--green)" : "var(--amber)", borderColor: p.archivado ? "var(--green)" : "var(--amber)" }}>{p.archivado ? "Activar" : "Archivar"}</button>
-                  ) : ev.puntos.length > 1 ? (
-                    confirmDel === p.id ? (
-                      <span style={{ display: "flex", gap: 6 }}>
-                        <button onClick={() => { dispatch({ type: "DELETE_PUNTO", eventId: ev.id, puntoId: p.id }); setConfirmDel(null); flash("Punto borrado"); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Borrar</button>
-                        <button onClick={() => setConfirmDel(null)} style={S.smallBtn}>✗</button>
-                      </span>
-                    ) : <button onClick={() => setConfirmDel(p.id)} style={S.del}>✕</button>
-                  ) : null}
+                  {renamePunto?.id === p.id ? (
+                    <>
+                      <input autoFocus style={{ ...S.input, flex: 1 }} value={renamePunto.value} onChange={e => setRenamePunto({ id: p.id, value: e.target.value })} onKeyDown={e => { if (e.key === "Enter") saveRename(); if (e.key === "Escape") setRenamePunto(null); }} />
+                      <button onClick={saveRename} style={{ ...S.smallBtn, color: "var(--green)", borderColor: "var(--green)" }}>Guardar</button>
+                      <button onClick={() => setRenamePunto(null)} style={S.smallBtn}>✗</button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => !p.archivado && dispatch({ type: "SET_PUNTO", id: p.id })} disabled={p.archivado} style={{ flex: 1, textAlign: "left", background: "transparent", border: "none", color: "var(--text)", cursor: p.archivado ? "default" : "pointer" }}>
+                        <div style={{ fontWeight: 700 }}>{active ? "▶ " : ""}{p.name} {p.archivado && <span style={{ fontSize: 10, color: "var(--muted)", border: "1px solid var(--line)", borderRadius: 6, padding: "1px 6px", marginLeft: 4 }}>ARCHIVADO</span>}</div>
+                        <div style={{ fontSize: 12, color: "var(--muted)" }}>{p.products.length} productos{conVentas ? " · con ventas" : ""}</div>
+                      </button>
+                      <button onClick={() => setRenamePunto({ id: p.id, value: p.name })} style={S.smallBtn} title="Renombrar">✏️</button>
+                      {conVentas ? (
+                        <button onClick={() => dispatch({ type: "ARCHIVE_PUNTO", eventId: ev.id, puntoId: p.id, value: !p.archivado })} style={{ ...S.smallBtn, color: p.archivado ? "var(--green)" : "var(--amber)", borderColor: p.archivado ? "var(--green)" : "var(--amber)" }}>{p.archivado ? "Activar" : "Archivar"}</button>
+                      ) : ev.puntos.length > 1 ? (
+                        confirmDel === p.id ? (
+                          <span style={{ display: "flex", gap: 6 }}>
+                            <button onClick={() => { dispatch({ type: "DELETE_PUNTO", eventId: ev.id, puntoId: p.id }); setConfirmDel(null); flash("Punto borrado"); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Borrar</button>
+                            <button onClick={() => setConfirmDel(null)} style={S.smallBtn}>✗</button>
+                          </span>
+                        ) : <button onClick={() => setConfirmDel(p.id)} style={S.del}>✕</button>
+                      ) : null}
+                    </>
+                  )}
                 </div>
               );
             })}
@@ -727,7 +762,8 @@ function EventConfig({ state, ev, punto, evSales, dispatch, flash }) {
           {punto.products.map(p => (
             <div key={p.id} style={{ ...S.prodRow, opacity: p.soldOut ? .55 : 1 }}>
               <div style={{ width: 36, height: 36, borderRadius: 9, background: p.color, display: "grid", placeItems: "center", fontSize: 20 }}>{p.emoji}</div>
-              <div style={{ flex: 1 }}><div style={{ fontWeight: 700 }}>{p.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{money(p.price)}</div></div>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{money(p.price)}</div></div>
+              <button onClick={() => setEditProd({ id: p.id, name: p.name, price: String(p.price), emoji: p.emoji, color: p.color, soldOut: p.soldOut })} style={S.smallBtn} title="Editar producto">✏️</button>
               <button onClick={() => dispatch({ type: "UPDATE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: p.id, patch: { soldOut: !p.soldOut } })} style={{ ...S.smallBtn, color: p.soldOut ? "var(--amber)" : "var(--muted)", borderColor: p.soldOut ? "var(--amber)" : "var(--line)" }}>{p.soldOut ? "Agotado" : "Disponible"}</button>
               <button onClick={() => dispatch({ type: "DELETE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: p.id })} style={S.del}>✕</button>
             </div>
@@ -735,6 +771,24 @@ function EventConfig({ state, ev, punto, evSales, dispatch, flash }) {
         </div>
       </div>
     </div>
+
+    {editProd && (
+      <div style={S.overlay} onClick={() => setEditProd(null)}>
+        <div style={{ ...S.pinCard, width: 360, maxWidth: "92vw", textAlign: "left" }} onClick={e => e.stopPropagation()}>
+          <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 14 }}>Editar producto</div>
+          <Field label="Nombre"><input style={S.input} value={editProd.name} onChange={e => setEditProd({ ...editProd, name: e.target.value })} /></Field>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Field label="Precio €"><input type="number" style={S.input} value={editProd.price} onChange={e => setEditProd({ ...editProd, price: e.target.value })} /></Field>
+            <Field label="Icono"><select style={S.input} value={editProd.emoji} onChange={e => setEditProd({ ...editProd, emoji: e.target.value })}>{emojis.map(x => <option key={x}>{x}</option>)}</select></Field>
+          </div>
+          <div style={{ fontSize: 12, color: "var(--muted)", margin: "8px 0 6px" }}>Color</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{PALETTE.map(c => <button key={c} onClick={() => setEditProd({ ...editProd, color: c })} style={{ width: 28, height: 28, borderRadius: 7, background: c, border: editProd.color === c ? "3px solid #fff" : "3px solid transparent", cursor: "pointer" }} />)}</div>
+          <label style={{ ...S.toggleRow, marginTop: 14 }}><span>Marcar como agotado</span><button onClick={() => setEditProd({ ...editProd, soldOut: !editProd.soldOut })} style={{ ...S.switch, background: editProd.soldOut ? "var(--amber)" : "var(--line)" }}><span style={{ ...S.knob, transform: editProd.soldOut ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          <div style={{ display: "flex", gap: 8, marginTop: 16 }}><button style={S.btnPrimary} onClick={saveProduct}>Guardar cambios</button><button style={S.btnGhost} onClick={() => setEditProd(null)}>Cancelar</button></div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -920,6 +974,7 @@ input,select{font-family:'Manrope',sans-serif;}
 `;
 const S = {
   side: { width: 230, background: "var(--surface)", borderRight: "1px solid var(--line)", padding: 18, display: "flex", flexDirection: "column", gap: 4 },
+  sideMobile: { width: "100%", boxSizing: "border-box", background: "var(--surface)", borderBottom: "1px solid var(--line)", padding: 12, display: "flex", flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   logo: { fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 20, letterSpacing: 1 },
   select: { width: "100%", background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", fontWeight: 600, outline: "none" },
   navBtn: { display: "flex", alignItems: "center", gap: 10, background: "transparent", color: "var(--text)", border: "none", padding: "12px 14px", borderRadius: 10, fontWeight: 700, fontSize: 15, textAlign: "left" },

@@ -70,6 +70,7 @@ export async function persistAction(action, ctx = {}) {
       case "UPDATE_EVENT": await supabase.from("ticket_eventos").update(evPatchToDb(action.patch)).eq("id", action.id); break;
       case "ADD_PUNTO": await supabase.from("ticket_puntos").insert({ id: action.punto.id, evento_id: action.eventId, nombre: action.punto.name, archivado: false }); break;
       case "ARCHIVE_PUNTO": await supabase.from("ticket_puntos").update({ archivado: action.value }).eq("id", action.puntoId); break;
+      case "UPDATE_PUNTO": { const m = { name: "nombre", archivado: "archivado" }; const o = {}; for (const k in action.patch) if (m[k]) o[m[k]] = action.patch[k]; await supabase.from("ticket_puntos").update(o).eq("id", action.puntoId); break; }
       case "DELETE_PUNTO": await supabase.from("ticket_puntos").delete().eq("id", action.puntoId); break;
       case "ADD_PRODUCT": await supabase.from("ticket_productos").insert(prodToDb(action.puntoId, action.product)); break;
       case "UPDATE_PRODUCT": await supabase.from("ticket_productos").update(prodPatchToDb(action.patch)).eq("id", action.productId); break;
