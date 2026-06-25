@@ -36,25 +36,40 @@ Hay **dos capas**:
 
 ---
 
-## 4. La impresora (Unykach POS5 UK56009)
+## 4. La impresora (Unykach POS5 UK56009) — IMPORTANTE
 
-La app imprime con el **navegador** hacia la impresora que tenga el equipo como **predeterminada**. El driver de la Unykach hace el **corte automático**. Papel **80 mm**.
+El ticket se imprime con el **navegador** hacia la impresora **predeterminada** del equipo. Para que salga **corto, nítido y sin diálogo**, hay que configurar 3 cosas (una sola vez). Papel **80 mm**.
 
-**Montaje recomendado (silencioso, sin diálogo):**
+### 4.1 Instalar la impresora
+- **Por USB:** conéctala y deja que Windows instale el driver Unykach/POS-80.
+- **Por red (LAN):** Panel de control → Dispositivos e impresoras → *Agregar impresora* → *La impresora no está en la lista* → *Agregar mediante dirección TCP/IP* → IP de la impresora → puerto **9100** (RAW). Es lo más fiable para barra fija.
+- Déjala como **impresora predeterminada** del equipo.
 
-1. **Instala la impresora** en el equipo (Windows recomendado para barra fija):
-   - **Por USB:** conéctala y deja que Windows instale el driver.
-   - **Por red (LAN):** Panel de control → Dispositivos → Agregar impresora → *"Agregar mediante dirección TCP/IP"* → pon la IP de la impresora → puerto **9100** (RAW). Es la opción más a prueba de fallos para barra fija.
-2. **Ponla como impresora predeterminada** del equipo.
-3. **Arranca el navegador en modo kiosko-impresión** (así imprime sin que salga el diálogo cada vez). En Windows, crea un acceso directo a Chrome con:
+### 4.2 Ajustar el papel del driver (esto evita el papel larguísimo)
+Botón derecho sobre la impresora → *Preferencias de impresión* → *Diseño/Avanzado*:
+- **Tamaño de papel:** elige el de rollo de **80mm** (suele aparecer como `80mm x 297mm`, `80 x 3276` o `Roll 80mm`). **No** dejes A4.
+- **Corte de papel / Paper cut:** *Después de cada documento* (o *Per page*). Así corta justo al final de cada ticket.
+- **Márgenes:** 0 si te deja.
+
+### 4.3 Que imprima SIN diálogo (modo kiosko) — el paso clave
+Los navegadores, por seguridad, **siempre** muestran el diálogo de impresión… salvo en **modo kiosko de impresión**. Se activa creando un acceso directo a Chrome con un parámetro:
+
+1. Clic derecho en el escritorio → **Nuevo → Acceso directo**.
+2. En la ubicación, pega esto (cambia la URL por la tuya de Vercel):
    ```
-   chrome.exe --kiosk --kiosk-printing --app=https://TU-URL-DE-VERCEL
+   "C:\Program Files\Google\Chrome\Application\chrome.exe" --kiosk-printing --kiosk --app=https://TU-URL.vercel.app
    ```
-4. En la app, el indicador **"Impresora OK"** debe estar en verde (si pone "Simulación", púlsalo para activar la impresión real).
+   - `--kiosk-printing` = imprime directo a la predeterminada, **sin diálogo**.
+   - `--kiosk` y `--app=` = abren la web a pantalla completa, como si fuera una app.
+3. Llama al acceso directo "Ticketera" y úsalo para abrir la caja.
 
-> En tablets Android la impresión web muestra diálogo (no es silenciosa). Para barra, usa un **equipo Windows táctil** con la Unykach por USB o LAN.
+Con esto: tocas un producto → imprime solo, cortito y nítido. **No vuelve a salir el cuadro de ajustes.**
 
----
+> En **Edge** es igual: usa `msedge.exe` con `--kiosk-printing`.
+> En **Android/iPad** el navegador NO permite impresión silenciosa. Para barra usa un **equipo Windows** (o un mini-PC) con la Unykach. Por eso esta impresora es ideal (USB/LAN + Windows).
+
+### 4.4 Comprobar
+Abre con el acceso directo, entra como cajero y vende un producto de prueba. Debe salir un ticket **corto, en negro nítido y cortado**. Si sale largo → revisa 4.2 (papel del driver en rollo). Si te pide confirmar → revisa que abriste con el acceso directo de 4.3.
 
 ## 5. El folio del ticket (por qué funciona sin internet)
 

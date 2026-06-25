@@ -94,71 +94,66 @@ function reducer(state, a) {
    THERMAL TICKET
    ============================================================ */
 function ThermalTicket({ ev, product, time, num, qty = 1, code, folio }) {
-  const w = ev.paper === 58 ? 210 : 290;
+  const mm = ev.paper === 58 ? 48 : 72;          // ancho imprimible real del rollo
+  const big = ev.paper === 58 ? 22 : 30;         // tamaño del nombre del producto
   const ref = folio ? "Folio " + folio : (num != null ? "Nº " + String(num).padStart(4, "0") : "");
-  const base = { fontFamily: "'Roboto Mono', ui-monospace, monospace", color: "#111", background: "#fff", width: w, padding: "14px 12px", boxSizing: "border-box", lineHeight: 1.35 };
-  const dashed = <div style={{ borderTop: "2px dashed #999", margin: "9px 0" }} />;
-  const Name = ({ size }) => <div style={{ fontWeight: 800, fontSize: size, letterSpacing: -0.5, textAlign: "center", lineHeight: 1.05 }}>{product?.name || "NOMBRE TICKET"}</div>;
+  const base = { fontFamily: "'Roboto Mono', ui-monospace, monospace", color: "#000", background: "#fff", width: mm + "mm", padding: "1.5mm 2mm 2.5mm", boxSizing: "border-box", lineHeight: 1.25, fontWeight: 700 };
+  const dashed = <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />;
+  const Name = ({ size }) => <div style={{ fontWeight: 900, fontSize: size, letterSpacing: -0.3, textAlign: "center", lineHeight: 1.04, color: "#000", wordBreak: "break-word" }}>{product?.name || "NOMBRE TICKET"}</div>;
   const Logo = () => {
     if (!ev.logo) return null;
     const isImg = typeof ev.logo === "string" && /^(data:|https?:)/.test(ev.logo);
     return isImg
-      ? <div style={{ textAlign: "center", marginBottom: 4 }}><img src={ev.logo} alt="logo" style={{ maxHeight: 56, maxWidth: "70%", filter: "grayscale(1) contrast(1.2)" }} /></div>
-      : <div style={{ textAlign: "center", fontWeight: 800, fontSize: 26, letterSpacing: 1, marginBottom: 2 }}>{ev.logo}</div>;
+      ? <div style={{ textAlign: "center", marginBottom: "1mm" }}><img src={ev.logo} alt="" style={{ maxHeight: 42, maxWidth: "65%", filter: "grayscale(1) contrast(3) brightness(.9)" }} /></div>
+      : <div style={{ textAlign: "center", fontWeight: 900, fontSize: 24, letterSpacing: 1, marginBottom: "1mm", color: "#000" }}>{ev.logo}</div>;
   };
-  const qtyLine = qty > 1 && <div style={{ textAlign: "center", fontWeight: 800, fontSize: 16, marginTop: 4 }}>{qty} × {money(product?.price)} = {money(product?.price * qty)}</div>;
+  const priceLine = ev.showPrice && !(qty > 1) && <div style={{ textAlign: "center", fontWeight: 900, fontSize: big - 4, marginTop: "1.5mm", color: "#000" }}>{money(product?.price)}</div>;
+  const qtyLine = qty > 1 && <div style={{ textAlign: "center", fontWeight: 900, fontSize: 16, marginTop: "1.5mm", color: "#000" }}>{qty} × {money(product?.price)} = {money(product?.price * qty)}</div>;
+  const metaStyle = { fontSize: 12, color: "#000", fontWeight: 700 };
 
   let inner;
   if (ev.template === "festival") {
     inner = (<>
       <Logo />
-      {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 700, fontSize: 13, textTransform: "uppercase" }}>{ev.name}</div>}
-      {ev.venue && <div style={{ textAlign: "center", fontSize: 10, color: "#555" }}>{ev.venue}</div>}
+      {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 800, fontSize: 13, textTransform: "uppercase", color: "#000" }}>{ev.name}</div>}
+      {ev.venue && <div style={{ textAlign: "center", fontSize: 11, color: "#000", fontWeight: 600 }}>{ev.venue}</div>}
       {dashed}
-      <div style={{ background: "#111", color: "#fff", textAlign: "center", padding: "14px 6px", borderRadius: 4 }}><Name size={ev.paper === 58 ? 26 : 34} /></div>
-      {ev.showPrice && !qtyLine && <div style={{ textAlign: "center", fontWeight: 800, fontSize: 22, marginTop: 8 }}>{money(product?.price)}</div>}
-      {qtyLine}
+      <div style={{ border: "3px solid #000", textAlign: "center", padding: "3mm 2mm", borderRadius: 2 }}><Name size={big} />{priceLine}{qtyLine}</div>
       {dashed}
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>{ev.showDate && <span>{dateFmt(ev.date).split(" de ")[0]}/{ev.date.slice(5, 7)}</span>}{ev.showTime && <span>🕒 {time}</span>}</div>
-      {ref && <div style={{ fontSize: 10, color: "#555", fontWeight: 700 }}>{ref}</div>}
-      {ev.footer && <div style={{ textAlign: "center", fontSize: 9, color: "#555", marginTop: 6 }}>{ev.footer}</div>}
+      <div style={{ display: "flex", justifyContent: "space-between", ...metaStyle }}>{ev.showDate && <span>{dateFmt(ev.date).split(" de ")[0]}/{ev.date.slice(5, 7)}</span>}{ev.showTime && <span>{time}</span>}</div>
+      {ref && <div style={{ ...metaStyle, marginTop: "1mm" }}>{ref}</div>}
+      {ev.footer && <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "1.5mm", fontWeight: 600 }}>{ev.footer}</div>}
     </>);
   } else if (ev.template === "bold") {
     inner = (<>
       <Logo />
-      <div style={{ textAlign: "center", border: "3px solid #111", padding: "10px 6px", borderRadius: 6 }}>
-        <Name size={ev.paper === 58 ? 26 : 36} />
-        {ev.showPrice && !qtyLine && <div style={{ fontWeight: 800, fontSize: 20, marginTop: 6 }}>{money(product?.price)}</div>}
-        {qtyLine}
+      <div style={{ textAlign: "center", border: "3px solid #000", padding: "3mm 2mm", borderRadius: 4 }}>
+        <Name size={big + 2} />{priceLine}{qtyLine}
       </div>
-      {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 700, fontSize: 12, marginTop: 10 }}>{ev.name}</div>}
-      <div style={{ textAlign: "center", fontSize: 11, color: "#444", marginTop: 4 }}>{ev.showDate && dateFmt(ev.date)}{ev.showTime && ` · ${time}`}</div>
-      {ref && <div style={{ textAlign: "center", fontSize: 10, color: "#555", fontWeight: 700 }}>{ref}</div>}
-      {ev.footer && <div style={{ textAlign: "center", fontSize: 9, color: "#555", marginTop: 8, borderTop: "1px solid #ccc", paddingTop: 6 }}>{ev.footer}</div>}
+      {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 800, fontSize: 13, marginTop: "2mm", color: "#000" }}>{ev.name}</div>}
+      <div style={{ textAlign: "center", ...metaStyle, marginTop: "1mm" }}>{ev.showDate && dateFmt(ev.date)}{ev.showTime && ` · ${time}`}</div>
+      {ref && <div style={{ textAlign: "center", ...metaStyle }}>{ref}</div>}
+      {ev.footer && <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "2mm", borderTop: "2px solid #000", paddingTop: "1.5mm", fontWeight: 600 }}>{ev.footer}</div>}
     </>);
   } else if (ev.template === "minimal") {
     inner = (<>
       <Logo />
-      {ev.showEventName && <div style={{ fontSize: 11, color: "#666", letterSpacing: 1, textTransform: "uppercase" }}>{ev.name}</div>}
-      <div style={{ height: 6 }} />
-      <Name size={ev.paper === 58 ? 24 : 30} />
-      <div style={{ height: 8 }} />
-      {ev.showPrice && !qtyLine && <div style={{ fontWeight: 700, fontSize: 18 }}>{money(product?.price)}</div>}
-      {qtyLine}
-      <div style={{ fontSize: 11, color: "#666", marginTop: 8 }}>{ev.showDate && dateFmt(ev.date)}{ev.showTime && ` — ${time}`}{ref && ` · ${ref}`}</div>
-      {ev.footer && <div style={{ fontSize: 9, color: "#888", marginTop: 12 }}>{ev.footer}</div>}
+      {ev.showEventName && <div style={{ fontSize: 12, color: "#000", letterSpacing: 1, textTransform: "uppercase", fontWeight: 700 }}>{ev.name}</div>}
+      <div style={{ height: "2mm" }} />
+      <Name size={big - 2} />
+      {priceLine}{qtyLine}
+      <div style={{ ...metaStyle, marginTop: "2mm" }}>{ev.showDate && dateFmt(ev.date)}{ev.showTime && ` — ${time}`}{ref && ` · ${ref}`}</div>
+      {ev.footer && <div style={{ fontSize: 11, color: "#000", marginTop: "2mm", fontWeight: 600 }}>{ev.footer}</div>}
     </>);
   } else {
     inner = (<>
       <Logo />
-      {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 700, fontSize: 12 }}>{ev.name}</div>}
+      {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 800, fontSize: 13, color: "#000" }}>{ev.name}</div>}
       {dashed}
-      <Name size={ev.paper === 58 ? 24 : 30} />
-      {ev.showPrice && !qtyLine && <div style={{ textAlign: "center", fontWeight: 800, fontSize: 20, marginTop: 6 }}>{money(product?.price)}</div>}
-      {qtyLine}
-      <div style={{ display: "flex", justifyContent: "center", marginTop: 10 }}><div style={{ display: "flex", gap: 2 }}>{Array.from({ length: 30 }).map((_, i) => <div key={i} style={{ width: i % 3 === 0 ? 3 : 1.5, height: 34, background: "#111" }} />)}</div></div>
-      <div style={{ textAlign: "center", fontSize: 10, letterSpacing: 2, marginTop: 4 }}>{shortCode(code || product?.id)}</div>
-      <div style={{ textAlign: "center", fontSize: 10, color: "#555", marginTop: 6 }}>{ev.showDate && dateFmt(ev.date)} {ev.showTime && time}{ref && ` · ${ref}`}</div>
+      <Name size={big - 2} />
+      {priceLine}{qtyLine}
+      <div style={{ border: "2px solid #000", borderRadius: 3, textAlign: "center", fontSize: 16, letterSpacing: 2, fontWeight: 900, marginTop: "2mm", padding: "1.5mm 0" }}>{folio || shortCode(code || product?.id)}</div>
+      <div style={{ textAlign: "center", ...metaStyle, marginTop: "1.5mm" }}>{ev.showDate && dateFmt(ev.date)} {ev.showTime && time}</div>
     </>);
   }
   return <div style={base}>{inner}</div>;
@@ -166,19 +161,20 @@ function ThermalTicket({ ev, product, time, num, qty = 1, code, folio }) {
 
 /* ---------------------- Ticket de cierre Z ---------------------- */
 function ZTicket({ ev, z }) {
-  const w = ev.paper === 58 ? 210 : 290;
+  const mm = ev.paper === 58 ? 48 : 72;
+  const row = { display: "flex", justifyContent: "space-between", fontSize: 12, color: "#000", fontWeight: 700 };
   return (
-    <div style={{ fontFamily: "'Roboto Mono', monospace", color: "#111", background: "#fff", width: w, padding: "14px 12px", boxSizing: "border-box", lineHeight: 1.4 }}>
-      <div style={{ textAlign: "center", fontWeight: 800, fontSize: 18 }}>CIERRE Z</div>
-      <div style={{ textAlign: "center", fontSize: 12 }}>{ev.name}</div>
-      <div style={{ textAlign: "center", fontSize: 12, fontWeight: 700, marginTop: 4 }}>📍 {z.puntoName}</div>
-      <div style={{ borderTop: "2px dashed #999", margin: "9px 0" }} />
-      {z.lines.map((l, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}><span>{l.name} ×{l.qty}</span><span>{money(l.total)}</span></div>)}
-      <div style={{ borderTop: "2px dashed #999", margin: "9px 0" }} />
-      <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, fontSize: 15 }}><span>TOTAL</span><span>{money(z.revenue)}</span></div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 4 }}><span>Tickets</span><span>{z.count}</span></div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}><span>Anulaciones</span><span>{z.voids}</span></div>
-      <div style={{ textAlign: "center", fontSize: 10, color: "#555", marginTop: 8 }}>{new Date(z.ts).toLocaleString("es-ES")}</div>
+    <div style={{ fontFamily: "'Roboto Mono', monospace", color: "#000", background: "#fff", width: mm + "mm", padding: "1.5mm 2mm 2.5mm", boxSizing: "border-box", lineHeight: 1.3, fontWeight: 700 }}>
+      <div style={{ textAlign: "center", fontWeight: 900, fontSize: 20, color: "#000" }}>CIERRE Z</div>
+      <div style={{ textAlign: "center", fontSize: 12, color: "#000" }}>{ev.name}</div>
+      <div style={{ textAlign: "center", fontSize: 13, fontWeight: 900, marginTop: "1mm", color: "#000" }}>{z.puntoName}</div>
+      <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
+      {z.lines.map((l, i) => <div key={i} style={row}><span>{l.name} ×{l.qty}</span><span>{money(l.total)}</span></div>)}
+      <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
+      <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 900, fontSize: 16, color: "#000" }}><span>TOTAL</span><span>{money(z.revenue)}</span></div>
+      <div style={{ ...row, marginTop: "1mm" }}><span>Tickets</span><span>{z.count}</span></div>
+      <div style={row}><span>Anulaciones</span><span>{z.voids}</span></div>
+      <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "2mm", fontWeight: 600 }}>{new Date(z.ts).toLocaleString("es-ES")}</div>
     </div>
   );
 }
@@ -300,9 +296,14 @@ export default function App() {
 
   useEffect(() => {
     if (!printJob || printer !== "live") return;
-    const t = setTimeout(() => { try { window.print(); } catch (e) {} }, 50);
+    // Define la PÁGINA al ancho real del rollo y alto automático (ticket corto, sin A4)
+    const mm = ev.paper === 58 ? 48 : 72;
+    let st = document.getElementById("ticketera-page");
+    if (!st) { st = document.createElement("style"); st.id = "ticketera-page"; document.head.appendChild(st); }
+    st.textContent = `@page{size:${mm}mm auto;margin:0;}`;
+    const t = setTimeout(() => { try { window.print(); } catch (e) {} }, 60);
     return () => clearTimeout(t);
-  }, [printJob, printer]);
+  }, [printJob, printer, ev.paper]);
 
   const exitToLogin = () => { setRole(null); setView("pos"); };
   const isPriv = role === "admin" || role === "supervisor";
@@ -460,17 +461,15 @@ export default function App() {
         </div>
       )}
 
-      {/* ===== Zona de impresión oculta ===== */}
-      <div style={{ position: "absolute", left: -9999, top: 0 }} aria-hidden>
-        <div id="thermal-print-area">
-          {printJob?.kind === "ticket" && <ThermalTicket ev={ev} product={printJob.product} time={printJob.time} num={printJob.num} qty={printJob.qty} folio={printJob.folio} />}
-          {printJob?.kind === "z" && <ZTicket ev={ev} z={printJob.z} />}
-          {printJob?.kind === "multi" && printJob.tickets.map((t, i) => (
-            <div key={i} style={{ pageBreakAfter: "always", marginBottom: 16 }}>
-              <ThermalTicket ev={ev} product={t.product} time={printJob.time} num={t.num} folio={t.folio} />
-            </div>
-          ))}
-        </div>
+      {/* ===== Zona de impresión oculta (fuera de pantalla; en impresión se coloca en 0,0) ===== */}
+      <div id="thermal-print-area" aria-hidden style={{ position: "absolute", left: -9999, top: 0 }}>
+        {printJob?.kind === "ticket" && <div className="ticket-page"><ThermalTicket ev={ev} product={printJob.product} time={printJob.time} num={printJob.num} qty={printJob.qty} folio={printJob.folio} /></div>}
+        {printJob?.kind === "z" && <div className="ticket-page"><ZTicket ev={ev} z={printJob.z} /></div>}
+        {printJob?.kind === "multi" && printJob.tickets.map((t, i) => (
+          <div key={i} className="ticket-page">
+            <ThermalTicket ev={ev} product={t.product} time={printJob.time} num={t.num} folio={t.folio} />
+          </div>
+        ))}
       </div>
 
       {/* ===== Facturación (PIN -> total) ===== */}
@@ -1043,7 +1042,14 @@ input,select{font-family:'Manrope',sans-serif;font-size:16px;}
 @keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .livedot{animation:pulse 1.4s infinite}
 .sheet-anim{animation:sheetUp .22s ease}
-@media print{body *{visibility:hidden!important}#thermal-print-area,#thermal-print-area *{visibility:visible!important}#thermal-print-area{position:fixed;left:0;top:0}}
+@media print{
+ html,body{margin:0 !important;padding:0 !important;background:#fff !important;}
+ body *{visibility:hidden !important;}
+ #thermal-print-area,#thermal-print-area *{visibility:visible !important;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
+ #thermal-print-area{position:absolute !important;left:0 !important;top:0 !important;width:auto !important;margin:0 !important;}
+ .ticket-page{page-break-after:always;break-after:page;}
+ .ticket-page:last-child{page-break-after:auto;break-after:auto;}
+}
 `;
 const S = {
   side: { width: 230, background: "var(--surface)", borderRight: "1px solid var(--line)", padding: 18, display: "flex", flexDirection: "column", gap: 4 },
