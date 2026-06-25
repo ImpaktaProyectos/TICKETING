@@ -203,6 +203,7 @@ export default function App() {
   const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   const [pending, setPending] = useState(db.pendingCount());
   const isMobile = useIsMobile();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const ev = state.events.find(e => e.id === state.currentEventId) || state.events[0] || EMPTY_EV;
   const activePuntos = ev.puntos.filter(p => !p.archivado);
@@ -338,7 +339,7 @@ export default function App() {
   );
 
   return (
-    <div style={{ position: "relative", height: "100vh", background: "var(--bg)", color: "var(--text)", fontFamily: "'Manrope',sans-serif", fontSize: 15, overflow: "hidden" }}>
+    <div style={{ position: "relative", height: "100dvh", maxWidth: "100vw", overflow: "hidden", background: "var(--bg)", color: "var(--text)", fontFamily: "'Manrope',sans-serif", fontSize: 15 }}>
       <style>{CSS}</style>
 
       {/* ===== LOGIN ===== */}
@@ -349,55 +350,113 @@ export default function App() {
       )}
 
       {/* ===== CAJERO ===== */}
-      {role === "cajero" && (
+      {role === "cajero" && (isMobile ? (
+        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+          <header style={S.mTop}>
+            <div style={S.mTitle}>
+              <div style={{ fontSize: 16, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ev.name}</div>
+              <div style={{ color: "var(--muted)", fontSize: 12 }}>Barra: <b style={{ color: "var(--accent)" }}>{punto.name}</b></div>
+            </div>
+            <span style={{ width: 9, height: 9, borderRadius: "50%", background: online ? "var(--green)" : "var(--red)", flexShrink: 0 }} />
+            <button onClick={() => setMenuOpen(true)} style={S.iconBtn}>☰</button>
+          </header>
+          <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
+            <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} />
+          </div>
+        </div>
+      ) : (
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
           <header style={S.cashierTop}>
             <div><div style={{ fontSize: 20, fontWeight: 800 }}>{ev.name}</div><div style={{ color: "var(--muted)", fontSize: 12 }}><b style={{ color: "var(--text)" }}>{punto.name}</b> · {dateFmt(ev.date)}</div></div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.btnGhost}>🔒 Salir</button></div>
           </header>
-          <div style={{ padding: isMobile ? 12 : 22, flex: 1, overflow: "auto" }}>
+          <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
             <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} />
           </div>
         </div>
-      )}
-
+      ))}
 
       {/* ===== ADMIN / SUPERVISOR ===== */}
-      {isPriv && (
-        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", height: "100%" }}>
-          <aside style={isMobile ? S.sideMobile : S.side}>
+      {isPriv && (isMobile ? (
+        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+          <header style={S.mTop}>
+            <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, flexShrink: 0 }}><span style={{ color: "var(--accent)" }}>●</span></div>
+            <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={{ ...S.select, flex: 1, minWidth: 0 }}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
+            <button onClick={() => setMenuOpen(true)} style={S.iconBtn}>☰</button>
+          </header>
+          <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: "10px 14px" }}>
+              <div style={{ minWidth: 0 }}><div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>Barra activa</div><div style={{ fontWeight: 800, color: "var(--accent)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{punto.name}</div></div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                <div style={{ textAlign: "right" }}><div style={{ fontSize: 11, color: "var(--muted)" }}>Tickets</div><div style={{ fontWeight: 800, fontSize: 18 }}>{totals.count}</div></div>
+                <button onClick={() => setAskRevenue(true)} style={{ ...S.consultBtn, padding: "10px 12px" }}>💶</button>
+              </div>
+            </div>
+            {safeView === "pos" && <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} />}
+            {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
+            {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} dispatch={dispatch} flash={flash} />}
+            {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(id) => voidOne(id, role)} onCierreZ={cierreZ} flash={flash} />}
+          </div>
+          <nav style={S.bottomNav}>
+            {navItems.map(n => <button key={n.id} onClick={() => setView(n.id)} style={{ ...S.bTab, ...(safeView === n.id ? S.bTabActive : {}) }}><span style={{ fontSize: 21 }}>{n.icon}</span>{n.label}</button>)}
+          </nav>
+        </div>
+      ) : (
+        <div style={{ display: "flex", height: "100%" }}>
+          <aside style={S.side}>
             <div style={S.logo}><span style={{ color: "var(--accent)" }}>●</span> TICKETERA</div>
             <div style={{ ...S.roleBadge, color: role === "admin" ? "var(--accent)" : "#3b82f6", borderColor: role === "admin" ? "var(--accent)" : "#3b82f6" }}>{role === "admin" ? "ADMIN" : "SUPERVISOR"}</div>
-            <div style={{ marginTop: isMobile ? 0 : 12, flex: isMobile ? "1 1 140px" : "none" }}>
+            <div style={{ marginTop: 12 }}>
               <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={S.select}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
             </div>
-            <nav style={{ display: "flex", flexDirection: isMobile ? "row" : "column", flexWrap: "wrap", gap: 6, marginTop: isMobile ? 0 : 14, width: isMobile ? "100%" : "auto", order: isMobile ? 5 : 0 }}>
-              {navItems.map(n => <button key={n.id} onClick={() => setView(n.id)} className="nav-btn" style={{ ...S.navBtn, ...(safeView === n.id ? S.navActive : {}), ...(isMobile ? { flex: "1 1 auto", justifyContent: "center", padding: "9px 8px" } : {}) }}><span style={{ fontSize: 18 }}>{n.icon}</span>{n.label}</button>)}
+            <nav style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 14 }}>
+              {navItems.map(n => <button key={n.id} onClick={() => setView(n.id)} className="nav-btn" style={{ ...S.navBtn, ...(safeView === n.id ? S.navActive : {}) }}><span style={{ fontSize: 18 }}>{n.icon}</span>{n.label}</button>)}
             </nav>
-            <div style={{ marginTop: isMobile ? 0 : "auto", fontSize: 11, color: "var(--muted)", flex: isMobile ? "1 1 150px" : "none" }}>
-              {!isMobile && <div style={{ marginBottom: 8 }}>Punto de venta activo</div>}
+            <div style={{ marginTop: "auto", fontSize: 11, color: "var(--muted)" }}>
+              <div style={{ marginBottom: 8 }}>Punto de venta activo</div>
               <select value={punto.id} onChange={e => dispatch({ type: "SET_PUNTO", id: e.target.value })} style={{ ...S.select, fontSize: 13 }}>{activePuntos.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
             </div>
-            <div style={{ display: "flex", gap: 8, marginTop: isMobile ? 0 : 10, flexWrap: "wrap" }}><OnlinePill /><PrinterPill /></div>
-            <button onClick={exitToLogin} style={{ ...S.btnGhost, marginTop: isMobile ? 0 : 8, width: isMobile ? "auto" : "100%" }}>Cambiar de rol</button>
-            <button onClick={() => logout()} style={{ ...S.btnGhost, marginTop: isMobile ? 0 : 6, width: isMobile ? "auto" : "100%", color: "var(--red)", borderColor: "var(--red)" }}>Salir</button>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}><OnlinePill /><PrinterPill /></div>
+            <button onClick={exitToLogin} style={{ ...S.btnGhost, marginTop: 8, width: "100%" }}>Cambiar de rol</button>
+            <button onClick={() => logout()} style={{ ...S.btnGhost, marginTop: 6, width: "100%", color: "var(--red)", borderColor: "var(--red)" }}>Cerrar sesión</button>
           </aside>
-
           <main style={S.main}>
-            <header style={{ ...S.top, flexWrap: "wrap", gap: 10 }}>
-              <div><div style={{ fontSize: isMobile ? 18 : 22, fontWeight: 800 }}>{ev.name}</div><div style={{ color: "var(--muted)", fontSize: 13 }}>{dateFmt(ev.date)} · {ev.venue} · <b style={{ color: "var(--accent)" }}>{punto.name}</b></div></div>
+            <header style={S.top}>
+              <div><div style={{ fontSize: 22, fontWeight: 800 }}>{ev.name}</div><div style={{ color: "var(--muted)", fontSize: 13 }}>{dateFmt(ev.date)} · {ev.venue} · <b style={{ color: "var(--accent)" }}>{punto.name}</b></div></div>
               <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
                 <Stat label={`Tickets · ${punto.name}`} value={totals.count} accent="var(--accent)" />
-                <button onClick={() => setAskRevenue(true)} style={S.consultBtn}>💶 {isMobile ? "Caja" : "Consultar facturación"}</button>
+                <button onClick={() => setAskRevenue(true)} style={S.consultBtn}>💶 Consultar facturación</button>
               </div>
             </header>
-            <div style={{ padding: isMobile ? 12 : 22, flex: 1, overflow: "auto" }}>
+            <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
               {safeView === "pos" && <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} />}
               {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
               {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} dispatch={dispatch} flash={flash} />}
               {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(id) => voidOne(id, role)} onCierreZ={cierreZ} flash={flash} />}
             </div>
           </main>
+        </div>
+      ))}
+
+      {/* ===== Menú móvil (hoja inferior) ===== */}
+      {isMobile && menuOpen && (
+        <div style={S.sheetWrap} onClick={() => setMenuOpen(false)}>
+          <div className="sheet-anim" style={S.sheet} onClick={e => e.stopPropagation()}>
+            <div style={S.grab} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ fontWeight: 800, fontSize: 18 }}>{role === "admin" ? "Admin" : role === "supervisor" ? "Supervisor" : "Cajero"}</div>
+              <button onClick={() => setMenuOpen(false)} style={S.iconBtn}>✕</button>
+            </div>
+            {isPriv && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Punto de venta activo</div>
+                <select value={punto.id} onChange={e => dispatch({ type: "SET_PUNTO", id: e.target.value })} style={S.select}>{activePuntos.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}><OnlinePill /><PrinterPill /></div>
+            <button onClick={() => { setMenuOpen(false); exitToLogin(); }} style={{ ...S.btnGhost, width: "100%", padding: "13px" }}>🔁 Cambiar de rol</button>
+            <button onClick={() => { setMenuOpen(false); logout(); }} style={{ ...S.btnGhost, width: "100%", marginTop: 8, padding: "13px", color: "var(--red)", borderColor: "var(--red)" }}>🔒 Cerrar sesión</button>
+          </div>
         </div>
       )}
 
@@ -418,8 +477,9 @@ export default function App() {
       {askRevenue && <PinModal correct={ev.pin_admin} onClose={() => setAskRevenue(false)} onOk={() => { setAskRevenue(false); setShowRevenue(true); }} />}
       {askVoidPin && <PinModal correct={ev.pin_supervisor} onClose={() => setAskVoidPin(false)} onOk={() => { setAskVoidPin(false); voidLast(punto.name); }} label="PIN de supervisor para anular" />}
       {showRevenue && (
-        <div style={S.overlay} onClick={() => setShowRevenue(false)}>
-          <div style={{ ...S.pinCard, textAlign: "center", width: 330 }} onClick={e => e.stopPropagation()}>
+        <div style={isMobile ? S.sheetWrap : S.overlay} onClick={() => setShowRevenue(false)}>
+          <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, textAlign: "center", width: 330 }} onClick={e => e.stopPropagation()}>
+            {isMobile && <div style={S.grab} />}
             <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>Facturación total · {ev.name}</div>
             <div style={{ fontSize: 44, fontWeight: 800, color: "var(--green)", margin: "12px 0" }}>{money(eventRevenue)}</div>
             <div style={{ textAlign: "left", borderTop: "1px solid var(--line)", paddingTop: 12, marginBottom: 14 }}>
@@ -506,23 +566,23 @@ function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint 
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
         {!grouping ? (
           <>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ color: "var(--muted)", fontSize: 13, marginRight: 4 }}>Cantidad:</span>
-              {[1, 2, 3, 4, 5, 7, 10].map(q => <button key={q} onClick={() => setQty(q)} style={{ ...S.qtyChip, ...(qty === q ? S.qtyActive : {}) }}>×{q}</button>)}
+            <div className="scroll-x" style={{ display: "flex", alignItems: "center", gap: 8, width: isMobile ? "100%" : "auto", paddingBottom: isMobile ? 2 : 0 }}>
+              <span style={{ color: "var(--muted)", fontSize: 13, marginRight: 4, flexShrink: 0 }}>Cant.:</span>
+              {[1, 2, 3, 4, 5, 7, 10].map(q => <button key={q} onClick={() => setQty(q)} style={{ ...S.qtyChip, flexShrink: 0, ...(qty === q ? S.qtyActive : {}) }}>×{q}</button>)}
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={startGroup} style={S.groupBtn}>🧾 Unir productos</button>
-              <button onClick={onReprint} disabled={!canReprint} style={{ ...S.btnGhost, opacity: canReprint ? 1 : .4 }}>🖨️ Reimprimir</button>
-              <button onClick={onVoid} style={S.voidBtn}>↩︎ Anular último</button>
+            <div style={{ display: "flex", gap: 8, width: isMobile ? "100%" : "auto" }}>
+              <button onClick={startGroup} style={{ ...S.groupBtn, flex: isMobile ? 1 : "none" }}>🧾 Unir</button>
+              <button onClick={onReprint} disabled={!canReprint} style={{ ...S.btnGhost, flex: isMobile ? 1 : "none", opacity: canReprint ? 1 : .4 }}>🖨️ {isMobile ? "Reimp." : "Reimprimir"}</button>
+              <button onClick={onVoid} style={{ ...S.voidBtn, flex: isMobile ? 1 : "none" }}>↩︎ Anular</button>
             </div>
           </>
         ) : (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
-            <div style={{ fontWeight: 800, fontSize: 16, color: "var(--accent)" }}>🧾 Modo comanda · toca para ir sumando</div>
-            <button onClick={cancelGroup} style={S.voidBtn}>✕ Cancelar comanda</button>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", gap: 8 }}>
+            <div style={{ fontWeight: 800, fontSize: isMobile ? 14 : 16, color: "var(--accent)", minWidth: 0 }}>🧾 {isMobile ? "Comanda · ve sumando" : "Modo comanda · toca para ir sumando"}</div>
+            <button onClick={cancelGroup} style={{ ...S.voidBtn, flexShrink: 0 }}>✕ {isMobile ? "" : "Cancelar comanda"}</button>
           </div>
         )}
       </div>
@@ -576,8 +636,9 @@ function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint 
 
       {/* overlay de cobro: muestra el total antes de imprimir */}
       {charging && (
-        <div style={S.overlay} onClick={() => setCharging(null)}>
-          <div style={{ ...S.pinCard, width: 360 }} onClick={e => e.stopPropagation()}>
+        <div style={isMobile ? S.sheetWrap : S.overlay} onClick={() => setCharging(null)}>
+          <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, width: 360 }} onClick={e => e.stopPropagation()}>
+            {isMobile && <div style={S.grab} />}
             <div style={{ textAlign: "center", fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>Cobra al cliente</div>
             <div style={{ textAlign: "center", fontSize: 52, fontWeight: 800, color: "var(--green)", margin: "8px 0 14px" }}>{money(cartTotal)}</div>
             <div style={{ maxHeight: 200, overflow: "auto", marginBottom: 14 }}>
@@ -596,6 +657,7 @@ function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint 
    TEMPLATE DESIGNER
    ============================================================ */
 function TemplateDesigner({ ev, dispatch, flash }) {
+  const isMobile = useIsMobile();
   const set = (patch) => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch });
   const templates = [{ k: "festival", l: "Festival", d: "Banner invertido" }, { k: "bold", l: "Bold", d: "Recuadro marcado" }, { k: "minimal", l: "Minimal", d: "Limpio" }, { k: "sello", l: "Sello/QR", d: "Con código" }];
   const demo = ev.puntos.flatMap(p => p.products)[0] || { name: "NOMBRE TICKET", price: 10, id: "abc123" };
@@ -603,7 +665,7 @@ function TemplateDesigner({ ev, dispatch, flash }) {
     <label style={S.toggleRow}><span>{label}</span><button onClick={() => set({ [k]: !ev[k] })} style={{ ...S.switch, background: ev[k] ? "var(--accent)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev[k] ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
   );
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 330px", gap: 24, alignItems: "start" }}>
+    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 330px", gap: 24, alignItems: "start" }}>
       <div>
         <h3 style={S.h3}>Plantilla de impresión</h3>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 22 }}>{templates.map(t => <button key={t.k} onClick={() => set({ template: t.k })} style={{ ...S.tplCard, ...(ev.template === t.k ? S.tplActive : {}) }}><div style={{ fontWeight: 800 }}>{t.l}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{t.d}</div></button>)}</div>
@@ -773,8 +835,9 @@ function EventConfig({ state, ev, punto, evSales, dispatch, flash }) {
     </div>
 
     {editProd && (
-      <div style={S.overlay} onClick={() => setEditProd(null)}>
-        <div style={{ ...S.pinCard, width: 360, maxWidth: "92vw", textAlign: "left" }} onClick={e => e.stopPropagation()}>
+      <div style={isMobile ? S.sheetWrap : S.overlay} onClick={() => setEditProd(null)}>
+        <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, width: 360, maxWidth: "92vw", textAlign: "left" }} onClick={e => e.stopPropagation()}>
+          {isMobile && <div style={S.grab} />}
           <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 14 }}>Editar producto</div>
           <Field label="Nombre"><input style={S.input} value={editProd.name} onChange={e => setEditProd({ ...editProd, name: e.target.value })} /></Field>
           <div style={{ display: "flex", gap: 8 }}>
@@ -830,12 +893,12 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash }) {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-        <h3 style={{ ...S.h3, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>🔒 Informe de cierre — {ev.name} <span className="livedot" style={S.liveDot} /> <span style={{ fontSize: 11, color: "var(--green)" }}>EN VIVO</span></h3>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+        <h3 style={{ ...S.h3, margin: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>🔒 Informe de cierre — {ev.name} <span className="livedot" style={S.liveDot} /> <span style={{ fontSize: 11, color: "var(--green)" }}>EN VIVO</span></h3>
         <button onClick={exportCSV} style={S.btnPrimary}>⬇︎ Exportar CSV</button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px,1fr))", gap: 14, marginBottom: 24 }}>
         <BigStat label="Tickets · evento" value={grandCount} c="var(--accent)" />
         <BigStat label="Facturación total" value={money(grandRevenue)} c="var(--green)" />
         <BigStat label="Anulaciones" value={totalVoids} c="var(--amber)" />
@@ -858,7 +921,7 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash }) {
       </div>
 
       {/* curva por hora + ranking */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px,1fr))", gap: 16, marginBottom: 16 }}>
         <div style={S.panel}>
           <div style={{ fontWeight: 800, marginBottom: 12 }}>Actividad por hora</div>
           {hourKeys.length === 0 ? <div style={{ color: "var(--muted)", fontSize: 13 }}>Sin datos.</div> : (
@@ -930,12 +993,14 @@ function BigStat({ label, value, c }) {
 
 /* ---------------------- PIN modal ---------------------- */
 function PinModal({ correct, onOk, onClose, label }) {
+  const isMobile = useIsMobile();
   const [pin, setPin] = useState(""); const [err, setErr] = useState(false);
   const press = (d) => { const np = (pin + d).slice(0, 6); setPin(np); setErr(false); if (np === correct) setTimeout(onOk, 150); };
   useEffect(() => { if (pin.length === correct.length && pin !== correct) { setErr(true); setTimeout(() => setPin(""), 400); } }, [pin, correct]);
   return (
-    <div style={S.overlay} onClick={onClose}>
-      <div style={{ ...S.pinCard, animation: err ? "shake .3s" : "none" }} onClick={e => e.stopPropagation()}>
+    <div style={isMobile ? S.sheetWrap : S.overlay} onClick={onClose}>
+      <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? { ...S.sheet, animation: err ? "shake .3s" : undefined } : { ...S.pinCard, animation: err ? "shake .3s" : "none" }} onClick={e => e.stopPropagation()}>
+        {isMobile && <div style={S.grab} />}
         <div style={{ textAlign: "center", fontWeight: 800, fontSize: 18, marginBottom: 4 }}>🔒 Acceso restringido</div>
         <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13, marginBottom: 16 }}>{label || "Introduce el PIN"}</div>
         <div style={{ display: "flex", gap: 10, justifyContent: "center", marginBottom: 18 }}>{Array.from({ length: Math.max(4, pin.length) }).map((_, i) => <div key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: i < pin.length ? (err ? "var(--red)" : "var(--accent)") : "var(--line)" }} />)}</div>
@@ -959,22 +1024,39 @@ function shade(hex, p) { const n = parseInt(hex.slice(1), 16); let r = (n >> 16)
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Manrope:wght@400;600;700;800&family=Roboto+Mono:wght@400;700&display=swap');
 :root{--bg:#0b0c10;--surface:#14161d;--surface2:#1c1f29;--line:#2a2e3a;--text:#eceef5;--muted:#838aa0;--accent:#ff5a3c;--green:#22d3a6;--amber:#ffb400;--red:#ff4d4d;}
-*{box-sizing:border-box;}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body,#root{height:100%;margin:0;padding:0;}
+body{overflow-x:hidden;overscroll-behavior-y:none;}
+img,svg{max-width:100%;}
+input,select,textarea{max-width:100%;}
 .tile{transition:transform .08s ease, box-shadow .2s;}
 .tile:not(:disabled):active{transform:scale(.95);}
 .tile:not(:disabled):hover{box-shadow:0 12px 34px rgba(0,0,0,.45);}
 .nav-btn:hover{background:var(--surface2);}
 button{font-family:'Manrope',sans-serif;cursor:pointer;}
-input,select{font-family:'Manrope',sans-serif;}
+input,select{font-family:'Manrope',sans-serif;font-size:16px;}
+.scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+.scroll-x::-webkit-scrollbar{display:none;}
 ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .livedot{animation:pulse 1.4s infinite}
+.sheet-anim{animation:sheetUp .22s ease}
 @media print{body *{visibility:hidden!important}#thermal-print-area,#thermal-print-area *{visibility:visible!important}#thermal-print-area{position:fixed;left:0;top:0}}
 `;
 const S = {
   side: { width: 230, background: "var(--surface)", borderRight: "1px solid var(--line)", padding: 18, display: "flex", flexDirection: "column", gap: 4 },
   sideMobile: { width: "100%", boxSizing: "border-box", background: "var(--surface)", borderBottom: "1px solid var(--line)", padding: 12, display: "flex", flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
+  mTop: { display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderBottom: "1px solid var(--line)", background: "var(--surface)", position: "sticky", top: 0, zIndex: 20 },
+  mTitle: { flex: 1, minWidth: 0 },
+  iconBtn: { width: 42, height: 42, flexShrink: 0, borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 18, display: "grid", placeItems: "center" },
+  bottomNav: { display: "flex", borderTop: "1px solid var(--line)", background: "var(--surface)", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0 },
+  bTab: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "9px 4px 8px", background: "transparent", border: "none", color: "var(--muted)", fontSize: 10.5, fontWeight: 700 },
+  bTabActive: { color: "var(--accent)" },
+  sheetWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", zIndex: 60, display: "flex", alignItems: "flex-end", backdropFilter: "blur(3px)" },
+  sheet: { width: "100%", background: "var(--surface)", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, paddingBottom: "calc(20px + env(safe-area-inset-bottom))", maxHeight: "86dvh", overflow: "auto", borderTop: "1px solid var(--line)" },
+  grab: { width: 40, height: 4, borderRadius: 4, background: "var(--line)", margin: "0 auto 14px" },
   logo: { fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 20, letterSpacing: 1 },
   select: { width: "100%", background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", fontWeight: 600, outline: "none" },
   navBtn: { display: "flex", alignItems: "center", gap: 10, background: "transparent", color: "var(--text)", border: "none", padding: "12px 14px", borderRadius: 10, fontWeight: 700, fontSize: 15, textAlign: "left" },
@@ -998,7 +1080,7 @@ const S = {
   printerStatusSm: { display: "flex", alignItems: "center", gap: 7, background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", color: "var(--text)", fontSize: 12, fontWeight: 700 },
   roleBadge: { marginTop: 8, fontSize: 11, fontWeight: 800, letterSpacing: 1, border: "1px solid", borderRadius: 20, padding: "3px 10px", alignSelf: "flex-start" },
   cashierTop: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 22px", borderBottom: "1px solid var(--line)", background: "var(--surface)", flexWrap: "wrap", gap: 10 },
-  gateWrap: { height: "100%", display: "grid", placeItems: "center", padding: 20, background: "radial-gradient(1100px 560px at 50% -10%, #211a30, var(--bg))" },
+  gateWrap: { minHeight: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, overflow: "auto", background: "radial-gradient(1100px 560px at 50% -10%, #211a30, var(--bg))" },
   gateCard: { width: 440, maxWidth: "100%", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 22, padding: 28, boxShadow: "0 30px 80px rgba(0,0,0,.55)" },
   gateRole: { display: "flex", flexDirection: "column", alignItems: "center", gap: 5, padding: "20px 8px", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 16, color: "var(--text)" },
   liveDot: { width: 8, height: 8, borderRadius: "50%", background: "var(--green)", display: "inline-block" },
