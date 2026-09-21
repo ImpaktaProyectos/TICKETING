@@ -2,7 +2,7 @@ import React, { useReducer, useState, useMemo, useEffect, useRef } from "react";
 import { uid } from "./supabase";
 import { logout } from "./auth";
 import * as db from "./db";
-import { nextFolios, prefijoDePunto } from "./folio";
+import { nextFolios, prefijoDePunto, peekFolio, getDeviceTag } from "./folio";
 
 /* ============================================================================
    TICKETERA — TPV de tickets para eventos (prototipo funcional)
@@ -25,6 +25,7 @@ const money = (n) => new Intl.NumberFormat("es-ES", { style: "currency", currenc
 const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
+const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -35,7 +36,7 @@ function useIsMobile(bp = 720) {
 
 /* ---------------------- Estado inicial (se hidrata desde Supabase) ---------------------- */
 const emptyState = () => ({ events: [], currentEventId: null, currentPuntoId: null, sales: [], closures: [], adminPin: "1234", supervisorPin: "0000", online: typeof navigator !== "undefined" ? navigator.onLine : true });
-const EMPTY_EV = { id: null, name: "", date: "", venue: "", template: "festival", paper: 80, footer: "", logo: "", showEventName: true, showDate: true, showTime: true, showPrice: true, anularPin: false, pin_admin: "1234", pin_supervisor: "0000", puntos: [{ id: null, name: "", archivado: false, products: [] }] };
+const EMPTY_EV = { id: null, name: "", date: "", venue: "", template: "festival", paper: 80, footer: "", logo: "", showEventName: true, showDate: true, showTime: true, showPrice: true, anularPin: false, style: {}, pin_admin: "1234", pin_supervisor: "0000", puntos: [{ id: null, name: "", archivado: false, products: [] }] };
 
 /* ---------------------- Reducer ---------------------- */
 function reducer(state, a) {
@@ -94,91 +95,134 @@ function reducer(state, a) {
    THERMAL TICKET
    ============================================================ */
 function ThermalTicket({ ev, product, time, num, qty = 1, code, folio }) {
-  const w = ev.paper === 58 ? 210 : 290;
-  const ref = folio ? "Folio " + folio : (num != null ? "Nº " + String(num).padStart(4, "0") : "");
-  const base = { fontFamily: "'Roboto Mono', ui-monospace, monospace", color: "#111", background: "#fff", width: w, padding: "14px 12px", boxSizing: "border-box", lineHeight: 1.35 };
-  const dashed = <div style={{ borderTop: "2px dashed #999", margin: "9px 0" }} />;
-  const Name = ({ size }) => <div style={{ fontWeight: 800, fontSize: size, letterSpacing: -0.5, textAlign: "center", lineHeight: 1.05 }}>{product?.name || "NOMBRE TICKET"}</div>;
+  const mm = ev.paper === 58 ? 48 : 72;          // ancho imprimible real del rollo
+  const st = ev.style || {};
+  const nd = st.nameSize === "xl" ? 18 : st.nameSize === "lg" ? 8 : 0;  // tamaño del nombre
+  const big = (ev.paper === 58 ? 28 : 40) + nd;                          // el NOMBRE manda
+  const priceSize = Math.max(16, big - 14);                             // precio, secundario
+  const logoMax = st.logoSize === "sm" ? 30 : st.logoSize === "lg" ? 62 : 42;
+  const logoTxt = st.logoSize === "sm" ? 18 : st.logoSize === "lg" ? 32 : 24;
+  const showFolio = st.showFolio !== false;
+  const ref = showFolio ? (folio ? "Folio " + folio : (num != null ? "Nº " + String(num).padStart(4, "0") : "")) : "";
+  const base = { fontFamily: "'Roboto Mono', ui-monospace, monospace", color: "#000", background: "#fff", width: mm + "mm", padding: "1.5mm 2mm 2.5mm", boxSizing: "border-box", lineHeight: 1.25, fontWeight: 700 };
+  const dashed = <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />;
+  const Name = ({ size, align = "center" }) => <div style={{ fontWeight: 900, fontSize: size, letterSpacing: -0.3, textAlign: align, lineHeight: 1.04, color: "#000", wordBreak: "break-word" }}>{product?.name || "NOMBRE TICKET"}</div>;
   const Logo = () => {
-    if (!ev.logo) return null;
+    if (!ev.logo || st.showLogo === false) return null;
     const isImg = typeof ev.logo === "string" && /^(data:|https?:)/.test(ev.logo);
     return isImg
-      ? <div style={{ textAlign: "center", marginBottom: 4 }}><img src={ev.logo} alt="logo" style={{ maxHeight: 56, maxWidth: "70%", filter: "grayscale(1) contrast(1.2)" }} /></div>
-      : <div style={{ textAlign: "center", fontWeight: 800, fontSize: 26, letterSpacing: 1, marginBottom: 2 }}>{ev.logo}</div>;
+      ? <div style={{ textAlign: "center", marginBottom: "1mm" }}><img src={ev.logo} alt="" style={{ maxHeight: logoMax, maxWidth: "70%", filter: "grayscale(1) contrast(3) brightness(.9)" }} /></div>
+      : <div style={{ textAlign: "center", fontWeight: 900, fontSize: logoTxt, letterSpacing: 1, marginBottom: "1mm", color: "#000" }}>{ev.logo}</div>;
   };
-  const qtyLine = qty > 1 && <div style={{ textAlign: "center", fontWeight: 800, fontSize: 16, marginTop: 4 }}>{qty} × {money(product?.price)} = {money(product?.price * qty)}</div>;
+  const Sub = () => st.subtitle ? <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "#000" }}>{st.subtitle}</div> : null;
+  const priceLine = ev.showPrice && !(qty > 1) && <div style={{ textAlign: "center", fontWeight: 800, fontSize: priceSize, marginTop: "1.5mm", color: "#000" }}>{money(product?.price)}</div>;
+  const qtyLine = qty > 1 && <div style={{ textAlign: "center", fontWeight: 900, fontSize: 16, marginTop: "1.5mm", color: "#000" }}>{qty} × {money(product?.price)} = {money(product?.price * qty)}</div>;
+  const metaStyle = { fontSize: 12, color: "#000", fontWeight: 700 };
 
   let inner;
   if (ev.template === "festival") {
     inner = (<>
       <Logo />
-      {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 700, fontSize: 13, textTransform: "uppercase" }}>{ev.name}</div>}
-      {ev.venue && <div style={{ textAlign: "center", fontSize: 10, color: "#555" }}>{ev.venue}</div>}
+      {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 800, fontSize: 13, textTransform: "uppercase", color: "#000" }}>{ev.name}</div>}
+      <Sub />
+      {ev.venue && <div style={{ textAlign: "center", fontSize: 11, color: "#000", fontWeight: 600 }}>{ev.venue}</div>}
       {dashed}
-      <div style={{ background: "#111", color: "#fff", textAlign: "center", padding: "14px 6px", borderRadius: 4 }}><Name size={ev.paper === 58 ? 26 : 34} /></div>
-      {ev.showPrice && !qtyLine && <div style={{ textAlign: "center", fontWeight: 800, fontSize: 22, marginTop: 8 }}>{money(product?.price)}</div>}
-      {qtyLine}
+      <div style={{ border: "3px solid #000", textAlign: "center", padding: "3mm 2mm", borderRadius: 2 }}><Name size={big} />{priceLine}{qtyLine}</div>
       {dashed}
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>{ev.showDate && <span>{dateFmt(ev.date).split(" de ")[0]}/{ev.date.slice(5, 7)}</span>}{ev.showTime && <span>🕒 {time}</span>}</div>
-      {ref && <div style={{ fontSize: 10, color: "#555", fontWeight: 700 }}>{ref}</div>}
-      {ev.footer && <div style={{ textAlign: "center", fontSize: 9, color: "#555", marginTop: 6 }}>{ev.footer}</div>}
+      <div style={{ display: "flex", justifyContent: "space-between", ...metaStyle }}>{ev.showDate && <span>{dateFmt(ev.date).split(" de ")[0]}/{ev.date.slice(5, 7)}</span>}{ev.showTime && <span>{time}</span>}</div>
+      {ref && <div style={{ ...metaStyle, marginTop: "1mm" }}>{ref}</div>}
+      {ev.footer && <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "1.5mm", fontWeight: 600 }}>{ev.footer}</div>}
     </>);
   } else if (ev.template === "bold") {
     inner = (<>
       <Logo />
-      <div style={{ textAlign: "center", border: "3px solid #111", padding: "10px 6px", borderRadius: 6 }}>
-        <Name size={ev.paper === 58 ? 26 : 36} />
-        {ev.showPrice && !qtyLine && <div style={{ fontWeight: 800, fontSize: 20, marginTop: 6 }}>{money(product?.price)}</div>}
-        {qtyLine}
+      <div style={{ textAlign: "center", border: "3px solid #000", padding: "3mm 2mm", borderRadius: 4 }}>
+        <Name size={big + 2} />{priceLine}{qtyLine}
       </div>
-      {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 700, fontSize: 12, marginTop: 10 }}>{ev.name}</div>}
-      <div style={{ textAlign: "center", fontSize: 11, color: "#444", marginTop: 4 }}>{ev.showDate && dateFmt(ev.date)}{ev.showTime && ` · ${time}`}</div>
-      {ref && <div style={{ textAlign: "center", fontSize: 10, color: "#555", fontWeight: 700 }}>{ref}</div>}
-      {ev.footer && <div style={{ textAlign: "center", fontSize: 9, color: "#555", marginTop: 8, borderTop: "1px solid #ccc", paddingTop: 6 }}>{ev.footer}</div>}
+      {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 800, fontSize: 13, marginTop: "2mm", color: "#000" }}>{ev.name}</div>}
+      <Sub />
+      <div style={{ textAlign: "center", ...metaStyle, marginTop: "1mm" }}>{ev.showDate && dateFmt(ev.date)}{ev.showTime && ` · ${time}`}</div>
+      {ref && <div style={{ textAlign: "center", ...metaStyle }}>{ref}</div>}
+      {ev.footer && <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "2mm", borderTop: "2px solid #000", paddingTop: "1.5mm", fontWeight: 600 }}>{ev.footer}</div>}
     </>);
   } else if (ev.template === "minimal") {
     inner = (<>
       <Logo />
-      {ev.showEventName && <div style={{ fontSize: 11, color: "#666", letterSpacing: 1, textTransform: "uppercase" }}>{ev.name}</div>}
-      <div style={{ height: 6 }} />
-      <Name size={ev.paper === 58 ? 24 : 30} />
-      <div style={{ height: 8 }} />
-      {ev.showPrice && !qtyLine && <div style={{ fontWeight: 700, fontSize: 18 }}>{money(product?.price)}</div>}
+      {ev.showEventName && <div style={{ fontSize: 12, color: "#000", letterSpacing: 1, textTransform: "uppercase", fontWeight: 700 }}>{ev.name}</div>}
+      {st.subtitle && <div style={{ fontSize: 11, fontWeight: 700 }}>{st.subtitle}</div>}
+      <div style={{ height: "2mm" }} />
+      <Name size={big - 2} align="left" />
+      {ev.showPrice && !(qty > 1) && <div style={{ fontWeight: 800, fontSize: priceSize, marginTop: "1.5mm" }}>{money(product?.price)}</div>}
       {qtyLine}
-      <div style={{ fontSize: 11, color: "#666", marginTop: 8 }}>{ev.showDate && dateFmt(ev.date)}{ev.showTime && ` — ${time}`}{ref && ` · ${ref}`}</div>
-      {ev.footer && <div style={{ fontSize: 9, color: "#888", marginTop: 12 }}>{ev.footer}</div>}
+      <div style={{ ...metaStyle, marginTop: "2mm" }}>{ev.showDate && dateFmt(ev.date)}{ev.showTime && ` — ${time}`}{ref && ` · ${ref}`}</div>
+      {ev.footer && <div style={{ fontSize: 11, color: "#000", marginTop: "2mm", fontWeight: 600 }}>{ev.footer}</div>}
     </>);
-  } else {
+  } else if (ev.template === "clasico") {
     inner = (<>
       <Logo />
-      {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 700, fontSize: 12 }}>{ev.name}</div>}
+      {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 900, fontSize: 14, textTransform: "uppercase", letterSpacing: 1, color: "#000" }}>★ {ev.name} ★</div>}
+      <Sub />
       {dashed}
-      <Name size={ev.paper === 58 ? 24 : 30} />
-      {ev.showPrice && !qtyLine && <div style={{ textAlign: "center", fontWeight: 800, fontSize: 20, marginTop: 6 }}>{money(product?.price)}</div>}
+      <Name size={big} />
+      {priceLine}{qtyLine}
+      {dashed}
+      <div style={{ display: "flex", justifyContent: "space-between", ...metaStyle }}>{ev.showDate && <span>{dateFmt(ev.date)}</span>}{ev.showTime && <span>{time}</span>}</div>
+      {ev.venue && <div style={{ textAlign: "center", fontSize: 11, fontWeight: 600, marginTop: "1mm" }}>{ev.venue}</div>}
+      {ref && <div style={{ textAlign: "center", ...metaStyle, marginTop: "1mm" }}>{ref}</div>}
+      {ev.footer && <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "1.5mm", fontWeight: 600 }}>{ev.footer}</div>}
+    </>);
+  } else if (ev.template === "vale") {
+    inner = (<>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ fontWeight: 900, fontSize: 12, border: "2px solid #000", borderRadius: 3, padding: "0.5mm 2mm" }}>VALE</div>
+        {ev.showEventName && <div style={{ fontSize: 11, fontWeight: 700, textAlign: "right", flex: 1, marginLeft: "2mm" }}>{ev.name}</div>}
+      </div>
+      <div style={{ height: "2mm" }} />
+      <Name size={big + 4} align="left" />
+      {ev.showPrice && !(qty > 1) && <div style={{ fontWeight: 800, fontSize: priceSize, marginTop: "1.5mm" }}>{money(product?.price)}</div>}
       {qtyLine}
-      <div style={{ display: "flex", justifyContent: "center", marginTop: 10 }}><div style={{ display: "flex", gap: 2 }}>{Array.from({ length: 30 }).map((_, i) => <div key={i} style={{ width: i % 3 === 0 ? 3 : 1.5, height: 34, background: "#111" }} />)}</div></div>
-      <div style={{ textAlign: "center", fontSize: 10, letterSpacing: 2, marginTop: 4 }}>{shortCode(code || product?.id)}</div>
-      <div style={{ textAlign: "center", fontSize: 10, color: "#555", marginTop: 6 }}>{ev.showDate && dateFmt(ev.date)} {ev.showTime && time}{ref && ` · ${ref}`}</div>
+      <Sub />
+      <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
+      <div style={{ ...metaStyle }}>{ev.showDate && dateFmt(ev.date)}{ev.showTime && ` · ${time}`}{ref && ` · ${ref}`}</div>
+      {ev.footer && <div style={{ fontSize: 11, color: "#000", marginTop: "1mm", fontWeight: 600 }}>{ev.footer}</div>}
+    </>);
+  } else { // sello (con código)
+    inner = (<>
+      <Logo />
+      {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 800, fontSize: 13, color: "#000" }}>{ev.name}</div>}
+      <Sub />
+      {dashed}
+      <Name size={big - 2} />
+      {priceLine}{qtyLine}
+      <div style={{ border: "2px solid #000", borderRadius: 3, textAlign: "center", fontSize: 16, letterSpacing: 2, fontWeight: 900, marginTop: "2mm", padding: "1.5mm 0" }}>{folio || shortCode(code || product?.id)}</div>
+      <div style={{ textAlign: "center", ...metaStyle, marginTop: "1.5mm" }}>{ev.showDate && dateFmt(ev.date)} {ev.showTime && time}</div>
+      {ev.footer && <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "1.5mm", fontWeight: 600 }}>{ev.footer}</div>}
     </>);
   }
-  return <div style={base}>{inner}</div>;
+  return (
+    <div style={{ ...base, ...(st.border ? { border: "2px solid #000", borderRadius: 4 } : {}) }}>
+      {inner}
+      {st.message && <div style={{ marginTop: "2mm", textAlign: "center", fontWeight: 900, fontSize: 13, border: "2px solid #000", borderRadius: 3, padding: "1.5mm 2mm", textTransform: "uppercase" }}>{st.message}</div>}
+    </div>
+  );
 }
 
 /* ---------------------- Ticket de cierre Z ---------------------- */
 function ZTicket({ ev, z }) {
-  const w = ev.paper === 58 ? 210 : 290;
+  const mm = ev.paper === 58 ? 48 : 72;
+  const row = { display: "flex", justifyContent: "space-between", fontSize: 12, color: "#000", fontWeight: 700 };
   return (
-    <div style={{ fontFamily: "'Roboto Mono', monospace", color: "#111", background: "#fff", width: w, padding: "14px 12px", boxSizing: "border-box", lineHeight: 1.4 }}>
-      <div style={{ textAlign: "center", fontWeight: 800, fontSize: 18 }}>CIERRE Z</div>
-      <div style={{ textAlign: "center", fontSize: 12 }}>{ev.name}</div>
-      <div style={{ textAlign: "center", fontSize: 12, fontWeight: 700, marginTop: 4 }}>📍 {z.puntoName}</div>
-      <div style={{ borderTop: "2px dashed #999", margin: "9px 0" }} />
-      {z.lines.map((l, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}><span>{l.name} ×{l.qty}</span><span>{money(l.total)}</span></div>)}
-      <div style={{ borderTop: "2px dashed #999", margin: "9px 0" }} />
-      <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, fontSize: 15 }}><span>TOTAL</span><span>{money(z.revenue)}</span></div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 4 }}><span>Tickets</span><span>{z.count}</span></div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}><span>Anulaciones</span><span>{z.voids}</span></div>
-      <div style={{ textAlign: "center", fontSize: 10, color: "#555", marginTop: 8 }}>{new Date(z.ts).toLocaleString("es-ES")}</div>
+    <div style={{ fontFamily: "'Roboto Mono', monospace", color: "#000", background: "#fff", width: mm + "mm", padding: "1.5mm 2mm 2.5mm", boxSizing: "border-box", lineHeight: 1.3, fontWeight: 700 }}>
+      <div style={{ textAlign: "center", fontWeight: 900, fontSize: 20, color: "#000" }}>CIERRE Z</div>
+      <div style={{ textAlign: "center", fontSize: 12, color: "#000" }}>{ev.name}</div>
+      <div style={{ textAlign: "center", fontSize: 13, fontWeight: 900, marginTop: "1mm", color: "#000" }}>{z.puntoName}</div>
+      <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
+      {z.lines.map((l, i) => <div key={i} style={row}><span>{l.name} ×{l.qty}</span><span>{money(l.total)}</span></div>)}
+      <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
+      <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 900, fontSize: 16, color: "#000" }}><span>TOTAL</span><span>{money(z.revenue)}</span></div>
+      <div style={{ ...row, marginTop: "1mm" }}><span>Tickets</span><span>{z.count}</span></div>
+      <div style={row}><span>Anulaciones</span><span>{z.voids}</span></div>
+      <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "2mm", fontWeight: 600 }}>{new Date(z.ts).toLocaleString("es-ES")}</div>
     </div>
   );
 }
@@ -203,6 +247,8 @@ export default function App() {
   const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   const [pending, setPending] = useState(db.pendingCount());
   const isMobile = useIsMobile();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [showCheck, setShowCheck] = useState(false);
 
   const ev = state.events.find(e => e.id === state.currentEventId) || state.events[0] || EMPTY_EV;
   const activePuntos = ev.puntos.filter(p => !p.archivado);
@@ -212,9 +258,9 @@ export default function App() {
   const totals = useMemo(() => {
     const perProduct = {}; let revenue = 0;
     livePuntoSales.forEach(s => { perProduct[s.productId] = (perProduct[s.productId] || 0) + 1; revenue += s.price; });
-    return { perProduct, revenue, count: livePuntoSales.length };
+    return { perProduct, revenue: round2(revenue), count: livePuntoSales.length };
   }, [livePuntoSales]);
-  const eventRevenue = useMemo(() => evSales.filter(s => !s.voided).reduce((t, s) => t + s.price, 0), [evSales]);
+  const eventRevenue = useMemo(() => round2(evSales.filter(s => !s.voided).reduce((t, s) => t + s.price, 0)), [evSales]);
 
   const flash = (msg, kind = "ok") => { setToast({ msg, kind }); setTimeout(() => setToast(null), 1700); };
 
@@ -254,7 +300,7 @@ export default function App() {
     const folios = nextFolios(ev.id, punto.id, prefijoDePunto(punto), qty);
     const clientUuids = folios.map(() => uid());
     const baseNum = evSales.length;
-    const rows = folios.map((f, i) => ({ id: clientUuids[i], code: f, num: baseNum + i + 1, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: product.price, ts: Date.now() + i, synced: online, voided: false, closureId: null }));
+    const rows = folios.map((f, i) => ({ id: clientUuids[i], clientUuid: clientUuids[i], code: f, num: baseNum + i + 1, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: product.price, ts: Date.now() + i, synced: online, voided: false, closureId: null }));
     baseDispatch({ type: "SELL", rows });
     setPrintJob({ kind: "ticket", product, time, num: rows[0].num, folio: rows[0].code, qty, n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(25);
@@ -271,7 +317,7 @@ export default function App() {
     items.forEach(({ product, qty }) => {
       const folios = nextFolios(ev.id, punto.id, prefijoDePunto(punto), qty);
       const clientUuids = folios.map(() => uid());
-      folios.forEach((f, i) => { n++; rows.push({ id: clientUuids[i], code: f, num: n, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: product.price, ts: Date.now() + rows.length, synced: online, voided: false, closureId: null }); tickets.push({ product, num: n, folio: f }); });
+      folios.forEach((f, i) => { n++; rows.push({ id: clientUuids[i], clientUuid: clientUuids[i], code: f, num: n, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: product.price, ts: Date.now() + rows.length, synced: online, voided: false, closureId: null }); tickets.push({ product, num: n, folio: f }); });
       db.vender({ eventoId: ev.id, puntoId: punto.id, producto: product, qty, operario: punto.name, folios, clientUuids }).then(r => { if (r.offline) setPending(db.pendingCount()); });
     });
     if (!rows.length) return;
@@ -281,9 +327,26 @@ export default function App() {
     flash(`🖨️ ${tickets.length} tickets · Cobra ${money(rows.reduce((t, r) => t + r.price, 0))}`);
   };
 
-  const voidLast = async (by) => { baseDispatch({ type: "VOID_LAST", eventId: ev.id, puntoId: punto.id, by }); flash("Último ticket anulado", "warn"); try { await db.anularUltima(ev.id, punto.id, by); } catch {} };
+  const voidLast = async (by) => { baseDispatch({ type: "VOID_LAST", eventId: ev.id, puntoId: punto.id, by }); flash("Último ticket anulado", "warn"); const r = await db.anularUltima(ev.id, punto.id, by); if (r.offline) setPending(db.pendingCount()); };
   const requestVoidCajero = () => { if (ev.anularPin) setAskVoidPin(true); else voidLast(punto.name); };
-  const voidOne = async (saleId, by) => { baseDispatch({ type: "VOID_ONE", saleId, by }); try { await db.anularVenta(saleId, by); } catch {} };
+
+  // Bono / oferta: registra UNA venta al precio del bono e imprime todos los vales de un clic
+  const sellCombo = (combo) => {
+    const vouchers = [];
+    (combo.items || []).forEach(it => { const p = punto.products.find(x => x.id === it.productId); if (p) for (let k = 0; k < (it.qty || 1); k++) vouchers.push(p); });
+    if (!vouchers.length) { flash("Bono sin productos válidos", "warn"); return; }
+    const price = (combo.price === "" || combo.price == null) ? vouchers.reduce((t, p) => t + p.price, 0) : Number(combo.price);
+    const folio = nextFolios(ev.id, punto.id, prefijoDePunto(punto), 1)[0];
+    const cu = uid();
+    const saleRow = { id: cu, clientUuid: cu, code: folio, num: evSales.length + 1, eventId: ev.id, puntoId: punto.id, productId: null, name: combo.name, price, ts: Date.now(), synced: online, voided: false, closureId: null };
+    baseDispatch({ type: "SELL", rows: [saleRow] });
+    const tickets = vouchers.map((p, i) => ({ product: p, folio: `${folio}·${i + 1}` }));
+    setPrintJob({ kind: "multi", tickets, time: timeNow(), n: Date.now() });
+    if (navigator.vibrate) navigator.vibrate(45);
+    flash(`🎟️ ${combo.name} · ${vouchers.length} tickets`);
+    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: combo.name, price }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu] }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+  };
+  const voidOne = async (sale, by) => { baseDispatch({ type: "VOID_ONE", saleId: sale.id, by }); const r = await db.anularVenta(sale.clientUuid || sale.id, by); if (r.offline) setPending(db.pendingCount()); };
 
   const cierreZ = async (puntoObj) => {
     const sales = evSales.filter(s => s.puntoId === puntoObj.id && !s.voided && !s.closureId);
@@ -291,17 +354,46 @@ export default function App() {
     if (sales.length === 0 && voids === 0) { flash("Sin ventas en el turno actual", "warn"); return; }
     const map = {};
     sales.forEach(s => { map[s.productId] = map[s.productId] || { name: s.name, qty: 0, total: 0 }; map[s.productId].qty++; map[s.productId].total += s.price; });
-    const z = { puntoName: puntoObj.name, lines: Object.values(map), revenue: sales.reduce((t, s) => t + s.price, 0), count: sales.length, voids, ts: Date.now() };
+    const revenue = round2(sales.reduce((t, s) => t + s.price, 0));
+    const z = { puntoName: puntoObj.name, lines: Object.values(map).map(l => ({ ...l, total: round2(l.total) })), revenue, count: sales.length, voids, ts: Date.now() };
+    const closureId = uid();
+    // Cierra el turno EN LOCAL (funciona sin wifi) y encola el cierre para el servidor
+    baseDispatch({ type: "ADD_CLOSURE", closure: { id: closureId, eventId: ev.id, puntoId: puntoObj.id, ...z } });
+    baseDispatch({ type: "CLOSE_PUNTO_SALES", eventId: ev.id, puntoId: puntoObj.id, closureId });
     setPrintJob({ kind: "z", z, n: Date.now() });
     flash(`Cierre Z de ${puntoObj.name} · turno cerrado`);
-    try { await db.cerrarZ(ev.id, puntoObj.id, puntoObj.name); await hydrate(); } catch (e) { flash("Error en el cierre", "warn"); }
+    const r = await db.cerrarZ(ev.id, puntoObj.id, puntoObj.name);
+    if (r.offline) setPending(db.pendingCount());
+    else await hydrate().catch(() => {});
   };
 
   useEffect(() => {
     if (!printJob || printer !== "live") return;
-    const t = setTimeout(() => { try { window.print(); } catch (e) {} }, 50);
+    // Define la PÁGINA al ancho real del rollo y alto automático (ticket corto, sin A4)
+    const mm = ev.paper === 58 ? 48 : 72;
+    let st = document.getElementById("ticketera-page");
+    if (!st) { st = document.createElement("style"); st.id = "ticketera-page"; document.head.appendChild(st); }
+    st.textContent = `@page{size:${mm}mm auto;margin:0;}`;
+    const t = setTimeout(() => { try { window.print(); } catch (e) {} }, 60);
     return () => clearTimeout(t);
-  }, [printJob, printer]);
+  }, [printJob, printer, ev.paper]);
+
+  // Mantener la pantalla encendida mientras la caja está abierta
+  useEffect(() => {
+    let lock = null;
+    const acquire = async () => { try { if ("wakeLock" in navigator) lock = await navigator.wakeLock.request("screen"); } catch {} };
+    acquire();
+    const onVis = () => { if (document.visibilityState === "visible") acquire(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { document.removeEventListener("visibilitychange", onVis); try { lock && lock.release(); } catch {} };
+  }, []);
+
+  // Ticket de prueba para calibrar la impresora sin hacer una venta
+  const testPrint = () => {
+    const demo = punto.products[0] || { id: "demo", name: "TICKET DE PRUEBA", price: 0, emoji: "🎟️", color: "#ff5a3c" };
+    setPrintJob({ kind: "ticket", product: demo, time: timeNow(), num: null, folio: "PRUEBA", qty: 1, n: Date.now() });
+    flash("🖨️ Ticket de prueba enviado");
+  };
 
   const exitToLogin = () => { setRole(null); setView("pos"); };
   const isPriv = role === "admin" || role === "supervisor";
@@ -316,9 +408,9 @@ export default function App() {
 
   const syncNow = async () => { const r = await db.syncPending(); setPending(db.pendingCount()); if (r.synced) { flash(`✅ ${r.synced} ventas sincronizadas`); await hydrate().catch(() => {}); } else flash(pending ? "Aún sin conexión" : "Todo sincronizado"); };
   const OnlinePill = ({ small }) => (
-    <button onClick={syncNow} style={{ ...S.printerStatusSm, borderColor: online ? "var(--line)" : "var(--red)" }} title="Conexión (offline-first) · toca para sincronizar">
-      <span style={{ width: 9, height: 9, borderRadius: "50%", background: online ? "var(--green)" : "var(--red)" }} />
-      {online ? (pending ? `En línea · ${pending} pend.` : "En línea") : `Sin conexión · ${pending}`}
+    <button onClick={syncNow} style={{ ...S.printerStatusSm, borderColor: !online ? "var(--red)" : pending ? "var(--amber)" : "var(--line)", color: pending ? "var(--amber)" : "var(--text)", fontWeight: pending ? 800 : 600 }} title="Conexión (offline-first) · toca para sincronizar">
+      <span style={{ width: 9, height: 9, borderRadius: "50%", background: online ? (pending ? "var(--amber)" : "var(--green)") : "var(--red)" }} />
+      {online ? (pending ? `⏳ ${pending} sin subir` : "En línea") : `Sin conexión · ${pending}`}
     </button>
   );
   const PrinterPill = () => (
@@ -338,88 +430,171 @@ export default function App() {
   );
 
   return (
-    <div style={{ position: "relative", height: "100vh", background: "var(--bg)", color: "var(--text)", fontFamily: "'Manrope',sans-serif", fontSize: 15, overflow: "hidden" }}>
+    <div style={{ position: "relative", height: "100dvh", maxWidth: "100vw", overflow: "hidden", background: "var(--bg)", color: "var(--text)", fontFamily: "'Manrope',sans-serif", fontSize: 15 }}>
       <style>{CSS}</style>
 
       {/* ===== LOGIN ===== */}
       {role === null && (
         <RoleGate ev={ev} events={state.events} adminPin={ev.pin_admin} supervisorPin={ev.pin_supervisor}
           onSelectEvent={id => dispatch({ type: "SELECT_EVENT", id })}
-          onRole={(r, puntoId) => { if (puntoId) dispatch({ type: "SET_PUNTO", id: puntoId }); setRole(r); setView("pos"); }} />
+          onRole={(r, puntoId) => { if (puntoId) dispatch({ type: "SET_PUNTO", id: puntoId }); setRole(r); setView("pos"); setShowCheck(true); }} />
       )}
 
       {/* ===== CAJERO ===== */}
-      {role === "cajero" && (
+      {role === "cajero" && (isMobile ? (
+        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+          <header style={S.mTop}>
+            <div style={S.mTitle}>
+              <div style={{ fontSize: 16, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ev.name}</div>
+              <div style={{ color: "var(--muted)", fontSize: 12 }}>Barra: <b style={{ color: "var(--accent)" }}>{punto.name}</b></div>
+            </div>
+            <span style={{ width: 9, height: 9, borderRadius: "50%", background: online ? "var(--green)" : "var(--red)", flexShrink: 0 }} />
+            <button onClick={() => setMenuOpen(true)} style={S.iconBtn}>☰</button>
+          </header>
+          <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
+            <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} />
+          </div>
+        </div>
+      ) : (
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
           <header style={S.cashierTop}>
             <div><div style={{ fontSize: 20, fontWeight: 800 }}>{ev.name}</div><div style={{ color: "var(--muted)", fontSize: 12 }}><b style={{ color: "var(--text)" }}>{punto.name}</b> · {dateFmt(ev.date)}</div></div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.btnGhost}>🔒 Salir</button></div>
           </header>
-          <div style={{ padding: isMobile ? 12 : 22, flex: 1, overflow: "auto" }}>
-            <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} />
+          <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
+            <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} />
+          </div>
+        </div>
+      ))}
+
+      {/* ===== ADMIN / SUPERVISOR ===== */}
+      {isPriv && (isMobile ? (
+        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+          <header style={S.mTop}>
+            <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, flexShrink: 0 }}><span style={{ color: "var(--accent)" }}>●</span></div>
+            <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={{ ...S.select, flex: 1, minWidth: 0 }}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
+            <button onClick={() => setMenuOpen(true)} style={S.iconBtn}>☰</button>
+          </header>
+          <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: "10px 14px" }}>
+              <div style={{ minWidth: 0 }}><div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>Barra activa</div><div style={{ fontWeight: 800, color: "var(--accent)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{punto.name}</div></div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                <div style={{ textAlign: "right" }}><div style={{ fontSize: 11, color: "var(--muted)" }}>Tickets</div><div style={{ fontWeight: 800, fontSize: 18 }}>{totals.count}</div></div>
+                <button onClick={() => setAskRevenue(true)} style={{ ...S.consultBtn, padding: "10px 12px" }}>💶</button>
+              </div>
+            </div>
+            {safeView === "pos" && <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} />}
+            {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
+            {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} dispatch={dispatch} flash={flash} />}
+            {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} />}
+          </div>
+          <nav style={S.bottomNav}>
+            {navItems.map(n => <button key={n.id} onClick={() => setView(n.id)} style={{ ...S.bTab, ...(safeView === n.id ? S.bTabActive : {}) }}><span style={{ fontSize: 21 }}>{n.icon}</span>{n.label}</button>)}
+          </nav>
+        </div>
+      ) : (
+        <div style={{ display: "flex", height: "100%" }}>
+          <aside style={S.side}>
+            <div style={S.logo}><span style={{ color: "var(--accent)" }}>●</span> TICKETERA</div>
+            <div style={{ ...S.roleBadge, color: role === "admin" ? "var(--accent)" : "#3b82f6", borderColor: role === "admin" ? "var(--accent)" : "#3b82f6" }}>{role === "admin" ? "ADMIN" : "SUPERVISOR"}</div>
+            <div style={{ marginTop: 12 }}>
+              <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={S.select}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
+            </div>
+            <nav style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 14 }}>
+              {navItems.map(n => <button key={n.id} onClick={() => setView(n.id)} className="nav-btn" style={{ ...S.navBtn, ...(safeView === n.id ? S.navActive : {}) }}><span style={{ fontSize: 18 }}>{n.icon}</span>{n.label}</button>)}
+            </nav>
+            <div style={{ marginTop: "auto", fontSize: 11, color: "var(--muted)" }}>
+              <div style={{ marginBottom: 8 }}>Punto de venta activo</div>
+              <select value={punto.id} onChange={e => dispatch({ type: "SET_PUNTO", id: e.target.value })} style={{ ...S.select, fontSize: 13 }}>{activePuntos.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}><OnlinePill /><PrinterPill /></div>
+            <button onClick={testPrint} style={{ ...S.btnGhost, marginTop: 8, width: "100%" }}>🖨️ Ticket de prueba</button>
+            <button onClick={exitToLogin} style={{ ...S.btnGhost, marginTop: 8, width: "100%" }}>Cambiar de rol</button>
+            <button onClick={() => logout()} style={{ ...S.btnGhost, marginTop: 6, width: "100%", color: "var(--red)", borderColor: "var(--red)" }}>Cerrar sesión</button>
+          </aside>
+          <main style={S.main}>
+            <header style={S.top}>
+              <div><div style={{ fontSize: 22, fontWeight: 800 }}>{ev.name}</div><div style={{ color: "var(--muted)", fontSize: 13 }}>{dateFmt(ev.date)} · {ev.venue} · <b style={{ color: "var(--accent)" }}>{punto.name}</b></div></div>
+              <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                <Stat label={`Tickets · ${punto.name}`} value={totals.count} accent="var(--accent)" />
+                <button onClick={() => setAskRevenue(true)} style={S.consultBtn}>💶 Consultar facturación</button>
+              </div>
+            </header>
+            <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
+              {safeView === "pos" && <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} />}
+              {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
+              {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} dispatch={dispatch} flash={flash} />}
+              {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} />}
+            </div>
+          </main>
+        </div>
+      ))}
+
+      {/* ===== Menú móvil (hoja inferior) ===== */}
+      {isMobile && menuOpen && (
+        <div style={S.sheetWrap} onClick={() => setMenuOpen(false)}>
+          <div className="sheet-anim" style={S.sheet} onClick={e => e.stopPropagation()}>
+            <div style={S.grab} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ fontWeight: 800, fontSize: 18 }}>{role === "admin" ? "Admin" : role === "supervisor" ? "Supervisor" : "Cajero"}</div>
+              <button onClick={() => setMenuOpen(false)} style={S.iconBtn}>✕</button>
+            </div>
+            {isPriv && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Punto de venta activo</div>
+                <select value={punto.id} onChange={e => dispatch({ type: "SET_PUNTO", id: e.target.value })} style={S.select}>{activePuntos.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}><OnlinePill /><PrinterPill /></div>
+            <button onClick={() => { setMenuOpen(false); setShowCheck(true); }} style={{ ...S.btnGhost, width: "100%", padding: "13px", marginBottom: 8 }}>✅ Comprobación previa</button>
+            <button onClick={() => { setMenuOpen(false); testPrint(); }} style={{ ...S.btnGhost, width: "100%", padding: "13px", marginBottom: 8 }}>🖨️ Ticket de prueba</button>
+            <button onClick={() => { setMenuOpen(false); exitToLogin(); }} style={{ ...S.btnGhost, width: "100%", padding: "13px" }}>🔁 Cambiar de rol</button>
+            <button onClick={() => { setMenuOpen(false); logout(); }} style={{ ...S.btnGhost, width: "100%", marginTop: 8, padding: "13px", color: "var(--red)", borderColor: "var(--red)" }}>🔒 Cerrar sesión</button>
           </div>
         </div>
       )}
 
+      {/* ===== Comprobación previa (antes de vender) ===== */}
+      {showCheck && role && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 70, background: "var(--bg)", overflow: "auto", padding: "calc(16px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom))" }}>
+          <div style={{ maxWidth: 520, margin: "0 auto" }}>
+            <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 22, marginBottom: 4 }}><span style={{ color: "var(--accent)" }}>●</span> Comprobación previa</div>
+            <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 18 }}>Revisa esto antes de abrir la barra.</div>
 
-      {/* ===== ADMIN / SUPERVISOR ===== */}
-      {isPriv && (
-        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", height: "100%" }}>
-          <aside style={isMobile ? S.sideMobile : S.side}>
-            <div style={S.logo}><span style={{ color: "var(--accent)" }}>●</span> TICKETERA</div>
-            <div style={{ ...S.roleBadge, color: role === "admin" ? "var(--accent)" : "#3b82f6", borderColor: role === "admin" ? "var(--accent)" : "#3b82f6" }}>{role === "admin" ? "ADMIN" : "SUPERVISOR"}</div>
-            <div style={{ marginTop: isMobile ? 0 : 12, flex: isMobile ? "1 1 140px" : "none" }}>
-              <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={S.select}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
-            </div>
-            <nav style={{ display: "flex", flexDirection: isMobile ? "row" : "column", flexWrap: "wrap", gap: 6, marginTop: isMobile ? 0 : 14, width: isMobile ? "100%" : "auto", order: isMobile ? 5 : 0 }}>
-              {navItems.map(n => <button key={n.id} onClick={() => setView(n.id)} className="nav-btn" style={{ ...S.navBtn, ...(safeView === n.id ? S.navActive : {}), ...(isMobile ? { flex: "1 1 auto", justifyContent: "center", padding: "9px 8px" } : {}) }}><span style={{ fontSize: 18 }}>{n.icon}</span>{n.label}</button>)}
-            </nav>
-            <div style={{ marginTop: isMobile ? 0 : "auto", fontSize: 11, color: "var(--muted)", flex: isMobile ? "1 1 150px" : "none" }}>
-              {!isMobile && <div style={{ marginBottom: 8 }}>Punto de venta activo</div>}
-              <select value={punto.id} onChange={e => dispatch({ type: "SET_PUNTO", id: e.target.value })} style={{ ...S.select, fontSize: 13 }}>{activePuntos.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: isMobile ? 0 : 10, flexWrap: "wrap" }}><OnlinePill /><PrinterPill /></div>
-            <button onClick={exitToLogin} style={{ ...S.btnGhost, marginTop: isMobile ? 0 : 8, width: isMobile ? "auto" : "100%" }}>Cambiar de rol</button>
-            <button onClick={() => logout()} style={{ ...S.btnGhost, marginTop: isMobile ? 0 : 6, width: isMobile ? "auto" : "100%", color: "var(--red)", borderColor: "var(--red)" }}>Salir</button>
-          </aside>
+            <CheckCard state={online ? "ok" : "warn"} title="Conexión" value={online ? (pending ? `En línea · ${pending} por subir` : "En línea") : `Sin conexión · ${pending} en cola`} note={online ? "Las ventas se guardan y suben en tiempo real." : "Puedes vender e imprimir igual; subirá solo cuando vuelva el wifi."} />
 
-          <main style={S.main}>
-            <header style={{ ...S.top, flexWrap: "wrap", gap: 10 }}>
-              <div><div style={{ fontSize: isMobile ? 18 : 22, fontWeight: 800 }}>{ev.name}</div><div style={{ color: "var(--muted)", fontSize: 13 }}>{dateFmt(ev.date)} · {ev.venue} · <b style={{ color: "var(--accent)" }}>{punto.name}</b></div></div>
-              <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-                <Stat label={`Tickets · ${punto.name}`} value={totals.count} accent="var(--accent)" />
-                <button onClick={() => setAskRevenue(true)} style={S.consultBtn}>💶 {isMobile ? "Caja" : "Consultar facturación"}</button>
-              </div>
-            </header>
-            <div style={{ padding: isMobile ? 12 : 22, flex: 1, overflow: "auto" }}>
-              {safeView === "pos" && <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} />}
-              {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
-              {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} dispatch={dispatch} flash={flash} />}
-              {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(id) => voidOne(id, role)} onCierreZ={cierreZ} flash={flash} />}
-            </div>
-          </main>
+            <CheckCard state="ok" title="Evento y barra" value={`${ev.name} · ${punto.name}`} note="¿No es la barra correcta? Pulsa abajo “Cambiar de barra”." />
+
+            <CheckCard state={printer === "live" ? "ok" : "warn"} title="Impresora" value={`Papel ${ev.paper} mm · ${printer === "live" ? "Impresión real" : "SIMULACIÓN (no imprime)"}`} note={printer === "live" ? "Haz una prueba para confirmar tamaño y corte." : "Estás en simulación: activa la impresión real con el botón 🖨️ de arriba."}>
+              <button onClick={testPrint} style={{ ...S.btnPrimary, marginTop: 12, width: "100%" }}>🖨️ Imprimir ticket de prueba</button>
+            </CheckCard>
+
+            <CheckCard state="ok" title="Numeración de tickets" value={`Próximo folio: ${prefijoDePunto(punto)}${getDeviceTag()}-${String(peekFolio(ev.id, punto.id) + 1).padStart(4, "0")}`} note={`Cada barra numera por separado en este dispositivo.${getDeviceTag() ? "" : " Si otra tablet usa ESTA misma barra, ponles una letra distinta para no repetir folios."}`} />
+
+            <button onClick={() => setShowCheck(false)} style={{ ...S.btnPrimary, width: "100%", padding: "16px", fontSize: 17, marginTop: 6 }}>✅ Todo listo · Empezar a vender</button>
+            <button onClick={() => { setShowCheck(false); exitToLogin(); }} style={{ ...S.btnGhost, width: "100%", marginTop: 10, padding: "13px" }}>Cambiar de barra / rol</button>
+          </div>
         </div>
       )}
 
-      {/* ===== Zona de impresión oculta ===== */}
-      <div style={{ position: "absolute", left: -9999, top: 0 }} aria-hidden>
-        <div id="thermal-print-area">
-          {printJob?.kind === "ticket" && <ThermalTicket ev={ev} product={printJob.product} time={printJob.time} num={printJob.num} qty={printJob.qty} folio={printJob.folio} />}
-          {printJob?.kind === "z" && <ZTicket ev={ev} z={printJob.z} />}
-          {printJob?.kind === "multi" && printJob.tickets.map((t, i) => (
-            <div key={i} style={{ pageBreakAfter: "always", marginBottom: 16 }}>
-              <ThermalTicket ev={ev} product={t.product} time={printJob.time} num={t.num} folio={t.folio} />
-            </div>
-          ))}
-        </div>
+      {/* ===== Zona de impresión oculta (fuera de pantalla; en impresión se coloca en 0,0) ===== */}
+      <div id="thermal-print-area" aria-hidden style={{ position: "absolute", left: -9999, top: 0 }}>
+        {printJob?.kind === "ticket" && <div className="ticket-page"><ThermalTicket ev={ev} product={printJob.product} time={printJob.time} num={printJob.num} qty={printJob.qty} folio={printJob.folio} /></div>}
+        {printJob?.kind === "z" && <div className="ticket-page"><ZTicket ev={ev} z={printJob.z} /></div>}
+        {printJob?.kind === "multi" && printJob.tickets.map((t, i) => (
+          <div key={i} className="ticket-page">
+            <ThermalTicket ev={ev} product={t.product} time={printJob.time} num={t.num} folio={t.folio} />
+          </div>
+        ))}
       </div>
 
       {/* ===== Facturación (PIN -> total) ===== */}
       {askRevenue && <PinModal correct={ev.pin_admin} onClose={() => setAskRevenue(false)} onOk={() => { setAskRevenue(false); setShowRevenue(true); }} />}
       {askVoidPin && <PinModal correct={ev.pin_supervisor} onClose={() => setAskVoidPin(false)} onOk={() => { setAskVoidPin(false); voidLast(punto.name); }} label="PIN de supervisor para anular" />}
       {showRevenue && (
-        <div style={S.overlay} onClick={() => setShowRevenue(false)}>
-          <div style={{ ...S.pinCard, textAlign: "center", width: 330 }} onClick={e => e.stopPropagation()}>
+        <div style={isMobile ? S.sheetWrap : S.overlay} onClick={() => setShowRevenue(false)}>
+          <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, textAlign: "center", width: 330 }} onClick={e => e.stopPropagation()}>
+            {isMobile && <div style={S.grab} />}
             <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>Facturación total · {ev.name}</div>
             <div style={{ fontSize: 44, fontWeight: 800, color: "var(--green)", margin: "12px 0" }}>{money(eventRevenue)}</div>
             <div style={{ textAlign: "left", borderTop: "1px solid var(--line)", paddingTop: 12, marginBottom: 14 }}>
@@ -479,11 +654,31 @@ function Stat({ label, value, accent }) {
   return <div style={S.statBox}><div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>{label}</div><div style={{ fontSize: 24, fontWeight: 800, color: accent }}>{value}</div></div>;
 }
 
+/* ---------------------- Tarjeta de comprobación previa ---------------------- */
+function CheckCard({ state, title, value, note, children }) {
+  const c = state === "ok" ? "var(--green)" : state === "warn" ? "var(--amber)" : "var(--muted)";
+  const icon = state === "ok" ? "✓" : state === "warn" ? "!" : "•";
+  return (
+    <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ width: 26, height: 26, borderRadius: "50%", background: c, color: "#0b0c10", display: "grid", placeItems: "center", fontWeight: 900, flexShrink: 0 }}>{icon}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>{title}</div>
+          <div style={{ fontWeight: 800, fontSize: 16, wordBreak: "break-word" }}>{value}</div>
+        </div>
+      </div>
+      {note && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 8 }}>{note}</div>}
+      {children}
+    </div>
+  );
+}
+
 /* ============================================================
    POS
    ============================================================ */
-function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint }) {
+function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint, onCombo }) {
   const isMobile = useIsMobile();
+  const combos = punto.combos || [];
   const [qty, setQty] = useState(1);
   const [grouping, setGrouping] = useState(false);
   const [cart, setCart] = useState([]); // [{product, qty}]
@@ -506,23 +701,23 @@ function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint 
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
         {!grouping ? (
           <>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ color: "var(--muted)", fontSize: 13, marginRight: 4 }}>Cantidad:</span>
-              {[1, 2, 3, 4, 5, 7, 10].map(q => <button key={q} onClick={() => setQty(q)} style={{ ...S.qtyChip, ...(qty === q ? S.qtyActive : {}) }}>×{q}</button>)}
+            <div className="scroll-x" style={{ display: "flex", alignItems: "center", gap: 8, width: isMobile ? "100%" : "auto", paddingBottom: isMobile ? 2 : 0 }}>
+              <span style={{ color: "var(--muted)", fontSize: 13, marginRight: 4, flexShrink: 0 }}>Cant.:</span>
+              {[1, 2, 3, 4, 5, 7, 10].map(q => <button key={q} onClick={() => setQty(q)} style={{ ...S.qtyChip, flexShrink: 0, ...(qty === q ? S.qtyActive : {}) }}>×{q}</button>)}
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={startGroup} style={S.groupBtn}>🧾 Unir productos</button>
-              <button onClick={onReprint} disabled={!canReprint} style={{ ...S.btnGhost, opacity: canReprint ? 1 : .4 }}>🖨️ Reimprimir</button>
-              <button onClick={onVoid} style={S.voidBtn}>↩︎ Anular último</button>
+            <div style={{ display: "flex", gap: 8, width: isMobile ? "100%" : "auto" }}>
+              <button onClick={startGroup} style={{ ...S.groupBtn, flex: isMobile ? 1 : "none" }}>🧾 Unir</button>
+              <button onClick={onReprint} disabled={!canReprint} style={{ ...S.btnGhost, flex: isMobile ? 1 : "none", opacity: canReprint ? 1 : .4 }}>🖨️ {isMobile ? "Reimp." : "Reimprimir"}</button>
+              <button onClick={onVoid} style={{ ...S.voidBtn, flex: isMobile ? 1 : "none" }}>↩︎ Anular</button>
             </div>
           </>
         ) : (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
-            <div style={{ fontWeight: 800, fontSize: 16, color: "var(--accent)" }}>🧾 Modo comanda · toca para ir sumando</div>
-            <button onClick={cancelGroup} style={S.voidBtn}>✕ Cancelar comanda</button>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", gap: 8 }}>
+            <div style={{ fontWeight: 800, fontSize: isMobile ? 14 : 16, color: "var(--accent)", minWidth: 0 }}>🧾 {isMobile ? "Comanda · ve sumando" : "Modo comanda · toca para ir sumando"}</div>
+            <button onClick={cancelGroup} style={{ ...S.voidBtn, flexShrink: 0 }}>✕ {isMobile ? "" : "Cancelar comanda"}</button>
           </div>
         )}
       </div>
@@ -547,6 +742,26 @@ function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint 
             </div>
           )}
           {!grouping && qty > 1 && <div style={{ marginTop: 14, textAlign: "center", color: "var(--amber)", fontWeight: 700 }}>Modo cantidad ×{qty}: el siguiente toque vende {qty} unidades en un ticket.</div>}
+
+          {!grouping && combos.length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, fontWeight: 800, marginBottom: 10 }}>🎟️ Bonos / Ofertas</div>
+              <div style={{ ...S.grid, gridTemplateColumns: isMobile ? "repeat(auto-fill, minmax(150px,1fr))" : "repeat(auto-fill, minmax(180px,1fr))" }}>
+                {combos.map(c => {
+                  const units = (c.items || []).reduce((t, it) => t + (it.qty || 1), 0);
+                  const price = (c.price === "" || c.price == null) ? (c.items || []).reduce((t, it) => { const p = punto.products.find(x => x.id === it.productId); return t + (p ? p.price * (it.qty || 1) : 0); }, 0) : Number(c.price);
+                  return (
+                    <button key={c.id} onClick={() => onCombo(c)} className="tile" style={{ ...S.tile, minHeight: 130, background: "linear-gradient(160deg, #ffb400, #d98e00)", color: "#1a1205", border: "2px solid #ffd479" }}>
+                      <span style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,.18)", borderRadius: 8, padding: "2px 8px", fontWeight: 900, fontSize: 12 }}>{units} tickets</span>
+                      <span style={{ fontSize: 34 }}>🎟️</span>
+                      <span style={{ fontSize: 18, fontWeight: 900, lineHeight: 1.1, textAlign: "center" }}>{c.name}</span>
+                      <span style={{ fontSize: 20, fontWeight: 900 }}>{money(price)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* panel comanda */}
@@ -576,8 +791,9 @@ function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint 
 
       {/* overlay de cobro: muestra el total antes de imprimir */}
       {charging && (
-        <div style={S.overlay} onClick={() => setCharging(null)}>
-          <div style={{ ...S.pinCard, width: 360 }} onClick={e => e.stopPropagation()}>
+        <div style={isMobile ? S.sheetWrap : S.overlay} onClick={() => setCharging(null)}>
+          <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, width: 360 }} onClick={e => e.stopPropagation()}>
+            {isMobile && <div style={S.grab} />}
             <div style={{ textAlign: "center", fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>Cobra al cliente</div>
             <div style={{ textAlign: "center", fontSize: 52, fontWeight: 800, color: "var(--green)", margin: "8px 0 14px" }}>{money(cartTotal)}</div>
             <div style={{ maxHeight: 200, overflow: "auto", marginBottom: 14 }}>
@@ -596,14 +812,33 @@ function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint 
    TEMPLATE DESIGNER
    ============================================================ */
 function TemplateDesigner({ ev, dispatch, flash }) {
+  const isMobile = useIsMobile();
   const set = (patch) => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch });
-  const templates = [{ k: "festival", l: "Festival", d: "Banner invertido" }, { k: "bold", l: "Bold", d: "Recuadro marcado" }, { k: "minimal", l: "Minimal", d: "Limpio" }, { k: "sello", l: "Sello/QR", d: "Con código" }];
+  const st = ev.style || {};
+  const setStyle = (k, v) => set({ style: { ...st, [k]: v } });
+  const templates = [
+    { k: "festival", l: "Festival", d: "Banner con marco" },
+    { k: "bold", l: "Bold", d: "Recuadro grande" },
+    { k: "minimal", l: "Minimal", d: "Limpio, a la izquierda" },
+    { k: "clasico", l: "Clásico", d: "Centrado con estrellas" },
+    { k: "vale", l: "Vale", d: "Estilo resguardo" },
+    { k: "sello", l: "Sello", d: "Con código grande" },
+  ];
   const demo = ev.puntos.flatMap(p => p.products)[0] || { name: "NOMBRE TICKET", price: 10, id: "abc123" };
   const Toggle = ({ k, label }) => (
     <label style={S.toggleRow}><span>{label}</span><button onClick={() => set({ [k]: !ev[k] })} style={{ ...S.switch, background: ev[k] ? "var(--accent)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev[k] ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
   );
+  const StyleToggle = ({ k, label, def = true }) => { const on = st[k] !== false && (st[k] !== undefined ? st[k] : def); return (
+    <label style={S.toggleRow}><span>{label}</span><button onClick={() => setStyle(k, !on)} style={{ ...S.switch, background: on ? "var(--accent)" : "var(--line)" }}><span style={{ ...S.knob, transform: on ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+  ); };
+  const Seg = ({ k, label, opts }) => (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>{label}</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{opts.map(o => <button key={o.v} onClick={() => setStyle(k, o.v)} style={{ ...S.chip, ...((st[k] || opts[0].v) === o.v ? S.chipActive : {}) }}>{o.l}</button>)}</div>
+    </div>
+  );
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 330px", gap: 24, alignItems: "start" }}>
+    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 330px", gap: 24, alignItems: "start" }}>
       <div>
         <h3 style={S.h3}>Plantilla de impresión</h3>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 22 }}>{templates.map(t => <button key={t.k} onClick={() => set({ template: t.k })} style={{ ...S.tplCard, ...(ev.template === t.k ? S.tplActive : {}) }}><div style={{ fontWeight: 800 }}>{t.l}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{t.d}</div></button>)}</div>
@@ -638,6 +873,23 @@ function TemplateDesigner({ ev, dispatch, flash }) {
         </div>
         <h3 style={{ ...S.h3, marginTop: 22 }}>Qué se imprime</h3>
         <div style={S.panel}><Toggle k="showEventName" label="Nombre del evento" /><Toggle k="showDate" label="Fecha del evento" /><Toggle k="showTime" label="Hora de impresión" /><Toggle k="showPrice" label="Precio" /></div>
+
+        <h3 style={{ ...S.h3, marginTop: 22 }}>Personalización</h3>
+        <div style={S.panel}>
+          <Seg k="nameSize" label="Tamaño del nombre del producto" opts={[{ v: "md", l: "Normal" }, { v: "lg", l: "Grande" }, { v: "xl", l: "Enorme" }]} />
+          <Seg k="logoSize" label="Tamaño del logo" opts={[{ v: "md", l: "Normal" }, { v: "sm", l: "Pequeño" }, { v: "lg", l: "Grande" }]} />
+          <StyleToggle k="showLogo" label="Mostrar logo" />
+          <StyleToggle k="showFolio" label="Mostrar folio (nº de ticket)" />
+          <StyleToggle k="border" label="Marco alrededor del ticket" def={false} />
+        </div>
+
+        <h3 style={{ ...S.h3, marginTop: 22 }}>Textos extra</h3>
+        <div style={S.panel}>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Subtítulo (bajo el nombre del evento)</div>
+          <input value={st.subtitle || ""} onChange={e => setStyle("subtitle", e.target.value)} style={S.input} placeholder="Ej. 3ª edición" maxLength={40} />
+          <div style={{ fontSize: 12, color: "var(--muted)", margin: "12px 0 6px" }}>Mensaje destacado (recuadro al final)</div>
+          <input value={st.message || ""} onChange={e => setStyle("message", e.target.value)} style={S.input} placeholder="Ej. VÁLIDO SOLO HOY" maxLength={40} />
+        </div>
         <h3 style={S.h3}>Pie de ticket</h3>
         <input value={ev.footer} onChange={e => set({ footer: e.target.value })} style={S.input} placeholder="Texto de pie" />
         <button onClick={() => flash("Plantilla guardada")} style={{ ...S.btnPrimary, marginTop: 16, width: "auto", padding: "12px 26px" }}>Guardar plantilla</button>
@@ -661,6 +913,20 @@ function EventConfig({ state, ev, punto, evSales, dispatch, flash }) {
   const [confirmDel, setConfirmDel] = useState(null);
   const [editProd, setEditProd] = useState(null);   // producto en edición
   const [renamePunto, setRenamePunto] = useState(null); // {id, value}
+  const [editCombo, setEditCombo] = useState(null); // bono en edición
+  const combos = punto.combos || [];
+  const saveCombos = (next) => dispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: punto.id, patch: { combos: next } });
+  const newCombo = () => { if (!punto.products.length) { flash("Crea productos antes de un bono", "warn"); return; } setEditCombo({ id: uid(), name: "", price: "", items: [{ productId: punto.products[0].id, qty: 1 }] }); };
+  const saveCombo = () => {
+    if (!editCombo.name.trim()) { flash("Pon nombre al bono", "warn"); return; }
+    const items = (editCombo.items || []).filter(it => it.productId && it.qty > 0);
+    if (!items.length) { flash("Añade al menos un producto", "warn"); return; }
+    const clean = { ...editCombo, name: editCombo.name.toUpperCase(), price: editCombo.price === "" ? "" : Number(editCombo.price), items };
+    const exists = combos.some(c => c.id === editCombo.id);
+    saveCombos(exists ? combos.map(c => c.id === editCombo.id ? clean : c) : [...combos, clean]);
+    setEditCombo(null); flash("Bono guardado");
+  };
+  const delCombo = (id) => { saveCombos(combos.filter(c => c.id !== id)); flash("Bono borrado"); };
   const emojis = ["🎟️", "⭐", "🍺", "🍹", "🥤", "💧", "🥪", "🧥", "🥂", "🥃", "🌭", "🍕", "🎫", "🪙"];
   const puntoTieneVentas = (id) => evSales.some(s => s.puntoId === id);
 
@@ -769,12 +1035,33 @@ function EventConfig({ state, ev, punto, evSales, dispatch, flash }) {
             </div>
           ))}
         </div>
+
+        <h3 style={{ ...S.h3, marginTop: 22 }}>🎟️ Bonos / Ofertas especiales</h3>
+        <div style={S.panel}>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>Un bono imprime varios tickets de un clic (ej. BONOCOPAS = 4 copas). Se cobra al precio que pongas (o la suma si lo dejas vacío).</div>
+          {combos.length === 0 && <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 10 }}>Sin bonos en “{punto.name}”.</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {combos.map(c => {
+              const units = (c.items || []).reduce((t, it) => t + (it.qty || 1), 0);
+              return (
+                <div key={c.id} style={S.prodRow}>
+                  <div style={{ width: 36, height: 36, borderRadius: 9, background: "linear-gradient(160deg,#ffb400,#d98e00)", display: "grid", placeItems: "center", fontSize: 18 }}>🎟️</div>
+                  <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{units} tickets{(c.price !== "" && c.price != null) ? ` · ${money(Number(c.price))}` : ""}</div></div>
+                  <button onClick={() => setEditCombo({ ...c, price: c.price ?? "", items: (c.items || []).map(i => ({ ...i })) })} style={S.smallBtn} title="Editar bono">✏️</button>
+                  <button onClick={() => delCombo(c.id)} style={S.del}>✕</button>
+                </div>
+              );
+            })}
+          </div>
+          <button onClick={newCombo} style={{ ...S.btnPrimary, marginTop: 12 }}>+ Nuevo bono</button>
+        </div>
       </div>
     </div>
 
     {editProd && (
-      <div style={S.overlay} onClick={() => setEditProd(null)}>
-        <div style={{ ...S.pinCard, width: 360, maxWidth: "92vw", textAlign: "left" }} onClick={e => e.stopPropagation()}>
+      <div style={isMobile ? S.sheetWrap : S.overlay} onClick={() => setEditProd(null)}>
+        <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, width: 360, maxWidth: "92vw", textAlign: "left" }} onClick={e => e.stopPropagation()}>
+          {isMobile && <div style={S.grab} />}
           <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 14 }}>Editar producto</div>
           <Field label="Nombre"><input style={S.input} value={editProd.name} onChange={e => setEditProd({ ...editProd, name: e.target.value })} /></Field>
           <div style={{ display: "flex", gap: 8 }}>
@@ -785,6 +1072,35 @@ function EventConfig({ state, ev, punto, evSales, dispatch, flash }) {
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{PALETTE.map(c => <button key={c} onClick={() => setEditProd({ ...editProd, color: c })} style={{ width: 28, height: 28, borderRadius: 7, background: c, border: editProd.color === c ? "3px solid #fff" : "3px solid transparent", cursor: "pointer" }} />)}</div>
           <label style={{ ...S.toggleRow, marginTop: 14 }}><span>Marcar como agotado</span><button onClick={() => setEditProd({ ...editProd, soldOut: !editProd.soldOut })} style={{ ...S.switch, background: editProd.soldOut ? "var(--amber)" : "var(--line)" }}><span style={{ ...S.knob, transform: editProd.soldOut ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}><button style={S.btnPrimary} onClick={saveProduct}>Guardar cambios</button><button style={S.btnGhost} onClick={() => setEditProd(null)}>Cancelar</button></div>
+        </div>
+      </div>
+    )}
+
+    {editCombo && (
+      <div style={isMobile ? S.sheetWrap : S.overlay} onClick={() => setEditCombo(null)}>
+        <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, width: 380, maxWidth: "92vw", textAlign: "left" }} onClick={e => e.stopPropagation()}>
+          {isMobile && <div style={S.grab} />}
+          <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 14 }}>🎟️ Bono / Oferta</div>
+          <Field label="Nombre del bono (ej. BONOCOPAS)"><input style={S.input} value={editCombo.name} onChange={e => setEditCombo({ ...editCombo, name: e.target.value })} /></Field>
+          <Field label="Precio del bono € (vacío = suma de los productos)"><input type="number" style={S.input} placeholder="Suma automática" value={editCombo.price} onChange={e => setEditCombo({ ...editCombo, price: e.target.value })} /></Field>
+          <div style={{ fontSize: 12, color: "var(--muted)", margin: "6px 0 8px" }}>Tickets que imprime este bono</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {(editCombo.items || []).map((it, idx) => (
+              <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <select style={{ ...S.input, flex: 1 }} value={it.productId} onChange={e => { const items = editCombo.items.slice(); items[idx] = { ...it, productId: e.target.value }; setEditCombo({ ...editCombo, items }); }}>
+                  {punto.products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <button onClick={() => { const items = editCombo.items.slice(); items[idx] = { ...it, qty: Math.max(1, (it.qty || 1) - 1) }; setEditCombo({ ...editCombo, items }); }} style={S.stepBtn}>−</button>
+                  <span style={{ width: 24, textAlign: "center", fontWeight: 800 }}>{it.qty || 1}</span>
+                  <button onClick={() => { const items = editCombo.items.slice(); items[idx] = { ...it, qty: (it.qty || 1) + 1 }; setEditCombo({ ...editCombo, items }); }} style={S.stepBtn}>+</button>
+                </div>
+                <button onClick={() => setEditCombo({ ...editCombo, items: editCombo.items.filter((_, i) => i !== idx) })} style={S.del}>✕</button>
+              </div>
+            ))}
+          </div>
+          <button onClick={() => setEditCombo({ ...editCombo, items: [...(editCombo.items || []), { productId: punto.products[0]?.id, qty: 1 }] })} style={{ ...S.btnGhost, marginTop: 10, width: "100%" }}>+ Añadir producto al bono</button>
+          <div style={{ display: "flex", gap: 8, marginTop: 16 }}><button style={S.btnPrimary} onClick={saveCombo}>Guardar bono</button><button style={S.btnGhost} onClick={() => setEditCombo(null)}>Cancelar</button></div>
         </div>
       </div>
     )}
@@ -801,10 +1117,10 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash }) {
     const live = evSales.filter(s => s.puntoId === p.id && !s.voided);
     const perProduct = {}; let revenue = 0;
     live.forEach(s => { perProduct[s.productId] = (perProduct[s.productId] || 0) + 1; revenue += s.price; });
-    return { punto: p, perProduct, revenue, count: live.length, voids: evSales.filter(s => s.puntoId === p.id && s.voided).length };
+    return { punto: p, perProduct, revenue: round2(revenue), count: live.length, voids: evSales.filter(s => s.puntoId === p.id && s.voided).length };
   });
   const grandCount = byPunto.reduce((t, b) => t + b.count, 0);
-  const grandRevenue = byPunto.reduce((t, b) => t + b.revenue, 0);
+  const grandRevenue = round2(byPunto.reduce((t, b) => t + b.revenue, 0));
   const totalVoids = byPunto.reduce((t, b) => t + b.voids, 0);
 
   // curva por hora
@@ -830,12 +1146,12 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash }) {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-        <h3 style={{ ...S.h3, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>🔒 Informe de cierre — {ev.name} <span className="livedot" style={S.liveDot} /> <span style={{ fontSize: 11, color: "var(--green)" }}>EN VIVO</span></h3>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+        <h3 style={{ ...S.h3, margin: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>🔒 Informe de cierre — {ev.name} <span className="livedot" style={S.liveDot} /> <span style={{ fontSize: 11, color: "var(--green)" }}>EN VIVO</span></h3>
         <button onClick={exportCSV} style={S.btnPrimary}>⬇︎ Exportar CSV</button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px,1fr))", gap: 14, marginBottom: 24 }}>
         <BigStat label="Tickets · evento" value={grandCount} c="var(--accent)" />
         <BigStat label="Facturación total" value={money(grandRevenue)} c="var(--green)" />
         <BigStat label="Anulaciones" value={totalVoids} c="var(--amber)" />
@@ -858,7 +1174,7 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash }) {
       </div>
 
       {/* curva por hora + ranking */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px,1fr))", gap: 16, marginBottom: 16 }}>
         <div style={S.panel}>
           <div style={{ fontWeight: 800, marginBottom: 12 }}>Actividad por hora</div>
           {hourKeys.length === 0 ? <div style={{ color: "var(--muted)", fontSize: 13 }}>Sin datos.</div> : (
@@ -913,7 +1229,7 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash }) {
             <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "7px 0", borderBottom: "1px solid var(--line)" }}>
               <span>Nº {String(s.num).padStart(4, "0")} · {s.name} · {money(s.price)}</span>
               {confirmVoid === s.id ? (
-                <span style={{ display: "flex", gap: 6 }}><button onClick={() => { onVoid(s.id); setConfirmVoid(null); flash("Ticket anulado", "warn"); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Sí</button><button onClick={() => setConfirmVoid(null)} style={S.smallBtn}>✗</button></span>
+                <span style={{ display: "flex", gap: 6 }}><button onClick={() => { onVoid(s); setConfirmVoid(null); flash("Ticket anulado", "warn"); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Sí</button><button onClick={() => setConfirmVoid(null)} style={S.smallBtn}>✗</button></span>
               ) : <button onClick={() => setConfirmVoid(s.id)} style={S.smallBtn}>Anular</button>}
             </div>
           ))}
@@ -930,12 +1246,14 @@ function BigStat({ label, value, c }) {
 
 /* ---------------------- PIN modal ---------------------- */
 function PinModal({ correct, onOk, onClose, label }) {
+  const isMobile = useIsMobile();
   const [pin, setPin] = useState(""); const [err, setErr] = useState(false);
   const press = (d) => { const np = (pin + d).slice(0, 6); setPin(np); setErr(false); if (np === correct) setTimeout(onOk, 150); };
   useEffect(() => { if (pin.length === correct.length && pin !== correct) { setErr(true); setTimeout(() => setPin(""), 400); } }, [pin, correct]);
   return (
-    <div style={S.overlay} onClick={onClose}>
-      <div style={{ ...S.pinCard, animation: err ? "shake .3s" : "none" }} onClick={e => e.stopPropagation()}>
+    <div style={isMobile ? S.sheetWrap : S.overlay} onClick={onClose}>
+      <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? { ...S.sheet, animation: err ? "shake .3s" : undefined } : { ...S.pinCard, animation: err ? "shake .3s" : "none" }} onClick={e => e.stopPropagation()}>
+        {isMobile && <div style={S.grab} />}
         <div style={{ textAlign: "center", fontWeight: 800, fontSize: 18, marginBottom: 4 }}>🔒 Acceso restringido</div>
         <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13, marginBottom: 16 }}>{label || "Introduce el PIN"}</div>
         <div style={{ display: "flex", gap: 10, justifyContent: "center", marginBottom: 18 }}>{Array.from({ length: Math.max(4, pin.length) }).map((_, i) => <div key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: i < pin.length ? (err ? "var(--red)" : "var(--accent)") : "var(--line)" }} />)}</div>
@@ -959,22 +1277,46 @@ function shade(hex, p) { const n = parseInt(hex.slice(1), 16); let r = (n >> 16)
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Manrope:wght@400;600;700;800&family=Roboto+Mono:wght@400;700&display=swap');
 :root{--bg:#0b0c10;--surface:#14161d;--surface2:#1c1f29;--line:#2a2e3a;--text:#eceef5;--muted:#838aa0;--accent:#ff5a3c;--green:#22d3a6;--amber:#ffb400;--red:#ff4d4d;}
-*{box-sizing:border-box;}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body,#root{height:100%;margin:0;padding:0;}
+body{overflow-x:hidden;overscroll-behavior-y:none;}
+img,svg{max-width:100%;}
+input,select,textarea{max-width:100%;}
 .tile{transition:transform .08s ease, box-shadow .2s;}
 .tile:not(:disabled):active{transform:scale(.95);}
 .tile:not(:disabled):hover{box-shadow:0 12px 34px rgba(0,0,0,.45);}
 .nav-btn:hover{background:var(--surface2);}
 button{font-family:'Manrope',sans-serif;cursor:pointer;}
-input,select{font-family:'Manrope',sans-serif;}
+input,select{font-family:'Manrope',sans-serif;font-size:16px;}
+.scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+.scroll-x::-webkit-scrollbar{display:none;}
 ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .livedot{animation:pulse 1.4s infinite}
-@media print{body *{visibility:hidden!important}#thermal-print-area,#thermal-print-area *{visibility:visible!important}#thermal-print-area{position:fixed;left:0;top:0}}
+.sheet-anim{animation:sheetUp .22s ease}
+@media print{
+ html,body{margin:0 !important;padding:0 !important;background:#fff !important;}
+ body *{visibility:hidden !important;}
+ #thermal-print-area,#thermal-print-area *{visibility:visible !important;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
+ #thermal-print-area{position:absolute !important;left:0 !important;top:0 !important;width:auto !important;margin:0 !important;}
+ .ticket-page{page-break-after:always;break-after:page;}
+ .ticket-page:last-child{page-break-after:auto;break-after:auto;}
+}
 `;
 const S = {
   side: { width: 230, background: "var(--surface)", borderRight: "1px solid var(--line)", padding: 18, display: "flex", flexDirection: "column", gap: 4 },
   sideMobile: { width: "100%", boxSizing: "border-box", background: "var(--surface)", borderBottom: "1px solid var(--line)", padding: 12, display: "flex", flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
+  mTop: { display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderBottom: "1px solid var(--line)", background: "var(--surface)", position: "sticky", top: 0, zIndex: 20 },
+  mTitle: { flex: 1, minWidth: 0 },
+  iconBtn: { width: 42, height: 42, flexShrink: 0, borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 18, display: "grid", placeItems: "center" },
+  bottomNav: { display: "flex", borderTop: "1px solid var(--line)", background: "var(--surface)", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0 },
+  bTab: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "9px 4px 8px", background: "transparent", border: "none", color: "var(--muted)", fontSize: 10.5, fontWeight: 700 },
+  bTabActive: { color: "var(--accent)" },
+  sheetWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", zIndex: 60, display: "flex", alignItems: "flex-end", backdropFilter: "blur(3px)" },
+  sheet: { width: "100%", background: "var(--surface)", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, paddingBottom: "calc(20px + env(safe-area-inset-bottom))", maxHeight: "86dvh", overflow: "auto", borderTop: "1px solid var(--line)" },
+  grab: { width: 40, height: 4, borderRadius: 4, background: "var(--line)", margin: "0 auto 14px" },
   logo: { fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 20, letterSpacing: 1 },
   select: { width: "100%", background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", fontWeight: 600, outline: "none" },
   navBtn: { display: "flex", alignItems: "center", gap: 10, background: "transparent", color: "var(--text)", border: "none", padding: "12px 14px", borderRadius: 10, fontWeight: 700, fontSize: 15, textAlign: "left" },
@@ -998,7 +1340,7 @@ const S = {
   printerStatusSm: { display: "flex", alignItems: "center", gap: 7, background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", color: "var(--text)", fontSize: 12, fontWeight: 700 },
   roleBadge: { marginTop: 8, fontSize: 11, fontWeight: 800, letterSpacing: 1, border: "1px solid", borderRadius: 20, padding: "3px 10px", alignSelf: "flex-start" },
   cashierTop: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 22px", borderBottom: "1px solid var(--line)", background: "var(--surface)", flexWrap: "wrap", gap: 10 },
-  gateWrap: { height: "100%", display: "grid", placeItems: "center", padding: 20, background: "radial-gradient(1100px 560px at 50% -10%, #211a30, var(--bg))" },
+  gateWrap: { minHeight: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, overflow: "auto", background: "radial-gradient(1100px 560px at 50% -10%, #211a30, var(--bg))" },
   gateCard: { width: 440, maxWidth: "100%", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 22, padding: 28, boxShadow: "0 30px 80px rgba(0,0,0,.55)" },
   gateRole: { display: "flex", flexDirection: "column", alignItems: "center", gap: 5, padding: "20px 8px", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 16, color: "var(--text)" },
   liveDot: { width: 8, height: 8, borderRadius: "50%", background: "var(--green)", display: "inline-block" },

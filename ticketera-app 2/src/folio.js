@@ -17,3 +17,7 @@ export function nextFolio(eventoId, puntoId, prefijo) {
 export function nextFolios(eventoId, puntoId, prefijo, qty) {
   const out = []; for (let i = 0; i < qty; i++) out.push(nextFolio(eventoId, puntoId, prefijo)); return out;
 }
+// Lee el contador actual SIN incrementarlo (para mostrar el próximo folio)
+export function peekFolio(eventoId, puntoId) {
+  return parseInt(localStorage.getItem(KEY(eventoId, puntoId)) || "0", 10) || 0;
+}
