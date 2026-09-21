@@ -2,21 +2,22 @@ import { supabase, uid } from "./supabase";
 
 /* ===================== MAPEADORES BD <-> UI ===================== */
 const prodFromDb = (p) => ({ id: p.id, name: p.nombre, price: Number(p.precio), color: p.color, emoji: p.emoji, soldOut: p.agotado });
-const puntoFromDb = (p) => ({ id: p.id, name: p.nombre, archivado: p.archivado, combos: p.combos || [], products: (p.ticket_productos || []).sort((a, b) => a.orden - b.orden).map(prodFromDb) });
+const puntoFromDb = (p) => ({ id: p.id, name: p.nombre, archivado: p.archivado, combos: p.combos || [], fondo: p.fondo != null ? Number(p.fondo) : null, fondoEn: p.fondo_en, fondoPor: p.fondo_por, products: (p.ticket_productos || []).sort((a, b) => a.orden - b.orden).map(prodFromDb) });
 const evFromDb = (e) => ({
   id: e.id, name: e.nombre, date: e.fecha, venue: e.recinto || "", template: e.plantilla, paper: e.papel,
   footer: e.pie || "", logo: e.logo_url || "", showEventName: e.mostrar_evento, showDate: e.mostrar_fecha,
   showTime: e.mostrar_hora, showPrice: e.mostrar_precio, anularPin: e.anular_pin,
+  closed: !!e.cerrada, startsAt: e.inicio || "", advanced: !!e.venta_avanzada, changeHelp: e.ayuda_cambio !== false,
   style: e.ticket_style || {},
   pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor,
   puntos: (e.ticket_puntos || []).map(puntoFromDb),
 });
-const saleFromDb = (s) => ({ id: s.id, clientUuid: s.client_uuid, code: s.codigo, num: s.numero, eventId: s.evento_id, puntoId: s.punto_id, productId: s.producto_id, name: s.nombre, price: Number(s.precio), ts: new Date(s.creado_en).getTime(), voided: s.anulada, closureId: s.closure_id, operario: s.operario, synced: true });
-const closureFromDb = (c) => ({ id: c.id, eventId: c.evento_id, puntoId: c.punto_id, count: c.tickets, revenue: Number(c.facturacion), voids: c.anulaciones, lines: c.detalle || [], ts: new Date(c.creado_en).getTime() });
+const saleFromDb = (s) => ({ id: s.id, clientUuid: s.client_uuid, code: s.codigo, num: s.numero, eventId: s.evento_id, puntoId: s.punto_id, productId: s.producto_id, name: s.nombre, price: Number(s.precio), ts: new Date(s.creado_en).getTime(), voided: s.anulada, closureId: s.closure_id, operario: s.operario, pago: s.metodo_pago, entregado: s.entregado != null ? Number(s.entregado) : null, cambio: s.cambio != null ? Number(s.cambio) : null, synced: true });
+const closureFromDb = (c) => ({ id: c.id, eventId: c.evento_id, puntoId: c.punto_id, count: c.tickets, revenue: Number(c.facturacion), voids: c.anulaciones, lines: c.detalle || [], efectivo: Number(c.efectivo || 0), tarjeta: Number(c.tarjeta || 0), fondo: Number(c.fondo || 0), contado: c.contado != null ? Number(c.contado) : null, ts: new Date(c.creado_en).getTime() });
 
-const evToDb = (e) => ({ id: e.id, nombre: e.name, fecha: e.date, recinto: e.venue, plantilla: e.template, papel: e.paper, pie: e.footer, logo_url: e.logo, mostrar_evento: e.showEventName, mostrar_fecha: e.showDate, mostrar_hora: e.showTime, mostrar_precio: e.showPrice, anular_pin: e.anularPin, ticket_style: e.style || {}, pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor });
+const evToDb = (e) => ({ id: e.id, nombre: e.name, fecha: e.date, recinto: e.venue, plantilla: e.template, papel: e.paper, pie: e.footer, logo_url: e.logo, mostrar_evento: e.showEventName, mostrar_fecha: e.showDate, mostrar_hora: e.showTime, mostrar_precio: e.showPrice, anular_pin: e.anularPin, cerrada: !!e.closed, inicio: e.startsAt || null, venta_avanzada: !!e.advanced, ayuda_cambio: e.changeHelp !== false, ticket_style: e.style || {}, pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor });
 const evPatchToDb = (patch) => {
-  const m = { name: "nombre", date: "fecha", venue: "recinto", template: "plantilla", paper: "papel", footer: "pie", logo: "logo_url", showEventName: "mostrar_evento", showDate: "mostrar_fecha", showTime: "mostrar_hora", showPrice: "mostrar_precio", anularPin: "anular_pin", style: "ticket_style", pin_admin: "pin_admin", pin_supervisor: "pin_supervisor" };
+  const m = { name: "nombre", date: "fecha", venue: "recinto", template: "plantilla", paper: "papel", footer: "pie", logo: "logo_url", showEventName: "mostrar_evento", showDate: "mostrar_fecha", showTime: "mostrar_hora", showPrice: "mostrar_precio", anularPin: "anular_pin", closed: "cerrada", startsAt: "inicio", advanced: "venta_avanzada", changeHelp: "ayuda_cambio", style: "ticket_style", pin_admin: "pin_admin", pin_supervisor: "pin_supervisor" };
   const out = {}; for (const k in patch) if (m[k]) out[m[k]] = patch[k]; return out;
 };
 const prodToDb = (puntoId, p) => ({ id: p.id, punto_id: puntoId, nombre: p.name, precio: p.price, color: p.color, emoji: p.emoji, agotado: p.soldOut });
@@ -94,7 +95,7 @@ async function runItem(it) {
   if (it.op === "vender") { const { error } = await supabase.rpc("ticket_vender", it.args); if (error) throw error; }
   else if (it.op === "anularUltima") { const { error } = await supabase.rpc("ticket_anular_ultima", { p_evento: it.evento, p_punto: it.punto, p_por: it.por }); if (error) throw error; }
   else if (it.op === "anularVenta") { const { error } = await supabase.from("ticket_ventas").update({ anulada: true, anulada_en: new Date().toISOString(), anulada_por: it.por }).eq("client_uuid", it.clientUuid); if (error) throw error; }
-  else if (it.op === "cerrarZ") { const { error } = await supabase.rpc("ticket_cerrar_z", { p_evento: it.evento, p_punto: it.punto, p_por: it.por }); if (error) throw error; }
+  else if (it.op === "cerrarZ") { const { error } = await supabase.rpc("ticket_cerrar_z", { p_evento: it.evento, p_punto: it.punto, p_por: it.por, p_contado: it.contado ?? null }); if (error) throw error; }
 }
 
 async function doOrQueue(item) {
@@ -104,17 +105,33 @@ async function doOrQueue(item) {
 }
 
 // folios y clientUuids los genera la App (para que el ticket optimista y la BD coincidan)
-export function vender({ eventoId, puntoId, producto, qty, operario, folios, clientUuids }) {
-  return doOrQueue({ op: "vender", args: { p_evento: eventoId, p_punto: puntoId, p_producto: producto.id, p_nombre: producto.name, p_precio: producto.price, p_qty: qty, p_codigos: folios, p_operario: operario, p_client_uuids: clientUuids } });
+export function vender({ eventoId, puntoId, producto, qty, operario, folios, clientUuids, pago = null, entregado = null, cambio = null }) {
+  return doOrQueue({ op: "vender", args: { p_evento: eventoId, p_punto: puntoId, p_producto: producto.id, p_nombre: producto.name, p_precio: producto.price, p_qty: qty, p_codigos: folios, p_operario: operario, p_client_uuids: clientUuids, p_metodo: pago, p_entregado: entregado, p_cambio: cambio } });
 }
 export function anularUltima(eventoId, puntoId, por) { return doOrQueue({ op: "anularUltima", evento: eventoId, punto: puntoId, por }); }
 export function anularVenta(clientUuid, por) { return doOrQueue({ op: "anularVenta", clientUuid, por }); }
-export function cerrarZ(eventoId, puntoId, por) { return doOrQueue({ op: "cerrarZ", evento: eventoId, punto: puntoId, por }); }
+export function cerrarZ(eventoId, puntoId, por, contado = null) { return doOrQueue({ op: "cerrarZ", evento: eventoId, punto: puntoId, por, contado }); }
 
 export async function syncPending() {
   const q = loadQ(); const rest = [];
   for (const it of q) { try { await runItem(it); } catch { rest.push(it); } }
   saveQ(rest); return { synced: q.length - rest.length, remaining: rest.length };
+}
+
+/* ===================== FONDO DE CAJA ===================== */
+// Declara el fondo inicial del cajón de una barra (obligatorio para abrir)
+export function setFondo(puntoId, fondo, por) {
+  return supabase.from("ticket_puntos").update({ fondo, fondo_en: new Date().toISOString(), fondo_por: por }).eq("id", puntoId);
+}
+
+/* ===================== RESET ESTADÍSTICAS ===================== */
+// Borra TODAS las ventas y cierres de un evento (irreversible). Solo admin.
+export async function resetStats(eventId) {
+  const a = await supabase.from("ticket_ventas").delete().eq("evento_id", eventId);
+  if (a.error) throw a.error;
+  const b = await supabase.from("ticket_cierres").delete().eq("evento_id", eventId);
+  if (b.error) throw b.error;
+  return true;
 }
 
 /* ===================== REALTIME ===================== */

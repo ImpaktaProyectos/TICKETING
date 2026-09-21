@@ -21,3 +21,7 @@ export function nextFolios(eventoId, puntoId, prefijo, qty) {
 export function peekFolio(eventoId, puntoId) {
   return parseInt(localStorage.getItem(KEY(eventoId, puntoId)) || "0", 10) || 0;
 }
+// Reinicia los contadores de folio de este dispositivo para un evento (al resetear)
+export function resetFolios(eventoId, puntoIds = []) {
+  puntoIds.forEach(pid => localStorage.removeItem(KEY(eventoId, pid)));
+}

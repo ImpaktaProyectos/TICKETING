@@ -2,7 +2,7 @@ import React, { useReducer, useState, useMemo, useEffect, useRef } from "react";
 import { uid } from "./supabase";
 import { logout } from "./auth";
 import * as db from "./db";
-import { nextFolios, prefijoDePunto, peekFolio, getDeviceTag } from "./folio";
+import { nextFolios, prefijoDePunto, peekFolio, getDeviceTag, resetFolios } from "./folio";
 
 /* ============================================================================
    TICKETERA — TPV de tickets para eventos (prototipo funcional)
@@ -36,7 +36,7 @@ function useIsMobile(bp = 720) {
 
 /* ---------------------- Estado inicial (se hidrata desde Supabase) ---------------------- */
 const emptyState = () => ({ events: [], currentEventId: null, currentPuntoId: null, sales: [], closures: [], adminPin: "1234", supervisorPin: "0000", online: typeof navigator !== "undefined" ? navigator.onLine : true });
-const EMPTY_EV = { id: null, name: "", date: "", venue: "", template: "festival", paper: 80, footer: "", logo: "", showEventName: true, showDate: true, showTime: true, showPrice: true, anularPin: false, style: {}, pin_admin: "1234", pin_supervisor: "0000", puntos: [{ id: null, name: "", archivado: false, products: [] }] };
+const EMPTY_EV = { id: null, name: "", date: "", venue: "", template: "festival", paper: 80, footer: "", logo: "", showEventName: true, showDate: true, showTime: true, showPrice: true, anularPin: false, closed: false, startsAt: "", advanced: false, changeHelp: true, style: {}, pin_admin: "1234", pin_supervisor: "0000", puntos: [{ id: null, name: "", archivado: false, products: [] }] };
 
 /* ---------------------- Reducer ---------------------- */
 function reducer(state, a) {
@@ -220,6 +220,18 @@ function ZTicket({ ev, z }) {
       {z.lines.map((l, i) => <div key={i} style={row}><span>{l.name} ×{l.qty}</span><span>{money(l.total)}</span></div>)}
       <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
       <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 900, fontSize: 16, color: "#000" }}><span>TOTAL</span><span>{money(z.revenue)}</span></div>
+      {z.advanced && (<>
+        <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
+        <div style={{ textAlign: "center", fontWeight: 900, fontSize: 13 }}>ARQUEO DE CAJA</div>
+        <div style={{ ...row, marginTop: "1mm" }}><span>Fondo inicial</span><span>{money(z.fondo || 0)}</span></div>
+        <div style={row}><span>+ Ventas efectivo</span><span>{money(z.efectivo || 0)}</span></div>
+        <div style={{ ...row, fontSize: 14, borderTop: "2px solid #000", marginTop: "1mm", paddingTop: "1mm" }}><span>= DEBE HABER</span><span>{money(z.esperado != null ? z.esperado : (z.fondo || 0) + (z.efectivo || 0))}</span></div>
+        {z.contado != null && (<>
+          <div style={{ ...row, marginTop: "1mm" }}><span>Contado</span><span>{money(z.contado)}</span></div>
+          <div style={{ ...row, fontSize: 15, fontWeight: 900 }}><span>{z.descuadre === 0 ? "CUADRA ✓" : z.descuadre > 0 ? "SOBRA" : "FALTA"}</span><span>{z.descuadre === 0 ? money(0) : money(Math.abs(z.descuadre))}</span></div>
+        </>)}
+        <div style={{ ...row, marginTop: "1.5mm" }}><span>Tarjeta (no en cajón)</span><span>{money(z.tarjeta || 0)}</span></div>
+      </>)}
       <div style={{ ...row, marginTop: "1mm" }}><span>Tickets</span><span>{z.count}</span></div>
       <div style={row}><span>Anulaciones</span><span>{z.voids}</span></div>
       <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "2mm", fontWeight: 600 }}>{new Date(z.ts).toLocaleString("es-ES")}</div>
@@ -249,6 +261,8 @@ export default function App() {
   const isMobile = useIsMobile();
   const [menuOpen, setMenuOpen] = useState(false);
   const [showCheck, setShowCheck] = useState(false);
+  const [testMode, setTestMode] = useState(false);
+  const [payFlow, setPayFlow] = useState(null);   // cobro avanzado en curso
 
   const ev = state.events.find(e => e.id === state.currentEventId) || state.events[0] || EMPTY_EV;
   const activePuntos = ev.puntos.filter(p => !p.archivado);
@@ -296,35 +310,61 @@ export default function App() {
   // Venta = optimista (folio inmediato) + impresión + persistencia
   const sell = (product, qty = 1) => {
     if (product.soldOut) { flash("Producto agotado", "warn"); return; }
+    if (ev.closed) { flash("Caja cerrada · no se puede vender", "warn"); return; }
+    const time = timeNow();
+    if (testMode) { setPrintJob({ kind: "ticket", product, time, num: null, folio: "PRUEBA", qty, n: Date.now() }); flash("🧪 Prueba (no cuenta)"); return; }
+    // Venta avanzada: primero se cobra (efectivo/tarjeta + cambio), luego se imprime
+    if (ev.advanced) { setPayFlow({ kind: "single", product, qty, total: round2(product.price * qty) }); return; }
+    doSell(product, qty);
+  };
+
+  // Registra e imprime la venta (con datos de pago si vienen del cobro avanzado)
+  const doSell = (product, qty = 1, pay = null) => {
     const time = timeNow();
     const folios = nextFolios(ev.id, punto.id, prefijoDePunto(punto), qty);
     const clientUuids = folios.map(() => uid());
     const baseNum = evSales.length;
-    const rows = folios.map((f, i) => ({ id: clientUuids[i], clientUuid: clientUuids[i], code: f, num: baseNum + i + 1, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: product.price, ts: Date.now() + i, synced: online, voided: false, closureId: null }));
+    const rows = folios.map((f, i) => ({ id: clientUuids[i], clientUuid: clientUuids[i], code: f, num: baseNum + i + 1, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: product.price, ts: Date.now() + i, synced: online, voided: false, closureId: null, pago: pay?.pago || null, entregado: i === 0 ? (pay?.entregado ?? null) : null, cambio: i === 0 ? (pay?.cambio ?? null) : null }));
     baseDispatch({ type: "SELL", rows });
     setPrintJob({ kind: "ticket", product, time, num: rows[0].num, folio: rows[0].code, qty, n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(25);
     flash(`🖨️ ${qty > 1 ? qty + "× " : ""}${product.name}`);
-    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: product, qty, operario: punto.name, folios, clientUuids }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: product, qty, operario: punto.name, folios, clientUuids, pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
   };
 
   const reprint = () => { if (!printJob) { flash("Nada que reimprimir", "warn"); return; } setPrintJob({ ...printJob, n: Date.now() }); flash("🖨️ Reimprimiendo último ticket"); };
 
   const sellMany = (items) => {
+    if (ev.closed) { flash("Caja cerrada · no se puede vender", "warn"); return; }
+    const time = timeNow();
+    if (testMode) {
+      const tks = [];
+      items.forEach(({ product, qty }) => { for (let i = 0; i < qty; i++) tks.push({ product, folio: "PRUEBA" }); });
+      if (tks.length) { setPrintJob({ kind: "multi", tickets: tks, time, n: Date.now() }); flash("🧪 Prueba (no cuenta)"); }
+      return;
+    }
+    const total = round2(items.reduce((t, it) => t + it.product.price * it.qty, 0));
+    if (ev.advanced) { setPayFlow({ kind: "many", items, total }); return; }
+    doSellMany(items);
+  };
+
+  const doSellMany = (items, pay = null) => {
     const time = timeNow();
     let n = evSales.length;
     const rows = []; const tickets = [];
+    let first = true;
     items.forEach(({ product, qty }) => {
       const folios = nextFolios(ev.id, punto.id, prefijoDePunto(punto), qty);
       const clientUuids = folios.map(() => uid());
-      folios.forEach((f, i) => { n++; rows.push({ id: clientUuids[i], clientUuid: clientUuids[i], code: f, num: n, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: product.price, ts: Date.now() + rows.length, synced: online, voided: false, closureId: null }); tickets.push({ product, num: n, folio: f }); });
-      db.vender({ eventoId: ev.id, puntoId: punto.id, producto: product, qty, operario: punto.name, folios, clientUuids }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+      folios.forEach((f, i) => { n++; rows.push({ id: clientUuids[i], clientUuid: clientUuids[i], code: f, num: n, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: product.price, ts: Date.now() + rows.length, synced: online, voided: false, closureId: null, pago: pay?.pago || null, entregado: (first && i === 0) ? (pay?.entregado ?? null) : null, cambio: (first && i === 0) ? (pay?.cambio ?? null) : null }); tickets.push({ product, num: n, folio: f }); });
+      db.vender({ eventoId: ev.id, puntoId: punto.id, producto: product, qty, operario: punto.name, folios, clientUuids, pago: pay?.pago || null, entregado: first ? (pay?.entregado ?? null) : null, cambio: first ? (pay?.cambio ?? null) : null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+      first = false;
     });
     if (!rows.length) return;
     baseDispatch({ type: "SELL", rows });
     setPrintJob({ kind: "multi", tickets, time, n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(40);
-    flash(`🖨️ ${tickets.length} tickets · Cobra ${money(rows.reduce((t, r) => t + r.price, 0))}`);
+    flash(`🖨️ ${tickets.length} tickets · ${money(rows.reduce((t, r) => t + r.price, 0))}`);
   };
 
   const voidLast = async (by) => { baseDispatch({ type: "VOID_LAST", eventId: ev.id, puntoId: punto.id, by }); flash("Último ticket anulado", "warn"); const r = await db.anularUltima(ev.id, punto.id, by); if (r.offline) setPending(db.pendingCount()); };
@@ -332,37 +372,50 @@ export default function App() {
 
   // Bono / oferta: registra UNA venta al precio del bono e imprime todos los vales de un clic
   const sellCombo = (combo) => {
+    if (ev.closed) { flash("Caja cerrada · no se puede vender", "warn"); return; }
     const vouchers = [];
     (combo.items || []).forEach(it => { const p = punto.products.find(x => x.id === it.productId); if (p) for (let k = 0; k < (it.qty || 1); k++) vouchers.push(p); });
     if (!vouchers.length) { flash("Bono sin productos válidos", "warn"); return; }
-    const price = (combo.price === "" || combo.price == null) ? vouchers.reduce((t, p) => t + p.price, 0) : Number(combo.price);
+    if (testMode) { setPrintJob({ kind: "multi", tickets: vouchers.map((p) => ({ product: p, folio: "PRUEBA" })), time: timeNow(), n: Date.now() }); flash("🧪 Prueba (no cuenta)"); return; }
+    const price = round2((combo.price === "" || combo.price == null) ? vouchers.reduce((t, p) => t + p.price, 0) : Number(combo.price));
+    if (ev.advanced) { setPayFlow({ kind: "combo", combo, vouchers, total: price }); return; }
+    doSellCombo(combo, vouchers, price);
+  };
+
+  const doSellCombo = (combo, vouchers, price, pay = null) => {
     const folio = nextFolios(ev.id, punto.id, prefijoDePunto(punto), 1)[0];
     const cu = uid();
-    const saleRow = { id: cu, clientUuid: cu, code: folio, num: evSales.length + 1, eventId: ev.id, puntoId: punto.id, productId: null, name: combo.name, price, ts: Date.now(), synced: online, voided: false, closureId: null };
+    const saleRow = { id: cu, clientUuid: cu, code: folio, num: evSales.length + 1, eventId: ev.id, puntoId: punto.id, productId: null, name: combo.name, price, ts: Date.now(), synced: online, voided: false, closureId: null, pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null };
     baseDispatch({ type: "SELL", rows: [saleRow] });
     const tickets = vouchers.map((p, i) => ({ product: p, folio: `${folio}·${i + 1}` }));
     setPrintJob({ kind: "multi", tickets, time: timeNow(), n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(45);
     flash(`🎟️ ${combo.name} · ${vouchers.length} tickets`);
-    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: combo.name, price }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu] }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: combo.name, price }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
   };
   const voidOne = async (sale, by) => { baseDispatch({ type: "VOID_ONE", saleId: sale.id, by }); const r = await db.anularVenta(sale.clientUuid || sale.id, by); if (r.offline) setPending(db.pendingCount()); };
 
-  const cierreZ = async (puntoObj) => {
+  const cierreZ = async (puntoObj, contado = null) => {
     const sales = evSales.filter(s => s.puntoId === puntoObj.id && !s.voided && !s.closureId);
     const voids = evSales.filter(s => s.puntoId === puntoObj.id && s.voided && !s.closureId).length;
     if (sales.length === 0 && voids === 0) { flash("Sin ventas en el turno actual", "warn"); return; }
     const map = {};
     sales.forEach(s => { map[s.productId] = map[s.productId] || { name: s.name, qty: 0, total: 0 }; map[s.productId].qty++; map[s.productId].total += s.price; });
     const revenue = round2(sales.reduce((t, s) => t + s.price, 0));
-    const z = { puntoName: puntoObj.name, lines: Object.values(map).map(l => ({ ...l, total: round2(l.total) })), revenue, count: sales.length, voids, ts: Date.now() };
+    const efectivo = round2(sales.filter(s => s.pago === "efectivo").reduce((t, s) => t + s.price, 0));
+    const tarjeta = round2(sales.filter(s => s.pago === "tarjeta").reduce((t, s) => t + s.price, 0));
+    const fondo = round2(puntoObj.fondo || 0);
+    const esperado = round2(fondo + efectivo);                       // lo que debe haber en el cajón
+    const descuadre = contado == null ? null : round2(contado - esperado);
+    const z = { puntoName: puntoObj.name, lines: Object.values(map).map(l => ({ ...l, total: round2(l.total) })), revenue, efectivo, tarjeta, fondo, esperado, contado, descuadre, advanced: !!ev.advanced, count: sales.length, voids, ts: Date.now() };
     const closureId = uid();
     // Cierra el turno EN LOCAL (funciona sin wifi) y encola el cierre para el servidor
     baseDispatch({ type: "ADD_CLOSURE", closure: { id: closureId, eventId: ev.id, puntoId: puntoObj.id, ...z } });
     baseDispatch({ type: "CLOSE_PUNTO_SALES", eventId: ev.id, puntoId: puntoObj.id, closureId });
+    baseDispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: puntoObj.id, patch: { fondo: null } }); // vuelve a pedir fondo
     setPrintJob({ kind: "z", z, n: Date.now() });
     flash(`Cierre Z de ${puntoObj.name} · turno cerrado`);
-    const r = await db.cerrarZ(ev.id, puntoObj.id, puntoObj.name);
+    const r = await db.cerrarZ(ev.id, puntoObj.id, puntoObj.name, contado);
     if (r.offline) setPending(db.pendingCount());
     else await hydrate().catch(() => {});
   };
@@ -393,6 +446,24 @@ export default function App() {
     const demo = punto.products[0] || { id: "demo", name: "TICKET DE PRUEBA", price: 0, emoji: "🎟️", color: "#ff5a3c" };
     setPrintJob({ kind: "ticket", product: demo, time: timeNow(), num: null, folio: "PRUEBA", qty: 1, n: Date.now() });
     flash("🖨️ Ticket de prueba enviado");
+  };
+
+  // Resetear estadísticas del evento (borra ventas y cierres). Solo admin, doble confirmación.
+  const resetStats = async () => {
+    try {
+      await db.resetStats(ev.id);
+      resetFolios(ev.id, ev.puntos.map(p => p.id));
+      await hydrate();
+      flash("Estadísticas reseteadas");
+    } catch (e) { flash("Error al resetear", "warn"); }
+  };
+
+  // Fondo de caja: obligatorio antes de vender cuando la venta avanzada está activa
+  const needsFondo = !!ev.advanced && !ev.closed && role && punto && punto.fondo == null;
+  const saveFondo = async (amount) => {
+    baseDispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: punto.id, patch: { fondo: amount, fondoPor: role } });
+    try { await db.setFondo(punto.id, amount, role); flash(`Fondo declarado: ${money(amount)}`); }
+    catch { flash("No se pudo guardar el fondo (sin conexión)", "warn"); }
   };
 
   const exitToLogin = () => { setRole(null); setView("pos"); };
@@ -452,7 +523,7 @@ export default function App() {
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn}>☰</button>
           </header>
           <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
-            <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} />
+            <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} />
           </div>
         </div>
       ) : (
@@ -462,7 +533,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.btnGhost}>🔒 Salir</button></div>
           </header>
           <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-            <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} />
+            <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} />
           </div>
         </div>
       ))}
@@ -483,9 +554,9 @@ export default function App() {
                 <button onClick={() => setAskRevenue(true)} style={{ ...S.consultBtn, padding: "10px 12px" }}>💶</button>
               </div>
             </div>
-            {safeView === "pos" && <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} />}
+            {safeView === "pos" && <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} />}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
-            {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} dispatch={dispatch} flash={flash} />}
+            {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
             {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} />}
           </div>
           <nav style={S.bottomNav}>
@@ -509,6 +580,7 @@ export default function App() {
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 10 }}><OnlinePill /><PrinterPill /></div>
             <button onClick={testPrint} style={{ ...S.btnGhost, marginTop: 8, width: "100%" }}>🖨️ Ticket de prueba</button>
+            <button onClick={() => setTestMode(m => !m)} style={{ ...S.btnGhost, marginTop: 8, width: "100%", color: testMode ? "var(--amber)" : "var(--text)", borderColor: testMode ? "var(--amber)" : "var(--line)" }}>🧪 Modo prueba: {testMode ? "ON" : "off"}</button>
             <button onClick={exitToLogin} style={{ ...S.btnGhost, marginTop: 8, width: "100%" }}>Cambiar de rol</button>
             <button onClick={() => logout()} style={{ ...S.btnGhost, marginTop: 6, width: "100%", color: "var(--red)", borderColor: "var(--red)" }}>Cerrar sesión</button>
           </aside>
@@ -521,9 +593,9 @@ export default function App() {
               </div>
             </header>
             <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-              {safeView === "pos" && <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} />}
+              {safeView === "pos" && <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} />}
               {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
-              {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} dispatch={dispatch} flash={flash} />}
+              {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
               {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} />}
             </div>
           </main>
@@ -548,10 +620,32 @@ export default function App() {
             <div style={{ display: "flex", gap: 8, marginBottom: 14 }}><OnlinePill /><PrinterPill /></div>
             <button onClick={() => { setMenuOpen(false); setShowCheck(true); }} style={{ ...S.btnGhost, width: "100%", padding: "13px", marginBottom: 8 }}>✅ Comprobación previa</button>
             <button onClick={() => { setMenuOpen(false); testPrint(); }} style={{ ...S.btnGhost, width: "100%", padding: "13px", marginBottom: 8 }}>🖨️ Ticket de prueba</button>
+            <button onClick={() => setTestMode(m => !m)} style={{ ...S.btnGhost, width: "100%", padding: "13px", marginBottom: 8, color: testMode ? "var(--amber)" : "var(--text)", borderColor: testMode ? "var(--amber)" : "var(--line)" }}>🧪 Modo prueba: {testMode ? "ACTIVADO" : "apagado"}</button>
             <button onClick={() => { setMenuOpen(false); exitToLogin(); }} style={{ ...S.btnGhost, width: "100%", padding: "13px" }}>🔁 Cambiar de rol</button>
             <button onClick={() => { setMenuOpen(false); logout(); }} style={{ ...S.btnGhost, width: "100%", marginTop: 8, padding: "13px", color: "var(--red)", borderColor: "var(--red)" }}>🔒 Cerrar sesión</button>
           </div>
         </div>
+      )}
+
+      {/* ===== Fondo de caja (bloquea la venta hasta declararlo) ===== */}
+      {needsFondo && !showCheck && (
+        <FondoGate puntoName={punto.name} onSave={saveFondo} onBack={exitToLogin} />
+      )}
+
+      {/* ===== Cobro avanzado ===== */}
+      {payFlow && (
+        <PayFlow
+          total={payFlow.total}
+          changeHelp={ev.changeHelp !== false}
+          onCancel={() => setPayFlow(null)}
+          onDisableHelp={(on = false) => { dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { changeHelp: !!on } }); flash(on ? "Ayuda con el cambio activada" : "Ayuda con el cambio desactivada"); }}
+          onDone={(pay) => {
+            const f = payFlow; setPayFlow(null);
+            if (f.kind === "single") doSell(f.product, f.qty, pay);
+            else if (f.kind === "many") doSellMany(f.items, pay);
+            else if (f.kind === "combo") doSellCombo(f.combo, f.vouchers, f.total, pay);
+          }}
+        />
       )}
 
       {/* ===== Comprobación previa (antes de vender) ===== */}
@@ -649,6 +743,135 @@ function RoleGate({ ev, events, adminPin, supervisorPin, onSelectEvent, onRole }
   );
 }
 
+/* ---------------------- Fondo de caja (obligatorio para abrir) ---------------------- */
+function FondoGate({ puntoName, onSave, onBack }) {
+  const [v, setV] = useState("");
+  const amount = parseFloat(v || "0") || 0;
+  const press = (d) => setV(x => (d === "." && x.includes(".") ? x : (x + d).slice(0, 7)));
+  const quick = [0, 50, 100, 150, 200, 300];
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 85, background: "var(--bg)", overflow: "auto", padding: "calc(18px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom))" }}>
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <div style={{ textAlign: "center", marginBottom: 18 }}>
+          <div style={{ fontSize: 44 }}>💰</div>
+          <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 22, marginTop: 4 }}>Fondo de caja</div>
+          <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 4 }}>¿Cuánto dinero hay en el cajón de <b style={{ color: "var(--accent)" }}>{puntoName}</b> antes de empezar?</div>
+        </div>
+
+        <div style={{ background: "var(--surface)", border: "2px solid var(--line)", borderRadius: 16, padding: 16, textAlign: "center", marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 2, fontWeight: 800 }}>Fondo inicial</div>
+          <div style={{ fontSize: 46, fontWeight: 900, lineHeight: 1.05, color: "var(--green)" }}>{money(amount)}</div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(82px,1fr))", gap: 8, marginBottom: 12 }}>
+          {quick.map(n => <button key={n} onClick={() => setV(String(n))} style={{ ...S.noteBtn, ...(amount === n && v !== "" ? { borderColor: "var(--green)", color: "var(--green)" } : {}) }}>{n === 0 ? "SIN FONDO" : money(n)}</button>)}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
+          {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "←"].map(k => (
+            <button key={k} onClick={() => k === "←" ? setV(x => x.slice(0, -1)) : press(k)} style={S.padBtn}>{k}</button>
+          ))}
+        </div>
+
+        <button disabled={v === ""} onClick={() => onSave(round2(amount))} style={{ ...S.btnPrimary, width: "100%", marginTop: 14, padding: "18px", fontSize: 17, opacity: v === "" ? .4 : 1 }}>
+          ✅ Confirmar fondo y abrir la caja
+        </button>
+        <div style={{ fontSize: 12, color: "var(--muted)", textAlign: "center", marginTop: 10 }}>Cuenta el dinero del cajón. Al cerrar el turno se usará para cuadrar.</div>
+        <button onClick={onBack} style={{ ...S.btnGhost, width: "100%", marginTop: 10, padding: "13px" }}>Cambiar de barra / rol</button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------- Cobro avanzado (efectivo / tarjeta + cambio) ---------------------- */
+function PayFlow({ total, changeHelp = true, onDone, onCancel, onDisableHelp }) {
+  const isMobile = useIsMobile();
+  const [mode, setMode] = useState(null);        // null | efectivo
+  const [given, setGiven] = useState("");
+  const g = parseFloat(given || "0") || 0;
+  const change = round2(g - total);
+  const enough = g >= total;
+  // Billetes/monedas sugeridos: el importe justo + los billetes por encima
+  const notes = [5, 10, 20, 50, 100].filter(n => n >= total).slice(0, 4);
+  const quick = [round2(total), ...notes.filter(n => n !== total)];
+  const press = (d) => setGiven(v => (d === "." && v.includes(".") ? v : (v + d).slice(0, 7)));
+  // Sin ayuda con el cambio: efectivo cobra directo, sin pedir billetes
+  const payCashDirect = () => onDone({ pago: "efectivo", entregado: null, cambio: null });
+
+  return (
+    <div style={S.payWrap}>
+      <div className={isMobile ? "sheet-anim" : ""} style={{ ...S.payCard, ...(isMobile ? { borderRadius: "22px 22px 0 0", maxHeight: "94dvh" } : {}) }}>
+        {/* Total a cobrar, enorme */}
+        <div style={{ textAlign: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 2, fontWeight: 800 }}>Total a cobrar</div>
+          <div style={{ fontSize: 52, fontWeight: 900, lineHeight: 1.05, color: "var(--accent)" }}>{money(total)}</div>
+        </div>
+
+        {!mode && (<>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <button onClick={() => changeHelp ? setMode("efectivo") : payCashDirect()} style={{ ...S.payBtn, background: "linear-gradient(160deg,#22d3a6,#12a37c)", color: "#04231a" }}>
+              <span style={{ fontSize: 46 }}>💶</span><span style={{ fontSize: 20, fontWeight: 900 }}>EFECTIVO</span>
+            </button>
+            <button onClick={() => onDone({ pago: "tarjeta", entregado: null, cambio: null })} style={{ ...S.payBtn, background: "linear-gradient(160deg,#4d8dff,#2b62d9)", color: "#04122e" }}>
+              <span style={{ fontSize: 46 }}>💳</span><span style={{ fontSize: 20, fontWeight: 900 }}>TARJETA</span>
+            </button>
+          </div>
+          <button onClick={onCancel} style={{ ...S.btnGhost, width: "100%", marginTop: 14, padding: "14px" }}>Cancelar</button>
+          {!changeHelp && (
+            <div style={{ border: "1px dashed var(--line)", borderRadius: 12, padding: 10, marginTop: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 150, fontSize: 12, color: "var(--muted)" }}>Ayuda con el cambio <b style={{ color: "var(--text)" }}>desactivada</b>.</div>
+              <button onClick={() => { onDisableHelp && onDisableHelp(true); setMode("efectivo"); }} style={{ ...S.smallBtn, padding: "9px 12px", fontWeight: 800 }}>Activar</button>
+            </div>
+          )}
+        </>)}
+
+        {mode === "efectivo" && (<>
+          {/* Cambio, muy visible */}
+          <div style={{ background: enough ? "rgba(34,211,166,.12)" : "var(--surface2)", border: `2px solid ${enough ? "var(--green)" : "var(--line)"}`, borderRadius: 16, padding: 14, textAlign: "center", marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 2, fontWeight: 800 }}>Cambio a devolver</div>
+            <div style={{ fontSize: 46, fontWeight: 900, lineHeight: 1.05, color: enough ? "var(--green)" : "var(--muted)" }}>{enough ? money(change) : "—"}</div>
+            <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}>Entregado: <b style={{ color: "var(--text)" }}>{given ? money(g) : "—"}</b>{!enough && given ? " · falta dinero" : ""}</div>
+          </div>
+
+          {/* Billetes rápidos */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(82px,1fr))", gap: 8, marginBottom: 12 }}>
+            {quick.map((n, i) => (
+              <button key={n + "-" + i} onClick={() => { setGiven(String(n)); }} style={{ ...S.noteBtn, ...(i === 0 ? { borderColor: "var(--green)", color: "var(--green)" } : {}) }}>
+                {i === 0 ? "JUSTO" : money(n)}
+                {i === 0 && <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: "var(--muted)" }}>{money(n)}</span>}
+              </button>
+            ))}
+          </div>
+
+          {/* Teclado numérico */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
+            {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "←"].map(k => (
+              <button key={k} onClick={() => k === "←" ? setGiven(v => v.slice(0, -1)) : press(k)} style={S.padBtn}>{k}</button>
+            ))}
+          </div>
+
+          <button disabled={!enough} onClick={() => onDone({ pago: "efectivo", entregado: g, cambio: change })} style={{ ...S.btnPrimary, width: "100%", marginTop: 14, padding: "18px", fontSize: 18, opacity: enough ? 1 : .4 }}>
+            ✅ Cobrado · Imprimir
+          </button>
+
+          {/* Recuadro: quitar este paso para las próximas ventas */}
+          <div style={{ border: "1px dashed var(--line)", borderRadius: 12, padding: 12, marginTop: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <div style={{ fontWeight: 800, fontSize: 13 }}>¿No necesitas ayuda con el cambio?</div>
+              <div style={{ fontSize: 12, color: "var(--muted)" }}>Se quita este paso. Seguirás eligiendo efectivo o tarjeta.</div>
+            </div>
+            <button onClick={() => { onDisableHelp && onDisableHelp(); payCashDirect(); }} style={{ ...S.smallBtn, padding: "10px 12px", fontWeight: 800 }}>Desactivar ayuda</button>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button onClick={() => { setMode(null); setGiven(""); }} style={{ ...S.btnGhost, flex: 1, padding: "13px" }}>← Atrás</button>
+            <button onClick={onCancel} style={{ ...S.btnGhost, flex: 1, padding: "13px" }}>Cancelar</button>
+          </div>
+        </>)}
+      </div>
+    </div>
+  );
+}
+
 /* ---------------------- Stat ---------------------- */
 function Stat({ label, value, accent }) {
   return <div style={S.statBox}><div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>{label}</div><div style={{ fontSize: 24, fontWeight: 800, color: accent }}>{value}</div></div>;
@@ -676,7 +899,7 @@ function CheckCard({ state, title, value, note, children }) {
 /* ============================================================
    POS
    ============================================================ */
-function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint, onCombo }) {
+function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed }) {
   const isMobile = useIsMobile();
   const combos = punto.combos || [];
   const [qty, setQty] = useState(1);
@@ -701,6 +924,8 @@ function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint,
 
   return (
     <div>
+      {closed && <div style={{ background: "var(--red)", color: "#fff", fontWeight: 800, textAlign: "center", padding: "12px", borderRadius: 12, marginBottom: 14 }}>🔒 CAJA CERRADA · no se puede vender en este evento</div>}
+      {testMode && !closed && <div style={{ background: "var(--amber)", color: "#1a1205", fontWeight: 800, textAlign: "center", padding: "12px", borderRadius: 12, marginBottom: 14 }}>🧪 MODO PRUEBA · imprime pero NO cuenta en la caja</div>}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
         {!grouping ? (
           <>
@@ -905,8 +1130,10 @@ function TemplateDesigner({ ev, dispatch, flash }) {
 /* ============================================================
    EVENT CONFIG
    ============================================================ */
-function EventConfig({ state, ev, punto, evSales, dispatch, flash }) {
+function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash }) {
   const isMobile = useIsMobile();
+  const isAdmin = role === "admin";
+  const [confirmReset, setConfirmReset] = useState(0); // 0 no, 1 primer aviso, 2 aviso final
   const [draft, setDraft] = useState({ name: "", price: "", emoji: "🎟️", color: PALETTE[0] });
   const [newEvent, setNewEvent] = useState(null);
   const [newPunto, setNewPunto] = useState("");
@@ -958,13 +1185,36 @@ function EventConfig({ state, ev, punto, evSales, dispatch, flash }) {
         <div style={S.panel}>
           <Field label="Nombre"><input style={S.input} value={ev.name} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { name: e.target.value } })} /></Field>
           <Field label="Fecha"><input type="date" style={S.input} value={ev.date} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { date: e.target.value } })} /></Field>
+          <Field label="Inicio del evento (cuándo abre)"><input type="datetime-local" style={S.input} value={ev.startsAt || ""} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { startsAt: e.target.value } })} /></Field>
           <Field label="Recinto"><input style={S.input} value={ev.venue} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { venue: e.target.value } })} /></Field>
           <div style={{ display: "flex", gap: 10 }}>
             <Field label="PIN admin"><input style={S.input} value={ev.pin_admin || ""} maxLength={6} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pin_admin: e.target.value } })} /></Field>
             <Field label="PIN supervisor"><input style={S.input} value={ev.pin_supervisor || ""} maxLength={6} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pin_supervisor: e.target.value } })} /></Field>
           </div>
           <label style={S.toggleRow}><span>Anular ticket en caja exige PIN de supervisor</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { anularPin: !ev.anularPin } })} style={{ ...S.switch, background: ev.anularPin ? "var(--accent)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.anularPin ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          <label style={S.toggleRow}><span><b>Venta avanzada</b> · pedir efectivo/tarjeta y calcular el cambio</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { advanced: !ev.advanced } })} style={{ ...S.switch, background: ev.advanced ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.advanced ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          {ev.advanced && <label style={S.toggleRow}><span>Ayuda con el cambio · billetes y cálculo de devolución</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { changeHelp: !(ev.changeHelp !== false) } })} style={{ ...S.switch, background: ev.changeHelp !== false ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.changeHelp !== false ? "translateX(20px)" : "translateX(2px)" }} /></button></label>}
+          {ev.advanced && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Al vender, el camarero elegirá <b>Efectivo</b> o <b>Tarjeta</b>. {ev.changeHelp !== false ? "Con efectivo verá los billetes y el cambio a devolver." : "Con efectivo cobrará directo, sin pedir billetes."} El cierre Z mostrará el arqueo separado.</div>}
         </div>
+
+        {isAdmin && (
+          <div style={{ ...S.panel, marginTop: 16 }}>
+            <div style={{ fontWeight: 800, marginBottom: 10 }}>Estado de la caja</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 13, color: ev.closed ? "var(--red)" : "var(--green)", fontWeight: 800 }}>{ev.closed ? "● CAJA CERRADA — no se vende" : "● Caja abierta"}</div>
+              <button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { closed: !ev.closed } })} style={{ ...S.btnPrimary, width: "auto", padding: "0 18px", background: ev.closed ? "var(--green)" : "var(--red)" }}>{ev.closed ? "Reabrir caja" : "Cerrar caja"}</button>
+            </div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>Al cerrar, ninguna barra podrá vender más en este evento. Solo un admin puede reabrirla.</div>
+          </div>
+        )}
+
+        {isAdmin && (
+          <div style={{ ...S.panel, marginTop: 16, border: "1px solid var(--red)" }}>
+            <div style={{ fontWeight: 800, marginBottom: 6, color: "var(--red)" }}>⚠️ Zona peligrosa</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>Resetear borra TODAS las ventas y cierres de “{ev.name}”. Ideal para limpiar las pruebas antes del evento. No se puede deshacer.</div>
+            <button onClick={() => setConfirmReset(1)} style={{ ...S.btnGhost, width: "100%", color: "var(--red)", borderColor: "var(--red)" }}>Resetear estadísticas</button>
+          </div>
+        )}
         {newEvent && (
           <div style={{ ...S.panel, marginTop: 16, border: "1px solid var(--accent)" }}>
             <div style={{ fontWeight: 800, marginBottom: 10 }}>Crear evento nuevo</div>
@@ -1104,6 +1354,25 @@ function EventConfig({ state, ev, punto, evSales, dispatch, flash }) {
         </div>
       </div>
     )}
+    {confirmReset > 0 && (
+      <div style={S.overlay} onClick={() => setConfirmReset(0)}>
+        <div style={{ ...S.pinCard, width: 360, maxWidth: "92vw", textAlign: "center", border: "2px solid var(--red)" }} onClick={e => e.stopPropagation()}>
+          {confirmReset === 1 ? (<>
+            <div style={{ fontSize: 40 }}>⚠️</div>
+            <div style={{ fontWeight: 900, fontSize: 18, margin: "8px 0" }}>¿Resetear estadísticas?</div>
+            <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 18 }}>Se borrarán TODAS las ventas y cierres de “{ev.name}”. Esto no se puede deshacer.</div>
+            <button onClick={() => setConfirmReset(2)} style={{ ...S.btnPrimary, width: "100%", background: "var(--red)" }}>Continuar</button>
+            <button onClick={() => setConfirmReset(0)} style={{ ...S.btnGhost, width: "100%", marginTop: 8 }}>Cancelar</button>
+          </>) : (<>
+            <div style={{ fontSize: 40 }}>🛑</div>
+            <div style={{ fontWeight: 900, fontSize: 18, margin: "8px 0" }}>Última confirmación</div>
+            <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 18 }}>¿Seguro del todo? Vas a borrar la caja de este evento para siempre.</div>
+            <button onClick={() => { setConfirmReset(0); onReset && onReset(); }} style={{ ...S.btnPrimary, width: "100%", background: "var(--red)" }}>SÍ, BORRAR TODO</button>
+            <button onClick={() => setConfirmReset(0)} style={{ ...S.btnGhost, width: "100%", marginTop: 8 }}>Cancelar</button>
+          </>)}
+        </div>
+      </div>
+    )}
     </>
   );
 }
@@ -1113,6 +1382,7 @@ function EventConfig({ state, ev, punto, evSales, dispatch, flash }) {
    ============================================================ */
 function Reports({ ev, evSales, role, onVoid, onCierreZ, flash }) {
   const [confirmVoid, setConfirmVoid] = useState(null);
+  const [countZ, setCountZ] = useState(null);   // {punto, esperado, fondo, efectivo, valor}
   const byPunto = ev.puntos.map(p => {
     const live = evSales.filter(s => s.puntoId === p.id && !s.voided);
     const perProduct = {}; let revenue = 0;
@@ -1139,12 +1409,18 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash }) {
     const rows = [["Punto de venta", "Producto", "Precio", "Unidades", "Total"]];
     byPunto.forEach(b => { b.punto.products.forEach(p => { const q = b.perProduct[p.id] || 0; rows.push([b.punto.name, p.name, p.price.toFixed(2), q, (q * p.price).toFixed(2)]); }); rows.push([b.punto.name, "— SUBTOTAL —", "", b.count, b.revenue.toFixed(2)]); rows.push([b.punto.name, "Anulaciones", "", b.voids, ""]); rows.push([]); });
     rows.push(["TOTAL EVENTO", "", "", grandCount, grandRevenue.toFixed(2)]);
+    if (ev.advanced) {
+      const efe = round2(evSales.filter(s => !s.voided && s.pago === "efectivo").reduce((t, s) => t + s.price, 0));
+      const tar = round2(evSales.filter(s => !s.voided && s.pago === "tarjeta").reduce((t, s) => t + s.price, 0));
+      rows.push([]); rows.push(["ARQUEO", "Efectivo (en caja)", "", "", efe.toFixed(2)]); rows.push(["ARQUEO", "Tarjeta", "", "", tar.toFixed(2)]);
+    }
     const csv = rows.map(r => r.join(";")).join("\n");
     const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${ev.name.replace(/\s+/g, "_")}_cierre.csv`; a.click(); flash("CSV exportado");
   };
 
   return (
+    <>
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
         <h3 style={{ ...S.h3, margin: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>🔒 Informe de cierre — {ev.name} <span className="livedot" style={S.liveDot} /> <span style={{ fontSize: 11, color: "var(--green)" }}>EN VIVO</span></h3>
@@ -1156,6 +1432,8 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash }) {
         <BigStat label="Facturación total" value={money(grandRevenue)} c="var(--green)" />
         <BigStat label="Anulaciones" value={totalVoids} c="var(--amber)" />
         <BigStat label="Puntos de venta" value={ev.puntos.length} c="#3b82f6" />
+        {ev.advanced && <BigStat label="💶 Efectivo (en caja)" value={money(round2(evSales.filter(s => !s.voided && s.pago === "efectivo").reduce((t, s) => t + s.price, 0)))} c="var(--green)" />}
+        {ev.advanced && <BigStat label="💳 Tarjeta" value={money(round2(evSales.filter(s => !s.voided && s.pago === "tarjeta").reduce((t, s) => t + s.price, 0)))} c="#4d8dff" />}
       </div>
 
       {/* Multi-dispositivo: consolidado en vivo */}
@@ -1167,7 +1445,14 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash }) {
               <div style={{ fontWeight: 700, fontSize: 14 }}>📍 {b.punto.name}</div>
               <div style={{ fontSize: 22, fontWeight: 800, color: "var(--green)", marginTop: 4 }}>{money(b.revenue)}</div>
               <div style={{ fontSize: 12, color: "var(--muted)" }}>{b.count} tickets · {b.voids} anul.</div>
-              {(role === "admin" || role === "supervisor") && <button onClick={() => onCierreZ(b.punto)} style={{ ...S.smallBtn, marginTop: 8, width: "100%", color: "var(--accent)", borderColor: "var(--accent)" }}>Cierre Z 🧾</button>}
+              {ev.advanced && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>💰 Fondo: <b style={{ color: b.punto.fondo != null ? "var(--green)" : "var(--amber)" }}>{b.punto.fondo != null ? money(b.punto.fondo) : "sin declarar"}</b></div>}
+              {(role === "admin" || role === "supervisor") && <button onClick={() => {
+                if (!ev.advanced) { onCierreZ(b.punto); return; }
+                const abiertas = evSales.filter(s => s.puntoId === b.punto.id && !s.voided && !s.closureId);
+                const efe = round2(abiertas.filter(s => s.pago === "efectivo").reduce((t, s) => t + s.price, 0));
+                const fondo = round2(b.punto.fondo || 0);
+                setCountZ({ punto: b.punto, fondo, efectivo: efe, esperado: round2(fondo + efe), valor: "" });
+              }} style={{ ...S.smallBtn, marginTop: 8, width: "100%", color: "var(--accent)", borderColor: "var(--accent)" }}>Cierre Z 🧾</button>}
             </div>
           ))}
         </div>
@@ -1236,6 +1521,39 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash }) {
         </div>
       </div>
     </div>
+
+    {countZ && (() => {
+      const contado = parseFloat(countZ.valor || "0") || 0;
+      const dif = round2(contado - countZ.esperado);
+      const has = countZ.valor !== "";
+      return (
+        <div style={S.overlay} onClick={() => setCountZ(null)}>
+          <div style={{ ...S.payCard, maxWidth: 420, alignSelf: "center" }} onClick={e => e.stopPropagation()}>
+            <div style={{ textAlign: "center", marginBottom: 14 }}>
+              <div style={{ fontSize: 34 }}>🧾</div>
+              <div style={{ fontWeight: 900, fontSize: 19 }}>Cierre Z · {countZ.punto.name}</div>
+              <div style={{ color: "var(--muted)", fontSize: 13 }}>Cuenta el dinero del cajón</div>
+            </div>
+            <div style={{ background: "var(--surface2)", borderRadius: 14, padding: 14, marginBottom: 12, fontSize: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Fondo inicial</span><b>{money(countZ.fondo)}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}><span style={{ color: "var(--muted)" }}>+ Ventas en efectivo</span><b>{money(countZ.efectivo)}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)", fontSize: 16 }}><span>Debe haber</span><b style={{ color: "var(--green)" }}>{money(countZ.esperado)}</b></div>
+            </div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>¿Cuánto has contado? (puedes dejarlo vacío)</div>
+            <input autoFocus type="number" inputMode="decimal" value={countZ.valor} onChange={e => setCountZ({ ...countZ, valor: e.target.value })} style={{ ...S.input, fontSize: 24, fontWeight: 900, textAlign: "center", padding: "14px" }} placeholder="0.00" />
+            {has && (
+              <div style={{ textAlign: "center", marginTop: 12, padding: 12, borderRadius: 12, background: dif === 0 ? "rgba(34,211,166,.12)" : "rgba(255,180,0,.12)", border: `2px solid ${dif === 0 ? "var(--green)" : dif > 0 ? "var(--amber)" : "var(--red)"}` }}>
+                <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: 1 }}>{dif === 0 ? "Cuadra" : dif > 0 ? "Sobra" : "Falta"}</div>
+                <div style={{ fontSize: 30, fontWeight: 900, color: dif === 0 ? "var(--green)" : dif > 0 ? "var(--amber)" : "var(--red)" }}>{dif === 0 ? "✓ " + money(0) : money(Math.abs(dif))}</div>
+              </div>
+            )}
+            <button onClick={() => { onCierreZ(countZ.punto, has ? round2(contado) : null); setCountZ(null); }} style={{ ...S.btnPrimary, width: "100%", marginTop: 14, padding: "16px", fontSize: 16 }}>Cerrar turno e imprimir Z</button>
+            <button onClick={() => setCountZ(null)} style={{ ...S.btnGhost, width: "100%", marginTop: 8, padding: "13px" }}>Cancelar</button>
+          </div>
+        </div>
+      );
+    })()}
+    </>
   );
 }
 
@@ -1306,6 +1624,11 @@ input,select{font-family:'Manrope',sans-serif;font-size:16px;}
 }
 `;
 const S = {
+  payWrap: { position: "fixed", inset: 0, zIndex: 80, background: "rgba(0,0,0,.72)", backdropFilter: "blur(4px)", display: "flex", alignItems: "flex-end", justifyContent: "center" },
+  payCard: { width: "100%", maxWidth: 460, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 22, padding: 20, paddingBottom: "calc(20px + env(safe-area-inset-bottom))", maxHeight: "92dvh", overflow: "auto", margin: "0 auto", alignSelf: "center" },
+  payBtn: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, border: "none", borderRadius: 18, padding: "26px 10px", cursor: "pointer" },
+  noteBtn: { background: "var(--surface2)", color: "var(--text)", border: "2px solid var(--line)", borderRadius: 12, padding: "12px 6px", fontWeight: 900, fontSize: 15 },
+  padBtn: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 12, padding: "16px 0", fontSize: 22, fontWeight: 800 },
   side: { width: 230, background: "var(--surface)", borderRight: "1px solid var(--line)", padding: 18, display: "flex", flexDirection: "column", gap: 4 },
   sideMobile: { width: "100%", boxSizing: "border-box", background: "var(--surface)", borderBottom: "1px solid var(--line)", padding: 12, display: "flex", flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   mTop: { display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", borderBottom: "1px solid var(--line)", background: "var(--surface)", position: "sticky", top: 0, zIndex: 20 },
