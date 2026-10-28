@@ -284,7 +284,7 @@ function Splash() {
    ============================================================ */
 const LANDING_CSS = `
 .tf{--ink:#15171A;--muted:#6F747D;--border:#E6E8EB;--coral:#FF5A3C;--coral-d:#EB4A2D;--night:#0B0C10;--green:#22D3A6;
-  min-height:100dvh;background:#FAFAFB;color:var(--ink);font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  min-height:100dvh;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);box-sizing:border-box;background:#FAFAFB;color:var(--ink);font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   -webkit-font-smoothing:antialiased;font-optical-sizing:auto;}
 .tf *{box-sizing:border-box}
 :where(.tf) :where(h1,h2,h3,p){margin:0}
