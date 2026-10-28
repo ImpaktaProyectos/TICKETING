@@ -2,7 +2,7 @@
    Regla de oro: con internet SIEMPRE se sirve la versión nueva.
    La copia guardada solo se usa cuando NO hay conexión (para poder vender offline).
    Nunca intercepta Supabase (login, datos, tiempo real). */
-const CACHE = "ticketera-v3";
+const CACHE = "ticketera-v4";
 
 self.addEventListener("install", () => self.skipWaiting());
 

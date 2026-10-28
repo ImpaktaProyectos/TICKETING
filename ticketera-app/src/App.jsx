@@ -5,7 +5,7 @@ import * as db from "./db";
 import { nextFolios, prefijoDePunto, peekFolio, getDeviceTag, resetFolios, seedFolio } from "./folio";
 
 /* ============================================================================
-   TICKETERA — TPV de tickets para eventos (prototipo funcional)
+   TIXFAST — TPV de tickets para eventos
    Mejoras implementadas, por orden de prioridad:
    1. Offline-first + sincronización (simulada; en prod = cola local + Supabase)
    2. Multi-dispositivo en vivo (panel consolidado de todos los puntos)
@@ -26,7 +26,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.10.28c";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.10.28d";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -596,16 +596,16 @@ export default function App() {
   );
 
   if (loading) return (
-    <div style={{ height: "100vh", display: "grid", placeItems: "center", background: "#0b0c10", color: "#838aa0", fontFamily: "'Manrope',sans-serif" }}>
+    <div style={{ height: "100vh", display: "grid", placeItems: "center", background: "#0b0c10", color: "#838aa0", fontFamily: "Inter,-apple-system,sans-serif" }}>
       <div style={{ textAlign: "center" }}>
-        <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 22, color: "#eceef5", marginBottom: 8 }}><span style={{ color: "#ff5a3c" }}>●</span> TICKETERA</div>
+        <img src="/brand/tixfast_logo_horizontal_oscuro.svg" alt="TIXFAST" style={{ height: 34, width: "auto", display: "block", margin: "0 auto 14px" }} />
         Cargando…
       </div>
     </div>
   );
 
   return (
-    <div style={{ position: "relative", height: "100dvh", maxWidth: "100vw", overflow: "hidden", background: "var(--bg)", color: "var(--text)", fontFamily: "'Manrope',sans-serif", fontSize: 15 }}>
+    <div style={{ position: "relative", height: "100dvh", maxWidth: "100vw", overflow: "hidden", background: "var(--bg)", color: "var(--text)", fontFamily: "Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 15 }}>
       <style>{CSS}</style>
 
       {/* ===== LOGIN ===== */}
@@ -646,7 +646,7 @@ export default function App() {
       {isPriv && (isMobile ? (
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
           <header style={S.mTop}>
-            <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 16, flexShrink: 0 }}><span style={{ color: "var(--accent)" }}>●</span></div>
+            <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width="34" height="34" style={{ flexShrink: 0, display: "block" }} />
             <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={{ ...S.select, flex: 1, minWidth: 0 }}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn}>☰</button>
           </header>
@@ -670,7 +670,7 @@ export default function App() {
       ) : (
         <div style={{ display: "flex", height: "100%" }}>
           <aside style={S.side}>
-            <div style={S.logo}><span style={{ color: "var(--accent)" }}>●</span> TICKETERA</div>
+            <img src="/brand/tixfast_logo_horizontal_oscuro.svg" alt="TIXFAST" style={S.logoImg} />
             <div style={{ ...S.roleBadge, color: role === "admin" ? "var(--accent)" : "#3b82f6", borderColor: role === "admin" ? "var(--accent)" : "#3b82f6" }}>{role === "admin" ? "ADMIN" : "SUPERVISOR"}</div>
             <div style={{ marginTop: 12 }}>
               <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={S.select}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
@@ -760,7 +760,7 @@ export default function App() {
       {showCheck && role && (
         <div style={{ position: "fixed", inset: 0, zIndex: 70, background: "var(--bg)", overflow: "auto", padding: "calc(16px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom))" }}>
           <div style={{ maxWidth: 520, margin: "0 auto" }}>
-            <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 22, marginBottom: 4 }}><span style={{ color: "var(--accent)" }}>●</span> Comprobación previa</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}><img src="/brand/tixfast_isotipo_app.svg" alt="" width="36" height="36" /><div style={S.display}>Comprobación previa</div></div>
             <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 18 }}>Revisa esto antes de abrir la barra.</div>
 
             <CheckCard state={online ? "ok" : "warn"} title="Conexión" value={online ? (pending ? `En línea · ${pending} por subir` : "En línea") : `Sin conexión · ${pending} en cola`} note={online ? "Las ventas se guardan y suben en tiempo real." : "Puedes vender e imprimir igual; subirá solo cuando vuelva el wifi."} />
@@ -775,7 +775,7 @@ export default function App() {
 
             <button onClick={() => setShowCheck(false)} style={{ ...S.btnPrimary, width: "100%", padding: "16px", fontSize: 17, marginTop: 6 }}>✅ Todo listo · Empezar a vender</button>
             <button onClick={() => { setShowCheck(false); exitToLogin(); }} style={{ ...S.btnGhost, width: "100%", marginTop: 10, padding: "13px" }}>Cambiar de barra / rol</button>
-            <div style={{ textAlign: "center", fontSize: 11, color: "var(--muted)", marginTop: 14 }}>Ticketera · versión {APP_VERSION}</div>
+            <div style={{ textAlign: "center", fontSize: 11, color: "var(--muted)", marginTop: 14 }}>TIXFAST · versión {APP_VERSION}</div>
           </div>
         </div>
       )}
@@ -827,7 +827,7 @@ function RoleGate({ ev, events, adminPin, supervisorPin, onSelectEvent, onRole }
   return (
     <div style={S.gateWrap}>
       <div style={S.gateCard}>
-        <div style={{ textAlign: "center" }}><div style={S.logo}><span style={{ color: "var(--accent)" }}>●</span> TICKETERA</div></div>
+        <img src="/brand/tixfast_logo_horizontal_oscuro.svg" alt="TIXFAST" style={{ height: 32, width: "auto", display: "block", margin: "0 auto" }} />
         <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13, margin: "6px 0 18px" }}>Elige evento y entra con tu rol</div>
         <select value={ev.id} onChange={e => onSelectEvent(e.target.value)} style={{ ...S.select, marginBottom: 18 }}>{events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
 
@@ -937,7 +937,7 @@ function FondoGate({ puntoName, onSave, onBack, pending }) {
       <div style={{ maxWidth: 460, margin: "0 auto" }}>
         <div style={{ textAlign: "center", marginBottom: 18 }}>
           <div style={{ fontSize: 44 }}>💰</div>
-          <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 22, marginTop: 4 }}>Fondo de caja</div>
+          <div style={{ ...S.display, marginTop: 4 }}>Fondo de caja</div>
           <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 4 }}>¿Cuánto dinero hay en el cajón de <b style={{ color: "var(--accent)" }}>{puntoName}</b> antes de empezar?</div>
         </div>
 
@@ -1858,7 +1858,7 @@ function shade(hex, p) { const n = parseInt(hex.slice(1), 16); let r = (n >> 16)
 
 /* ---------------------- styles ---------------------- */
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Manrope:wght@400;600;700;800&family=Roboto+Mono:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&family=Roboto+Mono:wght@400;700&display=swap');
 :root{--bg:#0b0c10;--surface:#14161d;--surface2:#1c1f29;--line:#2a2e3a;--text:#eceef5;--muted:#838aa0;--accent:#ff5a3c;--green:#22d3a6;--amber:#ffb400;--red:#ff4d4d;}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body,#root{height:100%;margin:0;padding:0;}
@@ -1869,8 +1869,9 @@ input,select,textarea{max-width:100%;}
 .tile:not(:disabled):active{transform:scale(.95);}
 .tile:not(:disabled):hover{box-shadow:0 12px 34px rgba(0,0,0,.45);}
 .nav-btn:hover{background:var(--surface2);}
-button{font-family:'Manrope',sans-serif;cursor:pointer;}
-input,select{font-family:'Manrope',sans-serif;font-size:16px;}
+body{font-optical-sizing:auto;-webkit-font-smoothing:antialiased;}
+button{font-family:Inter,-apple-system,sans-serif;cursor:pointer;}
+input,select{font-family:Inter,-apple-system,sans-serif;font-size:16px;}
 .scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
 .scroll-x::-webkit-scrollbar{display:none;}
 ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
@@ -1905,7 +1906,9 @@ const S = {
   sheetWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", zIndex: 60, display: "flex", alignItems: "flex-end", backdropFilter: "blur(3px)" },
   sheet: { width: "100%", background: "var(--surface)", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, paddingBottom: "calc(20px + env(safe-area-inset-bottom))", maxHeight: "86dvh", overflow: "auto", borderTop: "1px solid var(--line)" },
   grab: { width: 40, height: 4, borderRadius: 4, background: "var(--line)", margin: "0 auto 14px" },
-  logo: { fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: 20, letterSpacing: 1 },
+  logo: { fontFamily: "Inter,sans-serif", fontVariationSettings: "'opsz' 32", fontWeight: 700, fontSize: 20, letterSpacing: "-.02em" },
+  logoImg: { height: 30, width: "auto", display: "block", alignSelf: "flex-start", marginBottom: 6 },
+  display: { fontFamily: "Inter,sans-serif", fontVariationSettings: "'opsz' 32", fontWeight: 700, fontSize: 22, letterSpacing: "-.03em" },
   select: { width: "100%", background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", fontWeight: 600, outline: "none" },
   navBtn: { display: "flex", alignItems: "center", gap: 10, background: "transparent", color: "var(--text)", border: "none", padding: "12px 14px", borderRadius: 10, fontWeight: 700, fontSize: 15, textAlign: "left" },
   navActive: { background: "var(--surface2)", color: "#fff", boxShadow: "inset 3px 0 0 var(--accent)" },
@@ -1928,7 +1931,7 @@ const S = {
   printerStatusSm: { display: "flex", alignItems: "center", gap: 7, background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", color: "var(--text)", fontSize: 12, fontWeight: 700 },
   roleBadge: { marginTop: 8, fontSize: 11, fontWeight: 800, letterSpacing: 1, border: "1px solid", borderRadius: 20, padding: "3px 10px", alignSelf: "flex-start" },
   cashierTop: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 22px", borderBottom: "1px solid var(--line)", background: "var(--surface)", flexWrap: "wrap", gap: 10 },
-  gateWrap: { minHeight: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, overflow: "auto", background: "radial-gradient(1100px 560px at 50% -10%, #211a30, var(--bg))" },
+  gateWrap: { minHeight: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, overflow: "auto", background: "radial-gradient(900px 480px at 50% -12%, rgba(255,90,60,.10), transparent 70%), var(--bg)" },
   gateCard: { width: 440, maxWidth: "100%", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 22, padding: 28, boxShadow: "0 30px 80px rgba(0,0,0,.55)" },
   gateRole: { display: "flex", flexDirection: "column", alignItems: "center", gap: 5, padding: "20px 8px", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 16, color: "var(--text)" },
   liveDot: { width: 8, height: 8, borderRadius: "50%", background: "var(--green)", display: "inline-block" },
