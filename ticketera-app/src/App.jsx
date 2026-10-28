@@ -26,7 +26,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.10.28";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.10.28b";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -852,6 +852,80 @@ function RoleGate({ ev, events, adminPin, supervisorPin, onSelectEvent, onRole }
   );
 }
 
+/* ---------------------- Selector de iconos (emojis por categorías) ---------------------- */
+const EMOJI_CATS = [
+  { k: "comida", l: "🍔 Comida", items: [
+    ["🍔","hamburguesa burger"],["🌭","perrito caliente hot dog salchicha salchipapa"],["🍟","patatas fritas papas salchipapa"],["🍕","pizza porcion"],["🌮","taco mexicano"],["🌯","burrito wrap kebab"],["🥙","kebab durum pita"],["🥪","bocadillo sandwich montado"],["🥖","pan baguette barra bocata"],["🧆","falafel croqueta"],["🍗","pollo muslo alitas"],["🍖","carne costillas churrasco"],["🥩","filete carne chuleton"],["🥓","bacon panceta"],["🍳","huevo frito"],["🥚","huevo"],["🧀","queso"],["🥗","ensalada"],["🍝","pasta espagueti"],["🍜","sopa ramen fideos"],["🍲","guiso olla caldo"],["🥘","paella cazuela migas"],["🍛","curry arroz"],["🍚","arroz"],["🍱","bento menu"],["🍣","sushi"],["🍤","gamba frita tempura"],["🦐","gamba marisco"],["🦑","calamares bravas"],["🐙","pulpo"],["🥟","empanadilla gyoza"],["🫓","pan pita tortita"],["🥞","tortitas crepes"],["🧇","gofre waffle"],["🥨","pretzel"],["🥐","croissant cruasan"],["🍞","pan tostada"],["🌽","maiz mazorca"],["🥔","patata"],["🫒","aceitunas olivas"],["🥜","cacahuetes frutos secos"],["🍿","palomitas"],["🧂","sal snack"],["🥫","lata conserva"],["🍢","brocheta pincho"],["🍡","pincho dulce"],["🫕","fondue"],["🥣","cuenco bol"]]},
+  { k: "dulce", l: "🍩 Dulces", items: [
+    ["🍩","donut rosquilla"],["🍪","galleta cookie"],["🎂","tarta cumpleaños"],["🍰","pastel tarta porcion"],["🧁","cupcake magdalena"],["🥧","tarta pie"],["🍫","chocolate"],["🍬","caramelo chuche"],["🍭","piruleta chuches"],["🍮","flan"],["🍦","helado cucurucho"],["🍨","helado copa"],["🍧","granizado hielo"],["🍯","miel"],["🍓","fresa"],["🍉","sandia"],["🍌","platano"],["🍎","manzana"],["🍊","naranja"],["🍋","limon"],["🍍","piña"],["🥥","coco"],["🍇","uvas"],["🍒","cerezas"]]},
+  { k: "bebida", l: "🥤 Bebidas", items: [
+    ["🥤","refresco cola vaso"],["💧","agua"],["🧃","zumo brick"],["🧋","batido bubble tea"],["🥛","leche batido"],["☕","cafe cortado"],["🍵","te infusion"],["🧉","mate"],["🧊","hielo cubitos"],["🫗","rellenar chupito servir"],["🍶","sake botella"],["🥥","coco"],["⚡","energetica red bull"]]},
+  { k: "alcohol", l: "🍺 Copas", items: [
+    ["🍺","cerveza caña"],["🍻","cervezas jarra doble"],["🍷","vino tinto"],["🥂","cava champan brindis"],["🍾","botella champan reservado"],["🍸","coctel martini copa"],["🍹","coctel tropical mojito"],["🥃","whisky chupito copa"],["🍶","licor"],["🧉","combinado"],["🍋","limon gin tonic"],["🫒","vermut"]]},
+  { k: "entrada", l: "🎟️ Entradas", items: [
+    ["🎟️","entrada ticket"],["🎫","ticket billete pase"],["⭐","vip estrella"],["🌟","premium"],["👑","vip corona reservado"],["💎","vip diamante"],["🎉","fiesta"],["🎊","celebracion"],["🎶","musica concierto"],["🎵","musica"],["🎤","karaoke microfono"],["🎧","dj"],["🪩","discoteca bola"],["🔥","hot fuego"],["💃","baile"],["🕺","baile"],["🎭","teatro"],["🎪","circo feria"],["🎡","noria feria atraccion"],["🎠","tiovivo atraccion"],["🎢","montaña rusa atraccion"],["🎯","dardos tiro"],["🎳","bolos"],["🎱","billar"],["🏆","premio torneo"],["🥇","oro primero"],["🍀","sorteo suerte"],["🎰","sorteo rifa"],["🅿️","parking aparcamiento"],["🚌","bus autobus lanzadera"],["🔞","mayores 18"],["🧒","niños infantil"],["🎃","halloween"],["🎄","navidad"],["❤️","amor"],["☀️","dia"],["🌙","noche"]]},
+  { k: "merch", l: "👕 Merch", items: [
+    ["👕","camiseta"],["🧥","sudadera chaqueta guardarropa ropero"],["🧢","gorra"],["👜","bolso"],["🎒","mochila"],["👓","gafas"],["🕶️","gafas sol"],["🧣","bufanda"],["🧦","calcetines"],["🪭","abanico"],["🌂","paraguas chubasquero"],["🔑","taquilla llave"],["🔦","linterna"],["🔋","bateria carga movil"],["📱","movil carga"],["💡","pulsera luz"],["🏷️","pulsera etiqueta"],["🎁","regalo"],["🧸","peluche"],["🎈","globo"],["🪪","acreditacion"],["🧴","crema"],["🚬","tabaco"],["🧻","papel"],["🚻","baños"]]},
+  { k: "otros", l: "✨ Otros", items: [
+    ["🪙","ficha moneda token"],["💶","euro dinero"],["💳","tarjeta"],["🧾","ticket recibo"],["✅","ok"],["➕","extra suplemento"],["🆓","gratis"],["🆕","nuevo"],["🔴","rojo"],["🟠","naranja"],["🟡","amarillo"],["🟢","verde"],["🔵","azul"],["🟣","morado"],["⚫","negro"],["⚪","blanco"],["1️⃣","uno 1"],["2️⃣","dos 2"],["3️⃣","tres 3"],["🅰️","a"],["🅱️","b"]]},
+];
+const EMOJI_ALL = EMOJI_CATS.flatMap(c => c.items);
+const normTxt = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+const RECENT_KEY = "ticketera_recent_emojis";
+const getRecent = () => { try { const r = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); return Array.isArray(r) ? r : []; } catch { return []; } };
+const pushRecent = (e) => { try { localStorage.setItem(RECENT_KEY, JSON.stringify([e, ...getRecent().filter(x => x !== e)].slice(0, 16))); } catch {} };
+
+function EmojiPicker({ value, onChange, size = 52 }) {
+  const isMobile = useIsMobile();
+  const [open, setOpen] = useState(false);
+  const [cat, setCat] = useState(null);
+  const [q, setQ] = useState("");
+  const [custom, setCustom] = useState("");
+  const recent = getRecent();
+  const pick = (e) => { const v = String(e).trim(); if (!v) return; pushRecent(v); onChange(v); setOpen(false); setQ(""); setCustom(""); };
+  const nq = normTxt(q.trim());
+  const list = nq ? EMOJI_ALL.filter(([, kw]) => normTxt(kw).includes(nq))
+    : cat ? (EMOJI_CATS.find(c => c.k === cat)?.items || []) : null;
+  const cell = { fontSize: 30, height: 54, borderRadius: 12, border: "1px solid var(--line)", background: "var(--surface2)", cursor: "pointer", display: "grid", placeItems: "center", padding: 0 };
+  const Grid = ({ items }) => (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(54px, 1fr))", gap: 8 }}>
+      {items.map(([e, kw], i) => <button key={e + i} title={kw} onClick={() => pick(e)} style={{ ...cell, ...(e === value ? { borderColor: "var(--accent)", boxShadow: "0 0 0 2px var(--accent)" } : {}) }}>{e}</button>)}
+    </div>
+  );
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} title="Elegir icono" style={{ width: size, height: size, flexShrink: 0, borderRadius: 12, border: "2px dashed var(--line)", background: "var(--surface2)", cursor: "pointer", fontSize: size * 0.5, display: "grid", placeItems: "center", padding: 0, lineHeight: 1 }}>{value || "➕"}</button>
+      {open && (
+        <div style={{ ...(isMobile ? S.sheetWrap : S.overlay), zIndex: 95 }} onClick={() => setOpen(false)}>
+          <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, width: 560, maxWidth: "94vw", maxHeight: "86dvh", overflow: "auto", textAlign: "left" }} onClick={e => e.stopPropagation()}>
+            {isMobile && <div style={S.grab} />}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 10 }}>
+              <div style={{ fontWeight: 800, fontSize: 17 }}>Elige un icono</div>
+              <button onClick={() => setOpen(false)} style={S.iconBtn}>✕</button>
+            </div>
+            <input autoFocus={!isMobile} value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar: hamburguesa, perrito, cerveza, vip…" style={{ ...S.input, marginBottom: 10 }} />
+            {!nq && (
+              <div className="scroll-x" style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                <button onClick={() => setCat(null)} style={{ ...S.chip, flexShrink: 0, ...(cat === null ? S.chipActive : {}) }}>⏱️ Recientes</button>
+                {EMOJI_CATS.map(c => <button key={c.k} onClick={() => setCat(c.k)} style={{ ...S.chip, flexShrink: 0, ...(cat === c.k ? S.chipActive : {}) }}>{c.l}</button>)}
+              </div>
+            )}
+            {list ? (list.length ? <Grid items={list} /> : <div style={{ color: "var(--muted)", fontSize: 13, padding: "10px 0" }}>Sin resultados. Pega el emoji abajo.</div>)
+              : (recent.length ? <Grid items={recent.map(e => [e, "reciente"])} /> : <div style={{ color: "var(--muted)", fontSize: 13, padding: "6px 0 2px" }}>Aún no hay recientes. Elige una categoría o busca arriba.</div>)}
+            <div style={{ borderTop: "1px solid var(--line)", marginTop: 14, paddingTop: 12 }}>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>¿No está? Escribe o pega cualquier emoji (puedes combinar dos, ej. 🌭🍟 para salchipapas)</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input value={custom} onChange={e => setCustom(Array.from(e.target.value).slice(0, 4).join(""))} placeholder="🌭🍟" style={{ ...S.input, fontSize: 22, textAlign: "center" }} />
+                <button onClick={() => pick(custom)} disabled={!custom.trim()} style={{ ...S.btnPrimary, width: "auto", padding: "0 18px", opacity: custom.trim() ? 1 : .4 }}>Usar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 /* ---------------------- Fondo de caja (obligatorio para abrir) ---------------------- */
 function FondoGate({ puntoName, onSave, onBack, pending }) {
   const [v, setV] = useState("");
@@ -1282,7 +1356,6 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
     setEditCombo(null); flash("Bono guardado");
   };
   const delCombo = (id) => { saveCombos(combos.filter(c => c.id !== id)); flash("Bono borrado"); };
-  const emojis = ["🎟️", "⭐", "🍺", "🍹", "🥤", "💧", "🥪", "🧥", "🥂", "🥃", "🌭", "🍕", "🎫", "🪙"];
   const puntoTieneVentas = (id) => evSales.some(s => s.puntoId === id);
 
   const saveRename = () => {
@@ -1397,7 +1470,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
         <h3 style={S.h3}>Productos de “{punto.name}” ({punto.products.length})</h3>
         <div style={S.panel}>
           <input style={S.input} placeholder="Nombre (ej. ENTRADA GENERAL)" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} />
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}><input style={{ ...S.input, width: 110 }} type="number" placeholder="Precio €" value={draft.price} onChange={e => setDraft({ ...draft, price: e.target.value })} /><select style={{ ...S.input, width: 80 }} value={draft.emoji} onChange={e => setDraft({ ...draft, emoji: e.target.value })}>{emojis.map(x => <option key={x}>{x}</option>)}</select></div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}><input style={{ ...S.input, width: 110 }} type="number" placeholder="Precio €" value={draft.price} onChange={e => setDraft({ ...draft, price: e.target.value })} /><EmojiPicker value={draft.emoji} onChange={v => setDraft({ ...draft, emoji: v })} size={46} /></div>
           <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>{PALETTE.map(c => <button key={c} onClick={() => setDraft({ ...draft, color: c })} style={{ width: 26, height: 26, borderRadius: 7, background: c, border: draft.color === c ? "3px solid #fff" : "3px solid transparent", cursor: "pointer" }} />)}</div>
           <button onClick={addProduct} style={{ ...S.btnPrimary, marginTop: 12 }}>+ Añadir a {punto.name}</button>
         </div>
@@ -1444,7 +1517,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
           <Field label="Nombre"><input style={S.input} value={editProd.name} onChange={e => setEditProd({ ...editProd, name: e.target.value })} /></Field>
           <div style={{ display: "flex", gap: 8 }}>
             <Field label="Precio €"><input type="number" style={S.input} value={editProd.price} onChange={e => setEditProd({ ...editProd, price: e.target.value })} /></Field>
-            <Field label="Icono"><select style={S.input} value={editProd.emoji} onChange={e => setEditProd({ ...editProd, emoji: e.target.value })}>{emojis.map(x => <option key={x}>{x}</option>)}</select></Field>
+            <Field label="Icono"><EmojiPicker value={editProd.emoji} onChange={v => setEditProd({ ...editProd, emoji: v })} size={46} /></Field>
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)", margin: "8px 0 6px" }}>Color</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{PALETTE.map(c => <button key={c} onClick={() => setEditProd({ ...editProd, color: c })} style={{ width: 28, height: 28, borderRadius: 7, background: c, border: editProd.color === c ? "3px solid #fff" : "3px solid transparent", cursor: "pointer" }} />)}</div>
