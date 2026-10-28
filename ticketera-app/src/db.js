@@ -103,9 +103,28 @@ export async function persistAction(action, ctx = {}) {
    - Si hay cola pendiente, lo nuevo también va a la cola (respeta el orden venta -> anulación).
    - Venta ya existente en el servidor (duplicado) = ya estaba subida -> se da por buena.
 ============================================================================================ */
+/* Datos locales SEPARADOS POR CUENTA: si en un mismo equipo entra otra cuenta,
+   no ve ni sube nada de la anterior. */
+let SCOPE = "";
+export const scopedKey = (base) => (SCOPE ? base + "__" + SCOPE : base);
+export function setUserScope(uid) {
+  if (!uid || SCOPE === uid) return;
+  SCOPE = uid;
+  // Datos antiguos sin cuenta asignada (versiones previas): pasan a la primera cuenta que entra
+  try {
+    if (!localStorage.getItem("ticketera_legacy_owner")) {
+      localStorage.setItem("ticketera_legacy_owner", uid);
+      ["ticketera_pending", "ticketera_failed", "ticketera_last_backup", "ticketera_snapshot"].forEach(b => {
+        const v = localStorage.getItem(b);
+        if (v != null && localStorage.getItem(scopedKey(b)) == null) localStorage.setItem(scopedKey(b), v);
+        localStorage.removeItem(b);
+      });
+    }
+  } catch {}
+}
 const QKEY = "ticketera_pending";
-const loadQ = () => { try { const q = JSON.parse(localStorage.getItem(QKEY) || "[]"); return Array.isArray(q) ? q : []; } catch { return []; } };
-const saveQ = (q) => { try { localStorage.setItem(QKEY, JSON.stringify(q)); } catch (e) { console.error("No se pudo guardar la cola", e); } };
+const loadQ = () => { try { const q = JSON.parse(localStorage.getItem(scopedKey(QKEY)) || "[]"); return Array.isArray(q) ? q : []; } catch { return []; } };
+const saveQ = (q) => { try { localStorage.setItem(scopedKey(QKEY), JSON.stringify(q)); } catch (e) { console.error("No se pudo guardar la cola", e); } };
 const newQid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random());
 const enqueue = (item) => { const q = loadQ(); q.push({ ...item, qid: item.qid || newQid() }); saveQ(q); };
 const removeQids = (ids) => { if (!ids.length) return; const set = new Set(ids); saveQ(loadQ().filter(it => !set.has(it.qid))); };
@@ -128,7 +147,7 @@ async function runItem(it) {
   else if (it.op === "backup") {
     const { error } = await supabase.from("ticket_backups").insert({ id: it.id, evento_id: it.evento, dispositivo: it.dispositivo, tomado_en: it.tomado_en, datos: it.datos });
     if (error && !isDuplicate(error)) throw error;          // ya subida = correcta
-    try { localStorage.setItem("ticketera_last_backup", it.tomado_en); } catch {}
+    try { localStorage.setItem(scopedKey("ticketera_last_backup"), it.tomado_en); } catch {}
   }
   else if (it.op === "setFondo") {
     const { error } = await supabase.from("ticket_puntos").update({ fondo: it.fondo, fondo_en: it.fecha, fondo_por: it.por }).eq("id", it.punto);
@@ -139,8 +158,8 @@ async function runItem(it) {
 // Error del servidor (dato rechazado) vs error de red (sin conexión): solo los primeros cuentan intentos
 const isServerError = (err) => !!(err && err.code && err.code !== "PGRST301" && !/fetch|network|timeout/i.test(err.message || ""));
 const FKEY = "ticketera_failed";
-export const failedCount = () => { try { return (JSON.parse(localStorage.getItem(FKEY) || "[]") || []).length; } catch { return 0; } };
-const addFailed = (it, err) => { try { const f = JSON.parse(localStorage.getItem(FKEY) || "[]"); f.push({ ...it, error: String(err?.message || err), failedAt: new Date().toISOString() }); localStorage.setItem(FKEY, JSON.stringify(f.slice(-500))); } catch {} };
+export const failedCount = () => { try { return (JSON.parse(localStorage.getItem(scopedKey(FKEY)) || "[]") || []).length; } catch { return 0; } };
+const addFailed = (it, err) => { try { const f = JSON.parse(localStorage.getItem(scopedKey(FKEY)) || "[]"); f.push({ ...it, error: String(err?.message || err), failedAt: new Date().toISOString() }); localStorage.setItem(scopedKey(FKEY), JSON.stringify(f.slice(-500))); } catch {} };
 
 // Candado: una sola sincronización a la vez
 let syncing = null;
@@ -230,7 +249,7 @@ export function deviceName() {
   try { id = localStorage.getItem("ticketera_device_id"); if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())).slice(0, 4).toUpperCase(); localStorage.setItem("ticketera_device_id", id); } } catch { id = "????"; }
   return "Equipo " + id;
 }
-export const lastBackupAt = () => { try { return localStorage.getItem("ticketera_last_backup"); } catch { return null; } };
+export const lastBackupAt = () => { try { return localStorage.getItem(scopedKey("ticketera_last_backup")); } catch { return null; } };
 
 // Foto del estado con su hora. Con red sube al momento; sin red se guarda y sube al volver.
 export function backupSnapshot(eventId, datos) {

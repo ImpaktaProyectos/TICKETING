@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "./supabase";
+import { setUserScope, pendingCount } from "./db";
 
 export function useSession() {
   const [session, setSession] = useState(undefined);
@@ -15,10 +16,16 @@ export function RequireSession({ children }) {
   const session = useSession();
   if (session === undefined) return <Splash text="Cargando…" />;
   if (!session) return <Login />;
-  return children;
+  setUserScope(session.user.id);
+  // key = cuenta: al cambiar de cuenta la app se reinicia de cero, sin datos de la anterior
+  return <React.Fragment key={session.user.id}>{children}</React.Fragment>;
 }
 
-export const logout = () => supabase.auth.signOut();
+export const logout = () => {
+  const n = pendingCount();
+  if (n > 0 && !window.confirm(`Hay ${n} operaciones de esta cuenta SIN SUBIR a la nube. Se quedarán guardadas en este equipo y subirán cuando vuelvas a entrar con esta misma cuenta. ¿Cerrar sesión igualmente?`)) return;
+  return supabase.auth.signOut();
+};
 
 function Login() {
   const [email, setEmail] = useState("");

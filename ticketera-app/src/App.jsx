@@ -26,7 +26,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.10.28b";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.10.28c";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -289,7 +289,7 @@ export default function App() {
     return { events: evs, sales };
   };
 
-  const SNAP = "ticketera_snapshot";
+  const SNAP = db.scopedKey("ticketera_snapshot");
   const hydrate = async () => {
     let data;
     try {
