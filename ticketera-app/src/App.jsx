@@ -26,7 +26,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.09.23b";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.10.28";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -461,6 +461,13 @@ export default function App() {
   };
   const requestVoidCajero = () => { if (ev.anularPin) setAskVoidPin(true); else voidLast(punto.name); };
 
+  // Venta avanzada desde el propio TPV (cobro con cálculo de cambio)
+  const toggleAdvanced = () => {
+    const on = !ev.advanced;
+    dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: on ? { advanced: true, changeHelp: true } : { advanced: false } });
+    flash(on ? "💶 Venta avanzada activada" : "Venta avanzada desactivada", on ? "ok" : "warn");
+  };
+
   // Bono / oferta: registra UNA venta al precio del bono e imprime todos los vales de un clic
   const sellCombo = (combo) => {
     if (!ev.id || !punto?.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return; }
@@ -620,7 +627,7 @@ export default function App() {
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn}>☰</button>
           </header>
           <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
-            <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} />
+            <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />
           </div>
         </div>
       ) : (
@@ -630,7 +637,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.btnGhost}>🔒 Salir</button></div>
           </header>
           <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-            <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} />
+            <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />
           </div>
         </div>
       ))}
@@ -651,7 +658,7 @@ export default function App() {
                 <button onClick={() => setAskRevenue(true)} style={{ ...S.consultBtn, padding: "10px 12px" }}>💶</button>
               </div>
             </div>
-            {safeView === "pos" && <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} />}
+            {safeView === "pos" && <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
             {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
             {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
@@ -690,7 +697,7 @@ export default function App() {
               </div>
             </header>
             <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-              {safeView === "pos" && <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} />}
+              {safeView === "pos" && <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
               {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
               {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
               {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
@@ -734,6 +741,9 @@ export default function App() {
       {payFlow && (
         <PayFlow
           total={payFlow.total}
+          lines={payFlow.kind === "single" ? [{ qty: payFlow.qty, name: payFlow.product.name, total: round2(payFlow.product.price * payFlow.qty) }]
+            : payFlow.kind === "many" ? payFlow.items.map(it => ({ qty: it.qty, name: it.product.name, total: round2(it.product.price * it.qty) }))
+            : [{ qty: 1, name: payFlow.combo.name, total: payFlow.total }]}
           changeHelp={ev.changeHelp !== false}
           onCancel={() => setPayFlow(null)}
           onDisableHelp={(on = false) => { dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { changeHelp: !!on } }); flash(on ? "Ayuda con el cambio activada" : "Ayuda con el cambio desactivada"); }}
@@ -884,7 +894,7 @@ function FondoGate({ puntoName, onSave, onBack, pending }) {
 }
 
 /* ---------------------- Cobro avanzado (efectivo / tarjeta + cambio) ---------------------- */
-function PayFlow({ total, changeHelp = true, onDone, onCancel, onDisableHelp }) {
+function PayFlow({ total, lines = [], changeHelp = true, onDone, onCancel, onDisableHelp }) {
   const isMobile = useIsMobile();
   const [mode, setMode] = useState(null);        // null | efectivo
   const [given, setGiven] = useState("");
@@ -903,6 +913,16 @@ function PayFlow({ total, changeHelp = true, onDone, onCancel, onDisableHelp }) 
       <div className={isMobile ? "sheet-anim" : ""} style={{ ...S.payCard, ...(isMobile ? { borderRadius: "22px 22px 0 0", maxHeight: "94dvh" } : {}) }}>
         {/* Total a cobrar, enorme */}
         <div style={{ textAlign: "center", marginBottom: 16 }}>
+          {lines.length > 0 && (
+            <div style={{ background: "var(--surface2)", borderRadius: 12, padding: "8px 12px", marginBottom: 12, textAlign: "left" }}>
+              {lines.map((l, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 15, fontWeight: 700, padding: "3px 0" }}>
+                  <span style={{ minWidth: 0 }}><b style={{ color: "var(--accent)" }}>{l.qty} ×</b> {l.name}</span>
+                  <span style={{ flexShrink: 0 }}>{money(l.total)}</span>
+                </div>
+              ))}
+            </div>
+          )}
           <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 2, fontWeight: 800 }}>Total a cobrar</div>
           <div style={{ fontSize: 52, fontWeight: 900, lineHeight: 1.05, color: "var(--accent)" }}>{money(total)}</div>
         </div>
@@ -999,7 +1019,7 @@ function CheckCard({ state, title, value, note, children }) {
 /* ============================================================
    POS
    ============================================================ */
-function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed }) {
+function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, onToggleAdvanced }) {
   const isMobile = useIsMobile();
   const combos = punto.combos || [];
   const [qty, setQty] = useState(1);
@@ -1026,6 +1046,14 @@ function POS({ punto, totals, onSell, onSellMany, onVoid, onReprint, canReprint,
     <div>
       {closed && <div style={{ background: "var(--red)", color: "#fff", fontWeight: 800, textAlign: "center", padding: "12px", borderRadius: 12, marginBottom: 14 }}>🔒 CAJA CERRADA · no se puede vender en este evento</div>}
       {testMode && !closed && <div style={{ background: "var(--amber)", color: "#1a1205", fontWeight: 800, textAlign: "center", padding: "12px", borderRadius: 12, marginBottom: 14 }}>🧪 MODO PRUEBA · imprime pero NO cuenta en la caja</div>}
+      <button onClick={onToggleAdvanced} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", marginBottom: 14, borderRadius: 14, cursor: "pointer", textAlign: "left", background: advanced ? "rgba(34,211,166,.12)" : "var(--surface)", border: `2px solid ${advanced ? "var(--green)" : "var(--line)"}`, color: "var(--text)" }}>
+        <span style={{ fontSize: 26, flexShrink: 0 }}>💶</span>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: "block", fontWeight: 900, fontSize: 15 }}>Venta avanzada {advanced ? "ACTIVADA" : "desactivada"}</span>
+          <span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>{advanced ? "Al vender: total, lo que entrega el cliente y el cambio a devolver" : "Toca para cobrar con cálculo del cambio"}</span>
+        </span>
+        <span style={{ ...S.switch, display: "inline-block", flexShrink: 0, background: advanced ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, left: 0, transform: advanced ? "translateX(20px)" : "translateX(2px)" }} /></span>
+      </button>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
         {!grouping ? (
           <>
