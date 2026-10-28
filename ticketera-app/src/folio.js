@@ -17,3 +17,16 @@ export function nextFolio(eventoId, puntoId, prefijo) {
 export function nextFolios(eventoId, puntoId, prefijo, qty) {
   const out = []; for (let i = 0; i < qty; i++) out.push(nextFolio(eventoId, puntoId, prefijo)); return out;
 }
+// Lee el contador actual SIN incrementarlo (para mostrar el próximo folio)
+export function peekFolio(eventoId, puntoId) {
+  return parseInt(localStorage.getItem(KEY(eventoId, puntoId)) || "0", 10) || 0;
+}
+// Reinicia los contadores de folio de este dispositivo para un evento (al resetear)
+export function resetFolios(eventoId, puntoIds = []) {
+  puntoIds.forEach(pid => localStorage.removeItem(KEY(eventoId, pid)));
+}
+// Retoma la numeración (p.ej. en un ordenador nuevo): nunca baja, solo sube hasta 'n'
+export function seedFolio(eventoId, puntoId, n) {
+  const cur = parseInt(localStorage.getItem(KEY(eventoId, puntoId)) || "0", 10) || 0;
+  if (n > cur) localStorage.setItem(KEY(eventoId, puntoId), String(n));
+}

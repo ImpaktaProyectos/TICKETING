@@ -52,6 +52,10 @@ Botón derecho sobre la impresora → *Preferencias de impresión* → *Diseño/
 - **Márgenes:** 0 si te deja.
 
 ### 4.3 Que imprima SIN diálogo (modo kiosko) — el paso clave
+
+**Lo más fácil:** en la carpeta del proyecto hay un archivo **`abrir-ticketera.bat`**. Ábrelo con el Bloc de notas, cambia la línea `set URL=` por tu dirección de Vercel, guárdalo, y haz **doble clic**. Abre la app ya en modo impresión directa. (Puedes crear un acceso directo de ese .bat en el escritorio.)
+
+Si prefieres hacerlo a mano:
 Los navegadores, por seguridad, **siempre** muestran el diálogo de impresión… salvo en **modo kiosko de impresión**. Se activa creando un acceso directo a Chrome con un parámetro:
 
 1. Clic derecho en el escritorio → **Nuevo → Acceso directo**.
@@ -98,3 +102,51 @@ npm run build    # build de producción (Vercel lo hace solo)
 ```
 
 Estructura: `src/App.jsx` (UI), `src/db.js` (acceso a datos + mapeo BD↔UI), `src/folio.js` (folio local), `src/auth.jsx` (login), `src/supabase.js` (cliente). El esquema SQL completo está en `supabase_ticketera.sql` (en la entrega anterior). El módulo ESC/POS directo (`printer-escpos.js`) queda disponible como vía avanzada futura (impresión por socket LAN/USB nativo); la app web usa impresión por navegador.
+
+---
+
+## 8. Bonos / Ofertas especiales (BONOCOPAS, BONOCERVEZA…)
+
+En *Configuración → Bonos / Ofertas especiales* (dentro de cada barra) puedes crear bonos:
+- Pones un **nombre** (ej. `BONOCOPAS`), un **precio** del bono (o lo dejas vacío y cobra la suma), y eliges **qué tickets imprime** (ej. 4× COPA, o 2× CERVEZA + 1× AGUA).
+- En el TPV aparece como un **botón dorado**. Al tocarlo: **se cobra el bono al precio que pusiste** y **se imprimen de golpe todos los tickets** configurados, cada uno cortado por separado.
+- En caja, el bono se registra como **una venta** con su nombre y su precio.
+
+Para vender varias unidades sueltas de un producto (ej. 4 copas en un ticket-multiplicado) usa el selector **×1 ×2 ×4…** del TPV: un toque imprime esas unidades de una.
+
+---
+
+## 9. Instalar como app (PWA) — funciona sin wifi
+
+La app ahora es una **PWA instalable**: se guarda en el dispositivo y **abre sin conexión** tras instalarla una vez.
+
+**Instalar en Android (Chrome):** abre tu URL → menú ⋮ → *Instalar aplicación* / *Añadir a pantalla de inicio*. Aparece el icono de Ticketera como una app.
+
+**Instalar en Windows (Chrome/Edge):** abre tu URL → icono de instalar en la barra de direcciones (o menú → *Instalar Ticketera*).
+
+**iPhone/iPad (Safari):** Compartir → *Añadir a pantalla de inicio*. (Recuerda: la impresora Unykach no es compatible con iPad.)
+
+### Qué funciona sin wifi y qué no
+- **SIN wifi (una vez abierta/instalada):** vender, **imprimir tickets**, bonos, cantidades. Las ventas se **guardan en cola** y se sincronizan solas al volver la conexión.
+- **NECESITA conexión (un momento):** la **primera** carga en cada dispositivo (descargar la app y hacer login), ver datos **entre barras en tiempo real**, y **consolidar la caja** de todas las barras.
+
+### Recomendación para un evento
+1. **Antes del evento, con wifi:** abre e **instala la app en cada tablet** y haz login. Así queda guardada y arranca aunque se caiga la red.
+2. Lleva un **4G/router de respaldo** para que las ventas suban y la caja cuadre en tiempo real (no es obligatorio para vender/imprimir, sí para sincronizar).
+3. La **impresión no depende del wifi**: la Unykach va por USB o cable de red directo al equipo.
+
+> Si actualizas la app (subes cambios a GitHub), al abrirla con conexión se actualiza sola.
+
+---
+
+## 10. Copias de seguridad y cambio de ordenador
+
+**Con internet:** cada venta sube a la nube al instante. Además, cada 30 minutos se guarda una **copia de seguridad con su hora** (tickets, facturación, efectivo, tarjeta y fondo de cada barra). Se ven en *Informes → Copias de seguridad → Ver historial*.
+
+**Sin internet:** todo se guarda en el disco del equipo (sobrevive a un apagado). Al volver la red, sube solo, con la hora original.
+
+**Si un ordenador se estropea y hay que seguir en otro:**
+1. **Con internet:** en el ordenador nuevo abre la app y entra con **la misma cuenta**. Aparece todo y la numeración de tickets **continúa donde iba**.
+2. **Sin internet (y el equipo viejo aún enciende):** en el viejo, *Informes → Descargar copia de emergencia* → pásala por USB → en el nuevo, *Informes → Importar copia*. Se sube en cuanto haya red. **Nunca se duplica ninguna venta**, aunque la importes dos veces o el equipo viejo reviva y suba lo mismo.
+
+Lo único que no se puede salvar: ventas hechas **sin internet** en un equipo que **no vuelve a encender**. Por eso: router 4G de respaldo y vigilar el aviso "⚠️ operaciones solo en este equipo".
