@@ -26,7 +26,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.10.28f";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.10.29a";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -573,24 +573,24 @@ export default function App() {
   const exitToLogin = () => { setRole(null); setView("pos"); };
   const isPriv = role === "admin" || role === "supervisor";
   const allNav = [
-    { id: "pos", label: "TPV", icon: "🟢", roles: ["admin", "supervisor"] },
-    { id: "template", label: "Plantilla", icon: "🎨", roles: ["admin"] },
-    { id: "config", label: "Evento", icon: "⚙️", roles: ["admin"] },
-    { id: "reports", label: "Informes", icon: "🔒", roles: ["admin", "supervisor"] },
+    { id: "pos", label: "TPV", icon: "pos", roles: ["admin", "supervisor"] },
+    { id: "template", label: "Plantilla", icon: "template", roles: ["admin"] },
+    { id: "config", label: "Evento", icon: "config", roles: ["admin"] },
+    { id: "reports", label: "Informes", icon: "reports", roles: ["admin", "supervisor"] },
   ];
   const navItems = allNav.filter(n => n.roles.includes(role));
   const safeView = navItems.find(n => n.id === view) ? view : "pos";
 
   const syncNow = async () => { const r = await db.syncPending(); setPending(db.pendingCount()); if (r.synced) { flash(`✅ ${r.synced} ventas sincronizadas`); await hydrate().catch(() => {}); } else flash(pending ? "Aún sin conexión" : "Todo sincronizado"); };
   const OnlinePill = ({ small }) => (
-    <button onClick={syncNow} style={{ ...S.printerStatusSm, borderColor: !online ? "var(--red)" : pending ? "var(--amber)" : "var(--line)", color: pending ? "var(--amber)" : "var(--text)", fontWeight: pending ? 800 : 600 }} title="Conexión (offline-first) · toca para sincronizar">
-      <span style={{ width: 9, height: 9, borderRadius: "50%", background: online ? (pending ? "var(--amber)" : "var(--green)") : "var(--red)" }} />
+    <button onClick={syncNow} style={{ ...S.printerStatusSm, borderColor: !online ? "rgba(255,77,77,.5)" : pending ? "rgba(255,180,0,.5)" : "var(--line)", color: !online ? "var(--red)" : pending ? "var(--amber)" : "var(--text)", fontWeight: pending ? 800 : 700 }} title="Conexión (offline-first) · toca para sincronizar">
+      <span style={{ ...S.stDot, background: online ? (pending ? "var(--amber)" : "var(--green)") : "var(--red)", boxShadow: `0 0 0 3px ${online ? (pending ? "rgba(255,180,0,.18)" : "rgba(34,211,166,.18)") : "rgba(255,77,77,.18)"}` }} />
       {online ? (pending ? `⏳ ${pending} sin subir` : "En línea") : `Sin conexión · ${pending}`}
     </button>
   );
   const PrinterPill = () => (
     <button onClick={() => setPrinter(printer === "live" ? "sim" : "live")} style={S.printerStatusSm} title="Estado impresora">
-      <span style={{ width: 9, height: 9, borderRadius: "50%", background: printer === "live" ? "var(--green)" : "var(--muted)" }} />
+      <span style={{ ...S.stDot, background: printer === "live" ? "var(--green)" : "var(--muted)", boxShadow: printer === "live" ? "0 0 0 3px rgba(34,211,166,.18)" : "none" }} />
       {printer === "live" ? "Impresora OK" : "Simulación"}
     </button>
   );
@@ -619,12 +619,13 @@ export default function App() {
       {role === "cajero" && (isMobile ? (
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
           <header style={S.mTop}>
+            <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width="32" height="32" style={{ flexShrink: 0, display: "block" }} />
             <div style={S.mTitle}>
-              <div style={{ fontSize: 16, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ev.name}</div>
-              <div style={{ color: "var(--muted)", fontSize: 12 }}>Barra: <b style={{ color: "var(--accent)" }}>{punto.name}</b></div>
+              <div style={S.mEvent}>{ev.name}</div>
+              <div style={S.mSub}><Ic n="store" s={12} w={2.2} />{punto.name}</div>
             </div>
-            <span style={{ width: 9, height: 9, borderRadius: "50%", background: online ? "var(--green)" : "var(--red)", flexShrink: 0 }} />
-            <button onClick={() => setMenuOpen(true)} style={S.iconBtn}>☰</button>
+            <span title={online ? "En línea" : "Sin conexión"} style={{ ...S.stDot, background: online ? (pending ? "var(--amber)" : "var(--green)") : "var(--red)", boxShadow: `0 0 0 4px ${online ? (pending ? "rgba(255,180,0,.16)" : "rgba(34,211,166,.16)") : "rgba(255,77,77,.16)"}` }} />
+            <button onClick={() => setMenuOpen(true)} style={S.iconBtn} aria-label="Menú"><Ic n="menu" /></button>
           </header>
           <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
             <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />
@@ -633,8 +634,11 @@ export default function App() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
           <header style={S.cashierTop}>
-            <div><div style={{ fontSize: 20, fontWeight: 800 }}>{ev.name}</div><div style={{ color: "var(--muted)", fontSize: 12 }}><b style={{ color: "var(--text)" }}>{punto.name}</b> · {dateFmt(ev.date)}</div></div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.btnGhost}>🔒 Salir</button></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
+              <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width="38" height="38" style={{ flexShrink: 0, display: "block" }} />
+              <div style={{ minWidth: 0 }}><div style={S.topTitle}>{ev.name}</div><div style={S.topSub}><span style={S.barTag}><Ic n="store" s={12} w={2.2} />{punto.name}</span>{dateFmt(ev.date)}</div></div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.topBtn}><Ic n="lock" s={16} />Salir</button></div>
           </header>
           <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
             <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />
@@ -646,16 +650,16 @@ export default function App() {
       {isPriv && (isMobile ? (
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
           <header style={S.mTop}>
-            <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width="34" height="34" style={{ flexShrink: 0, display: "block" }} />
-            <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={{ ...S.select, flex: 1, minWidth: 0 }}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
-            <button onClick={() => setMenuOpen(true)} style={S.iconBtn}>☰</button>
+            <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width="32" height="32" style={{ flexShrink: 0, display: "block" }} />
+            <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={{ ...S.select, ...S.mSelect, flex: 1, minWidth: 0 }}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
+            <button onClick={() => setMenuOpen(true)} style={S.iconBtn} aria-label="Menú"><Ic n="menu" /></button>
           </header>
           <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: "10px 14px" }}>
-              <div style={{ minWidth: 0 }}><div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>Barra activa</div><div style={{ fontWeight: 800, color: "var(--accent)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{punto.name}</div></div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                <div style={{ textAlign: "right" }}><div style={{ fontSize: 11, color: "var(--muted)" }}>Tickets</div><div style={{ fontWeight: 800, fontSize: 18 }}>{totals.count}</div></div>
-                <button onClick={() => setAskRevenue(true)} style={{ ...S.consultBtn, padding: "10px 12px" }}>💶</button>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: "10px 12px 10px 14px" }}>
+              <div style={{ minWidth: 0 }}><div style={S.miniLabel}>Barra activa</div><div style={{ fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 6 }}><span style={{ color: "var(--accent)" }}><Ic n="store" s={14} w={2.2} /></span>{punto.name}</div></div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+                <div style={{ textAlign: "right" }}><div style={S.miniLabel}>Tickets</div><div style={{ fontWeight: 800, fontSize: 18, lineHeight: 1.1 }}>{totals.count}</div></div>
+                <button onClick={() => setAskRevenue(true)} style={{ ...S.iconBtn, color: "var(--accent)" }} aria-label="Consultar facturación"><Ic n="euro" /></button>
               </div>
             </div>
             {safeView === "pos" && <POS punto={punto} totals={totals} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
@@ -664,36 +668,41 @@ export default function App() {
             {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
           </div>
           <nav style={S.bottomNav}>
-            {navItems.map(n => <button key={n.id} onClick={() => setView(n.id)} style={{ ...S.bTab, ...(safeView === n.id ? S.bTabActive : {}) }}><span style={{ fontSize: 21 }}>{n.icon}</span>{n.label}</button>)}
+            {navItems.map(n => <button key={n.id} onClick={() => setView(n.id)} style={{ ...S.bTab, ...(safeView === n.id ? S.bTabActive : {}) }}>
+              <span style={{ ...S.bTabIco, ...(safeView === n.id ? S.bTabIcoActive : {}) }}><Ic n={n.icon} s={21} w={safeView === n.id ? 2.2 : 1.9} /></span>{n.label}
+            </button>)}
           </nav>
         </div>
       ) : (
         <div style={{ display: "flex", height: "100%" }}>
           <aside style={S.side}>
-            <img src="/brand/tixfast_logo_horizontal_oscuro.svg" alt="TIXFAST" style={S.logoImg} />
-            <div style={{ ...S.roleBadge, color: role === "admin" ? "var(--accent)" : "#3b82f6", borderColor: role === "admin" ? "var(--accent)" : "#3b82f6" }}>{role === "admin" ? "ADMIN" : "SUPERVISOR"}</div>
-            <div style={{ marginTop: 12 }}>
-              <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={S.select}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 18 }}>
+              <img src="/brand/tixfast_logo_horizontal_oscuro.svg" alt="TIXFAST" style={S.logoImg} />
+              <span style={{ ...S.roleBadge, color: role === "admin" ? "var(--accent)" : "#60a5fa", background: role === "admin" ? "rgba(255,90,60,.12)" : "rgba(96,165,250,.12)" }}>{role === "admin" ? "Admin" : "Supervisor"}</span>
             </div>
-            <nav style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 14 }}>
-              {navItems.map(n => <button key={n.id} onClick={() => setView(n.id)} className="nav-btn" style={{ ...S.navBtn, ...(safeView === n.id ? S.navActive : {}) }}><span style={{ fontSize: 18 }}>{n.icon}</span>{n.label}</button>)}
+            <div style={S.sideLabel}>Evento</div>
+            <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={S.select}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
+            <div style={{ ...S.sideLabel, marginTop: 20 }}>Menú</div>
+            <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {navItems.map(n => <button key={n.id} onClick={() => setView(n.id)} className="nav-btn" style={{ ...S.navBtn, ...(safeView === n.id ? S.navActive : {}) }}><span style={{ color: safeView === n.id ? "var(--accent)" : "var(--muted)", display: "flex" }}><Ic n={n.icon} /></span>{n.label}</button>)}
             </nav>
-            <div style={{ marginTop: "auto", fontSize: 11, color: "var(--muted)" }}>
-              <div style={{ marginBottom: 8 }}>Punto de venta activo</div>
+            <div style={{ marginTop: "auto", paddingTop: 16 }}>
+              <div style={S.sideLabel}>Punto de venta activo</div>
               <select value={punto.id} onChange={e => dispatch({ type: "SET_PUNTO", id: e.target.value })} style={{ ...S.select, fontSize: 13 }}>{activePuntos.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+              <div style={{ display: "flex", gap: 6, margin: "10px 0 12px" }}><OnlinePill /><PrinterPill /></div>
+              <div style={S.sideDivider} />
+              <MenuRow icon="printer" label="Ticket de prueba" onClick={testPrint} />
+              <MenuRow icon="flask" label="Modo prueba" onClick={() => setTestMode(m => !m)} tone={testMode ? "warn" : undefined} right={<span style={{ ...S.onOff, ...(testMode ? S.onOffOn : {}) }}>{testMode ? "ON" : "OFF"}</span>} />
+              <MenuRow icon="swap" label="Cambiar de rol" onClick={exitToLogin} />
+              <MenuRow icon="logout" label="Cerrar sesión" onClick={() => logout()} tone="danger" />
             </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 10 }}><OnlinePill /><PrinterPill /></div>
-            <button onClick={testPrint} style={{ ...S.btnGhost, marginTop: 8, width: "100%" }}>🖨️ Ticket de prueba</button>
-            <button onClick={() => setTestMode(m => !m)} style={{ ...S.btnGhost, marginTop: 8, width: "100%", color: testMode ? "var(--amber)" : "var(--text)", borderColor: testMode ? "var(--amber)" : "var(--line)" }}>🧪 Modo prueba: {testMode ? "ON" : "off"}</button>
-            <button onClick={exitToLogin} style={{ ...S.btnGhost, marginTop: 8, width: "100%" }}>Cambiar de rol</button>
-            <button onClick={() => logout()} style={{ ...S.btnGhost, marginTop: 6, width: "100%", color: "var(--red)", borderColor: "var(--red)" }}>Cerrar sesión</button>
           </aside>
           <main style={S.main}>
             <header style={S.top}>
-              <div><div style={{ fontSize: 22, fontWeight: 800 }}>{ev.name}</div><div style={{ color: "var(--muted)", fontSize: 13 }}>{dateFmt(ev.date)} · {ev.venue} · <b style={{ color: "var(--accent)" }}>{punto.name}</b></div></div>
-              <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+              <div style={{ minWidth: 0 }}><div style={S.topTitle}>{ev.name}</div><div style={S.topSub}><span style={S.barTag}><Ic n="store" s={12} w={2.2} />{punto.name}</span>{dateFmt(ev.date)}{ev.venue ? ` · ${ev.venue}` : ""}</div></div>
+              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                 <Stat label={`Tickets · ${punto.name}`} value={totals.count} accent="var(--accent)" />
-                <button onClick={() => setAskRevenue(true)} style={S.consultBtn}>💶 Consultar facturación</button>
+                <button onClick={() => setAskRevenue(true)} style={S.topBtn}><span style={{ color: "var(--accent)", display: "flex" }}><Ic n="euro" s={17} /></span>Consultar facturación</button>
               </div>
             </header>
             <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
@@ -711,23 +720,34 @@ export default function App() {
         <div style={S.sheetWrap} onClick={() => setMenuOpen(false)}>
           <div className="sheet-anim" style={S.sheet} onClick={e => e.stopPropagation()}>
             <div style={S.grab} />
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <div style={{ fontWeight: 800, fontSize: 18 }}>{role === "admin" ? "Admin" : role === "supervisor" ? "Supervisor" : "Cajero"}</div>
-              <button onClick={() => setMenuOpen(false)} style={S.iconBtn}>✕</button>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                <img src="/brand/tixfast_isotipo_app.svg" alt="" width="40" height="40" style={{ flexShrink: 0 }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ ...S.display, fontSize: 19 }}>Menú</div>
+                  <div style={{ fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{role === "admin" ? "Administrador" : role === "supervisor" ? "Supervisor" : "Cajero"} · {ev.name}</div>
+                </div>
+              </div>
+              <button onClick={() => setMenuOpen(false)} style={S.iconBtn} aria-label="Cerrar"><Ic n="close" /></button>
             </div>
             {isPriv && (
               <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Punto de venta activo</div>
+                <div style={S.sideLabel}>Punto de venta activo</div>
                 <select value={punto.id} onChange={e => dispatch({ type: "SET_PUNTO", id: e.target.value })} style={S.select}>{activePuntos.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
               </div>
             )}
             <div style={{ display: "flex", gap: 8, marginBottom: 14 }}><OnlinePill /><PrinterPill /></div>
-            <button onClick={() => { setMenuOpen(false); setShowCheck(true); }} style={{ ...S.btnGhost, width: "100%", padding: "13px", marginBottom: 8 }}>✅ Comprobación previa</button>
-            <button onClick={async () => { try { const rs = await navigator.serviceWorker?.getRegistrations?.() || []; for (const r of rs) await r.unregister(); const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); } catch {} window.location.reload(true); }} style={{ ...S.btnGhost, width: "100%", padding: "13px", marginBottom: 8 }}>🔄 Buscar actualización</button>
-            <button onClick={() => { setMenuOpen(false); testPrint(); }} style={{ ...S.btnGhost, width: "100%", padding: "13px", marginBottom: 8 }}>🖨️ Ticket de prueba</button>
-            <button onClick={() => setTestMode(m => !m)} style={{ ...S.btnGhost, width: "100%", padding: "13px", marginBottom: 8, color: testMode ? "var(--amber)" : "var(--text)", borderColor: testMode ? "var(--amber)" : "var(--line)" }}>🧪 Modo prueba: {testMode ? "ACTIVADO" : "apagado"}</button>
-            <button onClick={() => { setMenuOpen(false); exitToLogin(); }} style={{ ...S.btnGhost, width: "100%", padding: "13px" }}>🔁 Cambiar de rol</button>
-            <button onClick={() => { setMenuOpen(false); logout(); }} style={{ ...S.btnGhost, width: "100%", marginTop: 8, padding: "13px", color: "var(--red)", borderColor: "var(--red)" }}>🔒 Cerrar sesión</button>
+            <div className="menu-group" style={S.menuGroup}>
+              <MenuRow big icon="check" label="Comprobación previa" onClick={() => { setMenuOpen(false); setShowCheck(true); }} right={<span style={{ color: "var(--muted)" }}><Ic n="chev" s={16} /></span>} />
+              <MenuRow big icon="printer" label="Ticket de prueba" onClick={() => { setMenuOpen(false); testPrint(); }} right={<span style={{ color: "var(--muted)" }}><Ic n="chev" s={16} /></span>} />
+              <MenuRow big icon="flask" label="Modo prueba" onClick={() => setTestMode(m => !m)} tone={testMode ? "warn" : undefined} right={<span style={{ ...S.onOff, ...(testMode ? S.onOffOn : {}) }}>{testMode ? "ACTIVADO" : "APAGADO"}</span>} />
+              <MenuRow big icon="refresh" label="Buscar actualización" onClick={async () => { try { const rs = await navigator.serviceWorker?.getRegistrations?.() || []; for (const r of rs) await r.unregister(); const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); } catch {} window.location.reload(true); }} right={<span style={{ color: "var(--muted)" }}><Ic n="chev" s={16} /></span>} />
+            </div>
+            <div className="menu-group" style={{ ...S.menuGroup, marginTop: 10 }}>
+              <MenuRow big icon="swap" label="Cambiar de rol" onClick={() => { setMenuOpen(false); exitToLogin(); }} right={<span style={{ color: "var(--muted)" }}><Ic n="chev" s={16} /></span>} />
+              <MenuRow big icon="logout" label="Cerrar sesión" onClick={() => { setMenuOpen(false); logout(); }} tone="danger" />
+            </div>
+            <div style={{ textAlign: "center", fontSize: 11, color: "var(--muted)", marginTop: 14 }}>TIXFAST · versión {APP_VERSION}</div>
           </div>
         </div>
       )}
@@ -808,8 +828,49 @@ export default function App() {
         </div>
       )}
 
-      {toast && <div style={{ ...S.toast, background: toast.kind === "warn" ? "var(--amber)" : "var(--green)" }}>{toast.msg}</div>}
+      {toast && <div role="status" style={{ ...S.toast, background: toast.kind === "warn" ? "var(--amber)" : "var(--green)", ...(isMobile && isPriv ? { bottom: "calc(84px + env(safe-area-inset-bottom))" } : {}) }}>{toast.msg}</div>}
     </div>
+  );
+}
+
+/* ---------------------- Iconos de interfaz (línea, estilo TIXFAST) ---------------------- */
+const IC = {
+  pos: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
+  template: "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3",
+  config: "M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1M15 4a2 2 0 1 0 0 4a2 2 0 1 0 0-4M9 10a2 2 0 1 0 0 4a2 2 0 1 0 0-4M17 16a2 2 0 1 0 0 4a2 2 0 1 0 0-4",
+  reports: "M3 20h18M6 16v-5M11 16V6M16 16v-8",
+  menu: "M4 7h16M4 12h16M4 17h16",
+  close: "M6 6l12 12M18 6L6 18",
+  check: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M8.5 12.2l2.4 2.3 4.6-4.8",
+  refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
+  printer: "M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v7H7z",
+  flask: "M9 3h6M10 3v6l-5.5 9.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.5-2.5L14 9V3M7 15h10",
+  swap: "M4 8h15l-3.5-3.5M20 16H5l3.5 3.5",
+  logout: "M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 16.5L5.5 12 10 7.5M5.5 12H16",
+  lock: "M5 11h14v10H5zM8 11V8a4 4 0 0 1 8 0v3",
+  euro: "M17.5 6.5a6.5 6.5 0 1 0 0 11M4 10h9M4 14h9",
+  eye: "M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6",
+  shield: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4",
+  receipt: "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6",
+  chev: "M9 6l6 6-6 6",
+  store: "M4 9l1.5-5h13L20 9M4 9h16M4 9v11h16V9M9 20v-6h6v6",
+};
+function Ic({ n, s = 20, w = 1.9, style }) {
+  return (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, display: "block", ...style }}>
+      <path d={IC[n]} />
+    </svg>
+  );
+}
+/* Fila de menú (barra lateral y menú móvil) */
+function MenuRow({ icon, label, onClick, tone, right, big }) {
+  const c = tone === "danger" ? "var(--red)" : tone === "warn" ? "var(--amber)" : "var(--text)";
+  return (
+    <button onClick={onClick} className="menu-row" style={{ ...S.menuRow, ...(big ? S.menuRowBig : {}), color: c }}>
+      <span style={{ ...S.menuIco, ...(big ? { width: 36, height: 36 } : {}), color: tone ? c : "var(--muted)", background: tone === "danger" ? "rgba(255,77,77,.1)" : tone === "warn" ? "rgba(255,180,0,.12)" : "var(--surface2)" }}><Ic n={icon} s={big ? 19 : 17} /></span>
+      <span style={{ flex: 1, textAlign: "left" }}>{label}</span>
+      {right}
+    </button>
   );
 }
 
@@ -820,20 +881,21 @@ function RoleGate({ ev, events, adminPin, supervisorPin, onSelectEvent, onRole }
   const [op, setOp] = useState(puntos[0]?.id);
   useEffect(() => { setOp(ev.puntos.filter(p => !p.archivado)[0]?.id); }, [ev.id]);
   const roles = [
-    { k: "cajero", icon: "🧾", t: "Cajero", d: "Solo TPV e impresión" },
-    { k: "supervisor", icon: "🧭", t: "Supervisor", d: "TPV + informes + cierres" },
-    { k: "admin", icon: "🛠️", t: "Administrador", d: "Configura todo" },
+    { k: "cajero", icon: "receipt", t: "Cajero", d: "Solo TPV e impresión" },
+    { k: "supervisor", icon: "eye", t: "Supervisor", d: "TPV + informes + cierres" },
+    { k: "admin", icon: "shield", t: "Administrador", d: "Configura todo" },
   ];
   return (
     <div style={S.gateWrap}>
       <div style={S.gateCard}>
         <img src="/brand/tixfast_logo_horizontal_oscuro.svg" alt="TIXFAST" style={{ height: 32, width: "auto", display: "block", margin: "0 auto" }} />
-        <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13, margin: "6px 0 18px" }}>Elige evento y entra con tu rol</div>
+        <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13, margin: "8px 0 22px" }}>Elige evento y entra con tu rol</div>
+        <div style={S.sideLabel}>Evento</div>
         <select value={ev.id} onChange={e => onSelectEvent(e.target.value)} style={{ ...S.select, marginBottom: 18 }}>{events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
 
         {mode === null && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {roles.map(r => <button key={r.k} onClick={() => r.k === "cajero" ? setMode("cajero") : setMode(r.k)} style={S.gateRole}><span style={{ fontSize: 30 }}>{r.icon}</span><span style={{ fontWeight: 800, fontSize: 16 }}>{r.t}</span><span style={{ fontSize: 11, color: "var(--muted)" }}>{r.d}</span></button>)}
+            {roles.map(r => <button key={r.k} className="gate-role" onClick={() => r.k === "cajero" ? setMode("cajero") : setMode(r.k)} style={S.gateRole}><span style={{ ...S.gateIco, ...(r.k === "cajero" ? S.gateIcoMain : {}) }}><Ic n={r.icon} s={24} /></span><span style={{ fontWeight: 800, fontSize: 16, marginTop: 4 }}>{r.t}</span><span style={{ fontSize: 11, color: "var(--muted)" }}>{r.d}</span></button>)}
           </div>
         )}
 
@@ -1869,6 +1931,11 @@ input,select,textarea{max-width:100%;}
 .tile:not(:disabled):active{transform:scale(.95);}
 .tile:not(:disabled):hover{box-shadow:0 12px 34px rgba(0,0,0,.45);}
 .nav-btn:hover{background:var(--surface2);}
+.menu-row:hover{background:var(--surface2);}
+.menu-row:active{opacity:.75;}
+.menu-group>.menu-row:last-child{border-bottom:0 !important;}
+.gate-role:hover{border-color:#3a3f4d !important;}
+.gate-role:active{transform:scale(.98);}
 body{font-optical-sizing:auto;-webkit-font-smoothing:antialiased;}
 button{font-family:Inter,-apple-system,sans-serif;cursor:pointer;}
 input,select{font-family:Inter,-apple-system,sans-serif;font-size:16px;}
@@ -1895,25 +1962,46 @@ const S = {
   payBtn: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, border: "none", borderRadius: 18, padding: "26px 10px", cursor: "pointer" },
   noteBtn: { background: "var(--surface2)", color: "var(--text)", border: "2px solid var(--line)", borderRadius: 12, padding: "12px 6px", fontWeight: 900, fontSize: 15 },
   padBtn: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 12, padding: "16px 0", fontSize: 22, fontWeight: 800 },
-  side: { width: 230, background: "var(--surface)", borderRight: "1px solid var(--line)", padding: "calc(18px + env(safe-area-inset-top)) 18px calc(18px + env(safe-area-inset-bottom))", display: "flex", flexDirection: "column", gap: 4 },
+  side: { width: 248, flexShrink: 0, background: "var(--surface)", borderRight: "1px solid var(--line)", padding: "calc(22px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom))", display: "flex", flexDirection: "column", overflowY: "auto" },
+  sideLabel: { fontSize: 10.5, fontWeight: 700, letterSpacing: 1.6, textTransform: "uppercase", color: "var(--muted)", margin: "0 0 8px 2px" },
+  sideDivider: { height: 1, background: "var(--line)", margin: "4px 0 6px" },
+  menuRow: { display: "flex", alignItems: "center", gap: 11, width: "100%", background: "transparent", border: "none", borderRadius: 10, padding: "8px 8px", fontWeight: 650, fontSize: 13.5 },
+  menuRowBig: { padding: "11px 12px", fontSize: 15, borderRadius: 0, borderBottom: "1px solid var(--line)" },
+  menuIco: { width: 30, height: 30, borderRadius: 9, display: "grid", placeItems: "center", flexShrink: 0 },
+  menuGroup: { background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 16, overflow: "hidden" },
+  onOff: { fontSize: 10, fontWeight: 800, letterSpacing: .8, color: "var(--muted)", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 20, padding: "3px 8px" },
+  onOffOn: { color: "#1a1200", background: "var(--amber)", borderColor: "var(--amber)" },
+  stDot: { width: 8, height: 8, borderRadius: "50%", flexShrink: 0, display: "inline-block" },
+  mEvent: { fontSize: 15.5, fontWeight: 800, letterSpacing: "-.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.2 },
+  mSub: { display: "flex", alignItems: "center", gap: 5, color: "var(--accent)", fontSize: 12, fontWeight: 700, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden" },
+  mSelect: { background: "var(--surface2)", fontWeight: 800, padding: "9px 12px" },
+  miniLabel: { fontSize: 10.5, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: 700, marginBottom: 2 },
+  topTitle: { fontFamily: "Inter,sans-serif", fontVariationSettings: "'opsz' 32", fontWeight: 800, fontSize: 21, letterSpacing: "-.03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  topSub: { display: "flex", alignItems: "center", gap: 10, color: "var(--muted)", fontSize: 12.5, marginTop: 4, flexWrap: "wrap" },
+  barTag: { display: "inline-flex", alignItems: "center", gap: 5, color: "var(--accent)", background: "rgba(255,90,60,.1)", borderRadius: 20, padding: "3px 9px 3px 7px", fontWeight: 700, fontSize: 12 },
+  topBtn: { display: "inline-flex", alignItems: "center", gap: 8, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 11, padding: "10px 16px", fontWeight: 700, fontSize: 14 },
+  bTabIco: { display: "grid", placeItems: "center", width: 46, height: 28, borderRadius: 14, transition: "background .15s" },
+  bTabIcoActive: { background: "rgba(255,90,60,.14)" },
+  gateIco: { width: 52, height: 52, borderRadius: 16, display: "grid", placeItems: "center", background: "var(--bg)", border: "1px solid var(--line)", color: "var(--text)" },
+  gateIcoMain: { background: "rgba(255,90,60,.12)", borderColor: "rgba(255,90,60,.35)", color: "var(--accent)" },
   sideMobile: { width: "100%", boxSizing: "border-box", background: "var(--surface)", borderBottom: "1px solid var(--line)", padding: 12, display: "flex", flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
-  mTop: { display: "flex", alignItems: "center", gap: 10, padding: "calc(11px + env(safe-area-inset-top)) 14px 11px", borderBottom: "1px solid var(--line)", background: "var(--surface)", position: "sticky", top: 0, zIndex: 20 },
+  mTop: { display: "flex", alignItems: "center", gap: 11, padding: "calc(10px + env(safe-area-inset-top)) 12px 10px 14px", borderBottom: "1px solid var(--line)", background: "rgba(20,22,29,.92)", backdropFilter: "saturate(1.4) blur(12px)", WebkitBackdropFilter: "saturate(1.4) blur(12px)", position: "sticky", top: 0, zIndex: 20 },
   mTitle: { flex: 1, minWidth: 0 },
-  iconBtn: { width: 42, height: 42, flexShrink: 0, borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 18, display: "grid", placeItems: "center" },
+  iconBtn: { width: 42, height: 42, flexShrink: 0, borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 18, display: "grid", placeItems: "center", padding: 0 },
   bottomNav: { display: "flex", borderTop: "1px solid var(--line)", background: "var(--surface)", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0 },
-  bTab: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "9px 4px 8px", background: "transparent", border: "none", color: "var(--muted)", fontSize: 10.5, fontWeight: 700 },
-  bTabActive: { color: "var(--accent)" },
+  bTab: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "8px 4px 8px", background: "transparent", border: "none", color: "var(--muted)", fontSize: 11, fontWeight: 700 },
+  bTabActive: { color: "var(--text)" },
   sheetWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", zIndex: 60, display: "flex", alignItems: "flex-end", backdropFilter: "blur(3px)" },
   sheet: { width: "100%", background: "var(--surface)", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, paddingBottom: "calc(20px + env(safe-area-inset-bottom))", maxHeight: "86dvh", overflow: "auto", borderTop: "1px solid var(--line)" },
   grab: { width: 40, height: 4, borderRadius: 4, background: "var(--line)", margin: "0 auto 14px" },
   logo: { fontFamily: "Inter,sans-serif", fontVariationSettings: "'opsz' 32", fontWeight: 700, fontSize: 20, letterSpacing: "-.02em" },
-  logoImg: { height: 30, width: "auto", display: "block", alignSelf: "flex-start", marginBottom: 6 },
+  logoImg: { height: 26, width: "auto", display: "block" },
   display: { fontFamily: "Inter,sans-serif", fontVariationSettings: "'opsz' 32", fontWeight: 700, fontSize: 22, letterSpacing: "-.03em" },
   select: { width: "100%", background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", fontWeight: 600, outline: "none" },
-  navBtn: { display: "flex", alignItems: "center", gap: 10, background: "transparent", color: "var(--text)", border: "none", padding: "12px 14px", borderRadius: 10, fontWeight: 700, fontSize: 15, textAlign: "left" },
-  navActive: { background: "var(--surface2)", color: "#fff", boxShadow: "inset 3px 0 0 var(--accent)" },
+  navBtn: { display: "flex", alignItems: "center", gap: 12, background: "transparent", color: "#c9cdd8", border: "none", padding: "11px 12px", borderRadius: 11, fontWeight: 650, fontSize: 14.5, textAlign: "left", width: "100%" },
+  navActive: { background: "rgba(255,90,60,.1)", color: "#fff", boxShadow: "inset 3px 0 0 var(--accent)", fontWeight: 750 },
   main: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" },
-  top: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(18px + env(safe-area-inset-top)) 22px 18px", borderBottom: "1px solid var(--line)", background: "var(--surface)" },
+  top: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, padding: "calc(16px + env(safe-area-inset-top)) 24px 16px", borderBottom: "1px solid var(--line)", background: "var(--surface)" },
   statBox: { background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: "10px 18px", minWidth: 130 },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px,1fr))", gap: 14 },
   tile: { position: "relative", border: "none", borderRadius: 18, padding: "20px 14px", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, minHeight: 148, justifyContent: "center" },
@@ -1928,12 +2016,12 @@ const S = {
   cartRow: { display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--line)" },
   stepBtn: { width: 30, height: 30, borderRadius: 8, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", fontSize: 18, fontWeight: 800, lineHeight: 1 },
   consultBtn: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 12, padding: "12px 18px", fontWeight: 700 },
-  printerStatusSm: { display: "flex", alignItems: "center", gap: 7, background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", color: "var(--text)", fontSize: 12, fontWeight: 700 },
-  roleBadge: { marginTop: 8, fontSize: 11, fontWeight: 800, letterSpacing: 1, border: "1px solid", borderRadius: 20, padding: "3px 10px", alignSelf: "flex-start" },
-  cashierTop: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(16px + env(safe-area-inset-top)) 22px 16px", borderBottom: "1px solid var(--line)", background: "var(--surface)", flexWrap: "wrap", gap: 10 },
+  printerStatusSm: { display: "flex", alignItems: "center", gap: 7, background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 20, padding: "8px 12px", color: "var(--text)", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" },
+  roleBadge: { fontSize: 10.5, fontWeight: 800, letterSpacing: .6, textTransform: "uppercase", borderRadius: 20, padding: "4px 9px" },
+  cashierTop: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(14px + env(safe-area-inset-top)) 24px 14px", borderBottom: "1px solid var(--line)", background: "var(--surface)", flexWrap: "wrap", gap: 12 },
   gateWrap: { minHeight: "100%", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", padding: "calc(18px + env(safe-area-inset-top)) 18px calc(18px + env(safe-area-inset-bottom))", overflow: "auto", background: "radial-gradient(900px 480px at 50% -12%, rgba(255,90,60,.10), transparent 70%), var(--bg)" },
   gateCard: { width: 440, maxWidth: "100%", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 22, padding: 28, boxShadow: "0 30px 80px rgba(0,0,0,.55)" },
-  gateRole: { display: "flex", flexDirection: "column", alignItems: "center", gap: 5, padding: "20px 8px", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 16, color: "var(--text)" },
+  gateRole: { display: "flex", flexDirection: "column", alignItems: "center", gap: 5, padding: "20px 8px 18px", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 16, color: "var(--text)", transition: "border-color .15s, transform .08s" },
   liveDot: { width: 8, height: 8, borderRadius: "50%", background: "var(--green)", display: "inline-block" },
   h3: { fontSize: 14, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)", marginBottom: 12, fontWeight: 800 },
   panel: { background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 18 },
@@ -1954,5 +2042,5 @@ const S = {
   overlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,.7)", display: "grid", placeItems: "center", zIndex: 50, backdropFilter: "blur(4px)" },
   pinCard: { background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 20, padding: 26, width: 300 },
   pinBtn: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 14, padding: "18px 0", fontSize: 22, fontWeight: 700 },
-  toast: { position: "fixed", bottom: "calc(28px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", color: "#06281f", padding: "12px 26px", borderRadius: 30, fontWeight: 800, zIndex: 60, boxShadow: "0 10px 30px rgba(0,0,0,.4)" },
+  toast: { position: "fixed", bottom: "calc(24px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", color: "#0b0c10", padding: "11px 20px", borderRadius: 14, fontWeight: 800, fontSize: 14, zIndex: 60, boxShadow: "0 14px 34px rgba(0,0,0,.45)", width: "max-content", maxWidth: "calc(100vw - 32px)", textAlign: "center", lineHeight: 1.35 },
 };
