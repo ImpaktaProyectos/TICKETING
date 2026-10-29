@@ -26,7 +26,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.10.29b";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.10.29c";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -262,6 +262,7 @@ export default function App() {
   const [pending, setPending] = useState(db.pendingCount());
   const isMobile = useIsMobile();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [orderOpen, setOrderOpen] = useState(false);
   const [showCheck, setShowCheck] = useState(false);
   const [testMode, setTestMode] = useState(false);
   const [payFlow, setPayFlow] = useState(null);   // cobro avanzado en curso
@@ -664,7 +665,7 @@ export default function App() {
                 <button onClick={() => setAskRevenue(true)} style={{ ...S.iconBtn, color: "var(--accent)" }} aria-label="Consultar facturación"><Ic n="euro" /></button>
               </div>
             </div>
-            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
+            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onOrder={role === "admin" ? () => setOrderOpen(true) : null} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
             {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
             {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
@@ -708,7 +709,7 @@ export default function App() {
               </div>
             </header>
             <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
+              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onOrder={role === "admin" ? () => setOrderOpen(true) : null} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
               {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
               {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
               {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
@@ -753,6 +754,9 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* ===== Ordenar productos (desde el TPV, solo admin) ===== */}
+      {orderOpen && role === "admin" && <OrderSheet ev={ev} punto={punto} evSales={evSales} dispatch={dispatch} flash={flash} onClose={() => setOrderOpen(false)} />}
 
       {/* ===== Fondo de caja (bloquea la venta hasta declararlo) ===== */}
       {needsFondo && !showCheck && (
@@ -831,6 +835,60 @@ export default function App() {
       )}
 
       {toast && <div role="status" style={{ ...S.toast, background: toast.kind === "warn" ? "var(--amber)" : "var(--green)", ...(isMobile && isPriv ? { bottom: "calc(84px + env(safe-area-inset-bottom))" } : {}) }}>{toast.msg}</div>}
+    </div>
+  );
+}
+
+/* ---------------------- Orden de productos (lógica compartida) ---------------------- */
+function useProductOrder(ev, punto, evSales, dispatch, flash) {
+  const sortMode = punto.sortMode === "ventas" ? "ventas" : "manual";
+  const sold = useMemo(() => { const c = {}; evSales.forEach(s => { if (s.puntoId === punto.id && !s.voided) c[s.productId] = (c[s.productId] || 0) + 1; }); return c; }, [evSales, punto.id]);
+  const salesRank = useMemo(() => punto.products.map((p, i) => [p.id, sold[p.id] || 0, i]).sort((x, y) => (y[1] - x[1]) || (x[2] - y[2])).map(x => x[0]), [punto.products, sold]);
+  const reorder = (ids) => dispatch({ type: "REORDER_PRODUCTS", eventId: ev.id, puntoId: punto.id, ids, prevIds: punto.products.map(p => p.id) });
+  const moveProd = (id, d) => { const ids = punto.products.map(p => p.id); const i = ids.indexOf(id), j = i + d; if (i < 0 || j < 0 || j >= ids.length) return; [ids[i], ids[j]] = [ids[j], ids[i]]; reorder(ids); };
+  const setSortMode = (m) => { if (m === sortMode) return; dispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: punto.id, patch: { sortMode: m } }); flash(m === "ventas" ? "TPV: más vendidos primero" : "TPV: orden manual"); };
+  const applySalesOrder = () => { if (!Object.keys(sold).length) { flash("Aún no hay ventas en esta barra", "warn"); return; } reorder(salesRank); flash("Colocados por ventas · ahora puedes moverlos"); };
+  return { sortMode, sold, salesRank, reorder, moveProd, setSortMode, applySalesOrder };
+}
+
+/* Panel "Ordenar productos" que se abre desde el propio TPV (solo administrador) */
+function OrderSheet({ ev, punto, evSales, dispatch, flash, onClose }) {
+  const isMobile = useIsMobile();
+  const { sortMode, sold, salesRank, reorder, moveProd, setSortMode, applySalesOrder } = useProductOrder(ev, punto, evSales, dispatch, flash);
+  const n = punto.products.length;
+  return (
+    <div style={isMobile ? S.sheetWrap : S.overlay} onClick={onClose}>
+      <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, width: 520, maxWidth: "94vw", maxHeight: "88dvh", overflow: "auto", textAlign: "left" }} onClick={e => e.stopPropagation()}>
+        {isMobile && <div style={S.grab} />}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ ...S.display, fontSize: 20 }}>Ordenar productos</div>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>{punto.name} · {n} productos</div>
+          </div>
+          <button onClick={onClose} style={S.iconBtn} aria-label="Cerrar"><Ic n="close" /></button>
+        </div>
+        <div style={S.segWrap}>
+          <button onClick={() => setSortMode("manual")} style={{ ...S.seg, ...(sortMode === "manual" ? S.segOn : {}) }}><Ic n="grip" s={15} w={2.2} />Manual</button>
+          <button onClick={() => setSortMode("ventas")} style={{ ...S.seg, ...(sortMode === "ventas" ? S.segOn : {}) }}><Ic n="reports" s={15} w={2.2} />Más vendidos</button>
+        </div>
+        <div style={{ fontSize: 12, color: "var(--muted)", margin: "10px 2px 12px", lineHeight: 1.45 }}>
+          {sortMode === "ventas" ? "En el TPV sale primero lo que más se vende en esta barra. Con empate o sin ventas, manda el orden de abajo." : (isMobile ? "Mantén pulsada el asa ⠿ y arrastra cada producto a su sitio." : "Arrastra desde el asa ⠿ o usa las flechas.")}
+        </div>
+        {sortMode === "manual" && Object.keys(sold).length > 0 && <button onClick={applySalesOrder} style={{ ...S.smallBtn, marginBottom: 12, display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px" }}><Ic n="reports" s={13} w={2.2} />Colocar una vez por ventas</button>}
+        <SortableList items={punto.products} onReorder={reorder} renderRow={(p, i, handle, dragging) => (
+          <div style={{ ...S.prodRow, gap: 10, padding: "8px 10px 8px 6px", opacity: p.soldOut ? .55 : 1, ...(dragging ? S.prodRowDrag : {}) }}>
+            {handle}
+            <span style={{ width: 22, textAlign: "center", fontSize: 12, fontWeight: 800, color: "var(--muted)", flexShrink: 0 }}>{i + 1}</span>
+            <div style={{ width: 34, height: 34, borderRadius: 9, background: p.color, display: "grid", placeItems: "center", fontSize: 19, flexShrink: 0 }}>{p.emoji}</div>
+            <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{sortMode === "ventas" ? <><b style={{ color: "var(--accent)" }}>#{salesRank.indexOf(p.id) + 1} en ventas</b> · </> : null}{sold[p.id] || 0} vendidos</div></div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <button onClick={() => moveProd(p.id, -1)} disabled={i === 0} style={{ ...S.arrowBtn, opacity: i === 0 ? .3 : 1 }} aria-label="Subir"><Ic n="up" s={13} w={2.4} /></button>
+              <button onClick={() => moveProd(p.id, 1)} disabled={i === n - 1} style={{ ...S.arrowBtn, opacity: i === n - 1 ? .3 : 1 }} aria-label="Bajar"><Ic n="down" s={13} w={2.4} /></button>
+            </div>
+          </div>
+        )} />
+        <button onClick={onClose} style={{ ...S.btnPrimary, marginTop: 14 }}>Listo</button>
+      </div>
     </div>
   );
 }
@@ -1203,7 +1261,7 @@ function CheckCard({ state, title, value, note, children }) {
 /* ============================================================
    POS
    ============================================================ */
-function POS({ punto, totals, rankCounts, onSell, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, onToggleAdvanced }) {
+function POS({ punto, totals, rankCounts, onOrder, onSell, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, onToggleAdvanced }) {
   const isMobile = useIsMobile();
   const combos = punto.combos || [];
   const [qty, setQty] = useState(1);
@@ -1277,10 +1335,13 @@ function POS({ punto, totals, rankCounts, onSell, onSellMany, onVoid, onReprint,
       <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 18, alignItems: "flex-start" }}>
         {/* productos */}
         <div style={{ flex: 1, width: "100%" }}>
-          {sortMode === "ventas" && punto.products.length > 1 && (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10, fontSize: 12, color: "var(--muted)" }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Ic n="reports" s={14} w={2.2} />Ordenados por más vendidos</span>
-              {rankStale && <button onClick={() => setRankKey(k => k + 1)} style={{ ...S.smallBtn, display: "inline-flex", alignItems: "center", gap: 6 }}><Ic n="refresh" s={13} w={2.2} />Actualizar orden</button>}
+          {punto.products.length > 1 && (sortMode === "ventas" || onOrder) && !grouping && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10, fontSize: 12, color: "var(--muted)", minHeight: 30 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Ic n={sortMode === "ventas" ? "reports" : "grip"} s={14} w={2.2} />{sortMode === "ventas" ? "Ordenados por más vendidos" : "Orden manual"}</span>
+              <span style={{ display: "flex", gap: 6 }}>
+                {rankStale && <button onClick={() => setRankKey(k => k + 1)} style={{ ...S.smallBtn, display: "inline-flex", alignItems: "center", gap: 6 }}><Ic n="refresh" s={13} w={2.2} />Actualizar orden</button>}
+                {onOrder && <button onClick={onOrder} style={{ ...S.smallBtn, display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", fontSize: 12.5, color: "var(--accent)", background: "rgba(255,90,60,.1)", borderColor: "rgba(255,90,60,.4)" }}><Ic n="grip" s={14} w={2.4} />Ordenar productos</button>}
+              </span>
             </div>
           )}
           {punto.products.length === 0 ? <Empty msg={`“${punto.name}” aún no tiene productos.`} /> : (
@@ -1489,13 +1550,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
   const delCombo = (id) => { saveCombos(combos.filter(c => c.id !== id)); flash("Bono borrado"); };
   const puntoTieneVentas = (id) => evSales.some(s => s.puntoId === id);
   // ---- Orden de productos ----
-  const sortMode = punto.sortMode === "ventas" ? "ventas" : "manual";
-  const sold = useMemo(() => { const c = {}; evSales.forEach(s => { if (s.puntoId === punto.id && !s.voided) c[s.productId] = (c[s.productId] || 0) + 1; }); return c; }, [evSales, punto.id]);
-  const salesRank = useMemo(() => punto.products.map((p, i) => [p.id, sold[p.id] || 0, i]).sort((x, y) => (y[1] - x[1]) || (x[2] - y[2])).map(x => x[0]), [punto.products, sold]);
-  const reorder = (ids) => dispatch({ type: "REORDER_PRODUCTS", eventId: ev.id, puntoId: punto.id, ids, prevIds: punto.products.map(p => p.id) });
-  const moveProd = (id, d) => { const ids = punto.products.map(p => p.id); const i = ids.indexOf(id), j = i + d; if (i < 0 || j < 0 || j >= ids.length) return; [ids[i], ids[j]] = [ids[j], ids[i]]; reorder(ids); };
-  const setSortMode = (m) => { if (m === sortMode) return; dispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: punto.id, patch: { sortMode: m } }); flash(m === "ventas" ? "TPV: más vendidos primero" : "TPV: orden manual"); };
-  const applySalesOrder = () => { if (!Object.keys(sold).length) { flash("Aún no hay ventas en esta barra", "warn"); return; } reorder(salesRank); flash("Colocados por ventas · ahora puedes moverlos"); };
+  const { sortMode, sold, salesRank, reorder, moveProd, setSortMode, applySalesOrder } = useProductOrder(ev, punto, evSales, dispatch, flash);
 
   const saveRename = () => {
     if (!renamePunto?.value.trim()) { flash("El nombre no puede estar vacío", "warn"); return; }
