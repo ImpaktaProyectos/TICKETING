@@ -1,8 +1,9 @@
 import { supabase, uid } from "./supabase";
 
 /* ===================== MAPEADORES BD <-> UI ===================== */
-const prodFromDb = (p) => ({ id: p.id, name: p.nombre, price: Number(p.precio), color: p.color, emoji: p.emoji, soldOut: p.agotado });
-const puntoFromDb = (p) => ({ id: p.id, name: p.nombre, archivado: p.archivado, combos: p.combos || [], fondo: p.fondo != null ? Number(p.fondo) : null, fondoEn: p.fondo_en, fondoPor: p.fondo_por, products: (p.ticket_productos || []).sort((a, b) => a.orden - b.orden).map(prodFromDb) });
+const prodFromDb = (p) => ({ id: p.id, name: p.nombre, price: Number(p.precio), color: p.color, emoji: p.emoji, soldOut: p.agotado, orden: p.orden ?? 0 });
+const byOrden = (a, b) => (a.orden - b.orden) || String(a.creado_en || "").localeCompare(String(b.creado_en || "")) || String(a.id).localeCompare(String(b.id));
+const puntoFromDb = (p) => ({ id: p.id, name: p.nombre, archivado: p.archivado, combos: p.combos || [], fondo: p.fondo != null ? Number(p.fondo) : null, fondoEn: p.fondo_en, fondoPor: p.fondo_por, sortMode: p.orden_modo === "ventas" ? "ventas" : "manual", products: (p.ticket_productos || []).slice().sort(byOrden).map(prodFromDb) });
 const evFromDb = (e) => ({
   id: e.id, name: e.nombre, date: e.fecha, venue: e.recinto || "", template: e.plantilla, paper: e.papel,
   footer: e.pie || "", logo: e.logo_url || "", showEventName: e.mostrar_evento, showDate: e.mostrar_fecha,
@@ -20,8 +21,8 @@ const evPatchToDb = (patch) => {
   const m = { name: "nombre", date: "fecha", venue: "recinto", template: "plantilla", paper: "papel", footer: "pie", logo: "logo_url", showEventName: "mostrar_evento", showDate: "mostrar_fecha", showTime: "mostrar_hora", showPrice: "mostrar_precio", anularPin: "anular_pin", closed: "cerrada", startsAt: "inicio", advanced: "venta_avanzada", changeHelp: "ayuda_cambio", style: "ticket_style", pin_admin: "pin_admin", pin_supervisor: "pin_supervisor" };
   const out = {}; for (const k in patch) if (m[k]) out[m[k]] = patch[k]; return out;
 };
-const prodToDb = (puntoId, p) => ({ id: p.id, punto_id: puntoId, nombre: p.name, precio: p.price, color: p.color, emoji: p.emoji, agotado: p.soldOut });
-const prodPatchToDb = (patch) => { const m = { name: "nombre", price: "precio", color: "color", emoji: "emoji", soldOut: "agotado" }; const o = {}; for (const k in patch) if (m[k]) o[m[k]] = patch[k]; return o; };
+const prodToDb = (puntoId, p) => ({ id: p.id, punto_id: puntoId, nombre: p.name, precio: p.price, color: p.color, emoji: p.emoji, agotado: p.soldOut, orden: p.orden ?? 0 });
+const prodPatchToDb = (patch) => { const m = { name: "nombre", price: "precio", color: "color", emoji: "emoji", soldOut: "agotado", orden: "orden" }; const o = {}; for (const k in patch) if (m[k]) o[m[k]] = patch[k]; return o; };
 
 /* ===================== CARGA INICIAL ===================== */
 // Supabase devuelve máx. 1000 filas por consulta: cargamos por páginas para no perder ventas
@@ -83,11 +84,17 @@ export async function persistAction(action, ctx = {}) {
       case "UPDATE_EVENT": await supabase.from("ticket_eventos").update(evPatchToDb(action.patch)).eq("id", action.id); break;
       case "ADD_PUNTO": await supabase.from("ticket_puntos").insert({ id: action.punto.id, evento_id: action.eventId, nombre: action.punto.name, archivado: false }); break;
       case "ARCHIVE_PUNTO": await supabase.from("ticket_puntos").update({ archivado: action.value }).eq("id", action.puntoId); break;
-      case "UPDATE_PUNTO": { const m = { name: "nombre", archivado: "archivado", combos: "combos" }; const o = {}; for (const k in action.patch) if (m[k]) o[m[k]] = action.patch[k]; await supabase.from("ticket_puntos").update(o).eq("id", action.puntoId); break; }
+      case "UPDATE_PUNTO": { const m = { name: "nombre", archivado: "archivado", combos: "combos", sortMode: "orden_modo" }; const o = {}; for (const k in action.patch) if (m[k]) o[m[k]] = action.patch[k]; await supabase.from("ticket_puntos").update(o).eq("id", action.puntoId); break; }
       case "DELETE_PUNTO": await supabase.from("ticket_puntos").delete().eq("id", action.puntoId); break;
       case "ADD_PRODUCT": await supabase.from("ticket_productos").insert(prodToDb(action.puntoId, action.product)); break;
       case "UPDATE_PRODUCT": await supabase.from("ticket_productos").update(prodPatchToDb(action.patch)).eq("id", action.productId); break;
       case "DELETE_PRODUCT": await supabase.from("ticket_productos").delete().eq("id", action.productId); break;
+      case "REORDER_PRODUCTS": {
+        // Solo se tocan los productos cuyo puesto ha cambiado
+        const prev = action.prevIds || [];
+        await Promise.all(action.ids.map((id, i) => prev[i] === id ? null : supabase.from("ticket_productos").update({ orden: i }).eq("id", id)).filter(Boolean));
+        break;
+      }
       case "SET_ADMIN_PIN": if (ctx.eventId) await supabase.from("ticket_eventos").update({ pin_admin: action.pin }).eq("id", ctx.eventId); break;
       case "SET_SUPERVISOR_PIN": if (ctx.eventId) await supabase.from("ticket_eventos").update({ pin_supervisor: action.pin }).eq("id", ctx.eventId); break;
       default: break;
