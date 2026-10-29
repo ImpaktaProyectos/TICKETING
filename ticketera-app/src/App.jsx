@@ -26,7 +26,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.10.29c";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.10.29d";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -262,7 +262,6 @@ export default function App() {
   const [pending, setPending] = useState(db.pendingCount());
   const isMobile = useIsMobile();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [orderOpen, setOrderOpen] = useState(false);
   const [showCheck, setShowCheck] = useState(false);
   const [testMode, setTestMode] = useState(false);
   const [payFlow, setPayFlow] = useState(null);   // cobro avanzado en curso
@@ -278,6 +277,8 @@ export default function App() {
     return { perProduct, revenue: round2(revenue), count: livePuntoSales.length };
   }, [livePuntoSales]);
   const rankCounts = useMemo(() => { const c = {}; evSales.forEach(s => { if (s.puntoId === punto.id && !s.voided) c[s.productId] = (c[s.productId] || 0) + 1; }); return c; }, [evSales, punto.id]);
+  const reorderProducts = (ids) => dispatch({ type: "REORDER_PRODUCTS", eventId: ev.id, puntoId: punto.id, ids, prevIds: punto.products.map(p => p.id) });
+  const setPuntoSortMode = (m) => { dispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: punto.id, patch: { sortMode: m } }); if (m === "ventas") flash("Más vendidos primero"); };
   const eventRevenue = useMemo(() => round2(evSales.filter(s => !s.voided).reduce((t, s) => t + s.price, 0)), [evSales]);
 
   const flash = (msg, kind = "ok") => { setToast({ msg, kind }); setTimeout(() => setToast(null), 1700); };
@@ -631,7 +632,7 @@ export default function App() {
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn} aria-label="Menú"><Ic n="menu" /></button>
           </header>
           <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />
           </div>
         </div>
       ) : (
@@ -644,7 +645,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.topBtn}><Ic n="lock" s={16} />Salir</button></div>
           </header>
           <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />
           </div>
         </div>
       ))}
@@ -665,7 +666,7 @@ export default function App() {
                 <button onClick={() => setAskRevenue(true)} style={{ ...S.iconBtn, color: "var(--accent)" }} aria-label="Consultar facturación"><Ic n="euro" /></button>
               </div>
             </div>
-            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onOrder={role === "admin" ? () => setOrderOpen(true) : null} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
+            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
             {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
             {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
@@ -709,7 +710,7 @@ export default function App() {
               </div>
             </header>
             <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onOrder={role === "admin" ? () => setOrderOpen(true) : null} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
+              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
               {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
               {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
               {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
@@ -754,9 +755,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-      {/* ===== Ordenar productos (desde el TPV, solo admin) ===== */}
-      {orderOpen && role === "admin" && <OrderSheet ev={ev} punto={punto} evSales={evSales} dispatch={dispatch} flash={flash} onClose={() => setOrderOpen(false)} />}
 
       {/* ===== Fondo de caja (bloquea la venta hasta declararlo) ===== */}
       {needsFondo && !showCheck && (
@@ -849,48 +847,6 @@ function useProductOrder(ev, punto, evSales, dispatch, flash) {
   const setSortMode = (m) => { if (m === sortMode) return; dispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: punto.id, patch: { sortMode: m } }); flash(m === "ventas" ? "TPV: más vendidos primero" : "TPV: orden manual"); };
   const applySalesOrder = () => { if (!Object.keys(sold).length) { flash("Aún no hay ventas en esta barra", "warn"); return; } reorder(salesRank); flash("Colocados por ventas · ahora puedes moverlos"); };
   return { sortMode, sold, salesRank, reorder, moveProd, setSortMode, applySalesOrder };
-}
-
-/* Panel "Ordenar productos" que se abre desde el propio TPV (solo administrador) */
-function OrderSheet({ ev, punto, evSales, dispatch, flash, onClose }) {
-  const isMobile = useIsMobile();
-  const { sortMode, sold, salesRank, reorder, moveProd, setSortMode, applySalesOrder } = useProductOrder(ev, punto, evSales, dispatch, flash);
-  const n = punto.products.length;
-  return (
-    <div style={isMobile ? S.sheetWrap : S.overlay} onClick={onClose}>
-      <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, width: 520, maxWidth: "94vw", maxHeight: "88dvh", overflow: "auto", textAlign: "left" }} onClick={e => e.stopPropagation()}>
-        {isMobile && <div style={S.grab} />}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 12 }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ ...S.display, fontSize: 20 }}>Ordenar productos</div>
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>{punto.name} · {n} productos</div>
-          </div>
-          <button onClick={onClose} style={S.iconBtn} aria-label="Cerrar"><Ic n="close" /></button>
-        </div>
-        <div style={S.segWrap}>
-          <button onClick={() => setSortMode("manual")} style={{ ...S.seg, ...(sortMode === "manual" ? S.segOn : {}) }}><Ic n="grip" s={15} w={2.2} />Manual</button>
-          <button onClick={() => setSortMode("ventas")} style={{ ...S.seg, ...(sortMode === "ventas" ? S.segOn : {}) }}><Ic n="reports" s={15} w={2.2} />Más vendidos</button>
-        </div>
-        <div style={{ fontSize: 12, color: "var(--muted)", margin: "10px 2px 12px", lineHeight: 1.45 }}>
-          {sortMode === "ventas" ? "En el TPV sale primero lo que más se vende en esta barra. Con empate o sin ventas, manda el orden de abajo." : (isMobile ? "Mantén pulsada el asa ⠿ y arrastra cada producto a su sitio." : "Arrastra desde el asa ⠿ o usa las flechas.")}
-        </div>
-        {sortMode === "manual" && Object.keys(sold).length > 0 && <button onClick={applySalesOrder} style={{ ...S.smallBtn, marginBottom: 12, display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px" }}><Ic n="reports" s={13} w={2.2} />Colocar una vez por ventas</button>}
-        <SortableList items={punto.products} onReorder={reorder} renderRow={(p, i, handle, dragging) => (
-          <div style={{ ...S.prodRow, gap: 10, padding: "8px 10px 8px 6px", opacity: p.soldOut ? .55 : 1, ...(dragging ? S.prodRowDrag : {}) }}>
-            {handle}
-            <span style={{ width: 22, textAlign: "center", fontSize: 12, fontWeight: 800, color: "var(--muted)", flexShrink: 0 }}>{i + 1}</span>
-            <div style={{ width: 34, height: 34, borderRadius: 9, background: p.color, display: "grid", placeItems: "center", fontSize: 19, flexShrink: 0 }}>{p.emoji}</div>
-            <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{sortMode === "ventas" ? <><b style={{ color: "var(--accent)" }}>#{salesRank.indexOf(p.id) + 1} en ventas</b> · </> : null}{sold[p.id] || 0} vendidos</div></div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              <button onClick={() => moveProd(p.id, -1)} disabled={i === 0} style={{ ...S.arrowBtn, opacity: i === 0 ? .3 : 1 }} aria-label="Subir"><Ic n="up" s={13} w={2.4} /></button>
-              <button onClick={() => moveProd(p.id, 1)} disabled={i === n - 1} style={{ ...S.arrowBtn, opacity: i === n - 1 ? .3 : 1 }} aria-label="Bajar"><Ic n="down" s={13} w={2.4} /></button>
-            </div>
-          </div>
-        )} />
-        <button onClick={onClose} style={{ ...S.btnPrimary, marginTop: 14 }}>Listo</button>
-      </div>
-    </div>
-  );
 }
 
 /* ---------------------- Lista ordenable (arrastrar con ratón o con el dedo) ---------------------- */
@@ -1261,7 +1217,7 @@ function CheckCard({ state, title, value, note, children }) {
 /* ============================================================
    POS
    ============================================================ */
-function POS({ punto, totals, rankCounts, onOrder, onSell, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, onToggleAdvanced }) {
+function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, onToggleAdvanced }) {
   const isMobile = useIsMobile();
   const combos = punto.combos || [];
   const [qty, setQty] = useState(1);
@@ -1284,18 +1240,67 @@ function POS({ punto, totals, rankCounts, onOrder, onSell, onSellMany, onVoid, o
   const shownProducts = rankOrder ? rankOrder.map(id => punto.products.find(p => p.id === id)).filter(Boolean) : punto.products;
   const rankStale = !!rankOrder && rankOrder.join(",") !== punto.products.map((p, i) => [p.id, (rankCounts || {})[p.id] || 0, i]).sort((x, y) => (y[1] - x[1]) || (x[2] - y[2])).map(x => x[0]).join(",");
 
+  // ---- Mover productos directamente en la pantalla (orden manual) ----
+  const [arranging, setArranging] = useState(false);
+  const [dragT, setDragT] = useState(null);
+  const dragRef = useRef(null);
+  const autoRef = useRef(null);
+  const gridRef = useRef(null);
+  const tileRefs = useRef({});
+  useEffect(() => { setArranging(false); }, [punto.id]);
+  useEffect(() => () => clearInterval(autoRef.current), []);
+  const scrollParent = (el) => { let q = el?.parentElement; while (q) { const o = getComputedStyle(q).overflowY; if ((o === "auto" || o === "scroll") && q.scrollHeight > q.clientHeight) return q; q = q.parentElement; } return document.scrollingElement; };
+  const recompute = (st) => {
+    const ds = (st.sc ? st.sc.scrollTop : 0) - st.sTop;
+    const s0 = st.slots[st.startIdx];
+    const cx = s0.l + s0.w / 2 + (st.x - st.sx), cy = s0.t + s0.h / 2 + (st.y - st.sy) + ds;
+    let best = 0, bd = Infinity;
+    st.slots.forEach((r, i) => { const d = (r.l + r.w / 2 - cx) ** 2 + (r.t + r.h / 2 - cy) ** 2; if (d < bd) { bd = d; best = i; } });
+    const order = st.base.filter(x => x !== st.id); order.splice(best, 0, st.id);
+    const tx = (s0.l + st.x - st.sx) - st.slots[best].l, ty = (s0.t + st.y - st.sy) - st.slots[best].t + ds;
+    if (best !== st.idx) { try { navigator.vibrate?.(8); } catch {} }
+    return { ...st, order, idx: best, tx, ty };
+  };
+  const dStart = (e, id) => {
+    if (!arranging || (e.button != null && e.button !== 0)) return;
+    e.preventDefault();
+    const base = shownProducts.map(p => p.id);
+    const slots = base.map(pid => { const r = tileRefs.current[pid]?.getBoundingClientRect() || { left: 0, top: 0, width: 0, height: 0 }; return { l: r.left, t: r.top, w: r.width, h: r.height }; });
+    const sc = scrollParent(gridRef.current);
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    const st = { id, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, base, slots, startIdx: base.indexOf(id), idx: base.indexOf(id), order: base, tx: 0, ty: 0, sc, sTop: sc ? sc.scrollTop : 0 };
+    dragRef.current = st; setDragT(st);
+    clearInterval(autoRef.current);
+    autoRef.current = setInterval(() => {   // auto-desplazamiento al acercarse al borde
+      const c = dragRef.current; if (!c || !c.sc) return;
+      const box = c.sc === document.scrollingElement ? { top: 0, bottom: window.innerHeight } : c.sc.getBoundingClientRect();
+      const step = c.y < box.top + 80 ? -12 : c.y > box.bottom - 80 ? 12 : 0;
+      if (!step) return;
+      const before = c.sc.scrollTop; c.sc.scrollTop += step;
+      if (c.sc.scrollTop !== before) { const n = recompute(c); dragRef.current = n; setDragT(n); }
+    }, 16);
+  };
+  const dMove = (e) => { const c = dragRef.current; if (!c) return; const n = recompute({ ...c, x: e.clientX, y: e.clientY }); dragRef.current = n; setDragT(n); };
+  const dEnd = () => {
+    const c = dragRef.current; clearInterval(autoRef.current);
+    dragRef.current = null; setDragT(null);
+    if (c && c.order.join() !== c.base.join()) onReorder && onReorder(c.order);
+  };
+  const startArrange = () => { if (sortMode !== "manual") onSetSortMode && onSetSortMode("manual"); setGrouping(false); setCart([]); setArranging(true); };
+  const viewProducts = dragT ? dragT.order.map(id => punto.products.find(p => p.id === id)).filter(Boolean) : shownProducts;
+
   const cartQty = (id) => cart.find(c => c.product.id === id)?.qty || 0;
   const cartCount = cart.reduce((t, c) => t + c.qty, 0);
   const cartTotal = cart.reduce((t, c) => t + c.product.price * c.qty, 0);
 
   const tap = (p) => {
-    if (p.soldOut) return;
+    if (arranging || p.soldOut) return;
     if (grouping) {
       setCart(prev => { const i = prev.findIndex(c => c.product.id === p.id); if (i >= 0) { const cp = [...prev]; cp[i] = { ...cp[i], qty: cp[i].qty + 1 }; return cp; } return [...prev, { product: p, qty: 1 }]; });
     } else { onSell(p, qty); setQty(1); }
   };
   const changeQty = (id, d) => setCart(prev => prev.flatMap(c => c.product.id === id ? (c.qty + d <= 0 ? [] : [{ ...c, qty: c.qty + d }]) : [c]));
-  const startGroup = () => { setGrouping(true); setCart([]); };
+  const startGroup = () => { setArranging(false); setGrouping(true); setCart([]); };
   const cancelGroup = () => { setGrouping(false); setCart([]); setCharging(null); };
   const confirmCharge = () => { onSellMany(cart.map(c => ({ product: c.product, qty: c.qty }))); cancelGroup(); };
 
@@ -1335,22 +1340,38 @@ function POS({ punto, totals, rankCounts, onOrder, onSell, onSellMany, onVoid, o
       <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 18, alignItems: "flex-start" }}>
         {/* productos */}
         <div style={{ flex: 1, width: "100%" }}>
-          {punto.products.length > 1 && (sortMode === "ventas" || onOrder) && !grouping && (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10, fontSize: 12, color: "var(--muted)", minHeight: 30 }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Ic n={sortMode === "ventas" ? "reports" : "grip"} s={14} w={2.2} />{sortMode === "ventas" ? "Ordenados por más vendidos" : "Orden manual"}</span>
-              <span style={{ display: "flex", gap: 6 }}>
-                {rankStale && <button onClick={() => setRankKey(k => k + 1)} style={{ ...S.smallBtn, display: "inline-flex", alignItems: "center", gap: 6 }}><Ic n="refresh" s={13} w={2.2} />Actualizar orden</button>}
-                {onOrder && <button onClick={onOrder} style={{ ...S.smallBtn, display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", fontSize: 12.5, color: "var(--accent)", background: "rgba(255,90,60,.1)", borderColor: "rgba(255,90,60,.4)" }}><Ic n="grip" s={14} w={2.4} />Ordenar productos</button>}
-              </span>
+          {punto.products.length > 1 && !grouping && (arranging ? (
+            <div style={S.arrangeBar}>
+              <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}><Ic n="grip" s={16} w={2.4} /><span><b>Moviendo productos</b><span style={{ display: "block", fontSize: 11.5, opacity: .85, fontWeight: 600 }}>Arrastra cada caja a su sitio. Ahora no se vende.</span></span></span>
+              <button onClick={() => setArranging(false)} style={S.doneBtn}>✓ Hecho</button>
             </div>
-          )}
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+              <div style={S.miniSeg}>
+                <button onClick={startArrange} style={{ ...S.miniSegBtn, ...(sortMode === "manual" ? S.miniSegOn : {}) }}><Ic n="grip" s={14} w={2.4} />Orden manual</button>
+                <button onClick={() => { if (sortMode !== "ventas") { onSetSortMode && onSetSortMode("ventas"); setRankKey(k => k + 1); } }} style={{ ...S.miniSegBtn, ...(sortMode === "ventas" ? S.miniSegOn : {}) }}><Ic n="reports" s={14} w={2.2} />Más vendidos</button>
+              </div>
+              {sortMode === "manual"
+                ? <button onClick={startArrange} style={{ ...S.smallBtn, display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", color: "var(--accent)", background: "rgba(255,90,60,.1)", borderColor: "rgba(255,90,60,.4)" }}><Ic n="grip" s={14} w={2.4} />Mover productos</button>
+                : rankStale && <button onClick={() => setRankKey(k => k + 1)} style={{ ...S.smallBtn, display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px" }}><Ic n="refresh" s={13} w={2.2} />Actualizar orden</button>}
+            </div>
+          ))}
           {punto.products.length === 0 ? <Empty msg={`“${punto.name}” aún no tiene productos.`} /> : (
-            <div style={{ ...S.grid, gridTemplateColumns: isMobile ? "repeat(auto-fill, minmax(130px,1fr))" : "repeat(auto-fill, minmax(170px,1fr))" }}>
-              {shownProducts.map(p => {
+            <div ref={gridRef} style={{ ...S.grid, gridTemplateColumns: isMobile ? "repeat(auto-fill, minmax(130px,1fr))" : "repeat(auto-fill, minmax(170px,1fr))" }}>
+              {viewProducts.map((p, i) => {
                 const badge = grouping ? cartQty(p.id) : totals.perProduct[p.id];
+                const isDrag = dragT && dragT.id === p.id;
+                const arr = arranging ? {
+                  touchAction: "none", userSelect: "none", WebkitUserSelect: "none", cursor: isDrag ? "grabbing" : "grab",
+                  outline: "2px dashed rgba(255,255,255,.6)", outlineOffset: -6,
+                  ...(isDrag ? { transform: `translate(${dragT.tx}px, ${dragT.ty}px) scale(1.06)`, zIndex: 10, boxShadow: "0 24px 50px rgba(0,0,0,.6)", transition: "none" } : { animation: `jiggle .35s ease-in-out ${(i % 3) * .07}s infinite alternate` }),
+                } : {};
                 return (
-                  <button key={p.id} onClick={() => tap(p)} disabled={p.soldOut} className="tile" style={{ ...S.tile, background: p.soldOut ? "var(--surface2)" : `linear-gradient(160deg, ${p.color}, ${shade(p.color, -25)})`, color: p.soldOut ? "var(--muted)" : "#fff", cursor: p.soldOut ? "not-allowed" : "pointer", outline: grouping && cartQty(p.id) ? "3px solid #fff" : "none" }}>
-                    {badge ? <span style={{ ...S.tileBadge, background: grouping ? "var(--accent)" : "rgba(0,0,0,.45)" }}>{badge}</span> : null}
+                  <button key={p.id} ref={el => { tileRefs.current[p.id] = el; }} onClick={() => tap(p)} disabled={!arranging && p.soldOut}
+                    onPointerDown={arranging ? (e => dStart(e, p.id)) : undefined} onPointerMove={arranging ? dMove : undefined} onPointerUp={arranging ? dEnd : undefined} onPointerCancel={arranging ? dEnd : undefined}
+                    className={arranging ? "tile arranging" : "tile"} style={{ ...S.tile, background: p.soldOut ? "var(--surface2)" : `linear-gradient(160deg, ${p.color}, ${shade(p.color, -25)})`, color: p.soldOut ? "var(--muted)" : "#fff", cursor: p.soldOut ? "not-allowed" : "pointer", outline: grouping && cartQty(p.id) ? "3px solid #fff" : "none", ...arr }}>
+                    {arranging && <span style={S.tileGrip}><Ic n="grip" s={16} w={2.6} /></span>}
+                    {badge && !arranging ? <span style={{ ...S.tileBadge, background: grouping ? "var(--accent)" : "rgba(0,0,0,.45)" }}>{badge}</span> : null}
                     {p.soldOut && <span style={S.soldOut}>AGOTADO</span>}
                     <span style={{ fontSize: 44 }}>{p.emoji}</span>
                     <span style={{ fontSize: 19, fontWeight: 800, lineHeight: 1.1, textShadow: p.soldOut ? "none" : "0 1px 3px rgba(0,0,0,.3)" }}>{p.name}</span>
@@ -1360,7 +1381,7 @@ function POS({ punto, totals, rankCounts, onOrder, onSell, onSellMany, onVoid, o
               })}
             </div>
           )}
-          {!grouping && qty > 1 && <div style={{ marginTop: 14, textAlign: "center", color: "var(--amber)", fontWeight: 700 }}>Modo cantidad ×{qty}: el siguiente toque vende {qty} unidades en un ticket.</div>}
+          {!grouping && !arranging && qty > 1 && <div style={{ marginTop: 14, textAlign: "center", color: "var(--amber)", fontWeight: 700 }}>Modo cantidad ×{qty}: el siguiente toque vende {qty} unidades en un ticket.</div>}
 
           {!grouping && combos.length > 0 && (
             <div style={{ marginTop: 20 }}>
@@ -2093,6 +2114,8 @@ input,select{font-family:Inter,-apple-system,sans-serif;font-size:16px;}
 ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes jiggle{from{transform:rotate(-.7deg)}to{transform:rotate(.7deg)}}
+.tile.arranging:active{transform:none;}
 @keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .livedot{animation:pulse 1.4s infinite}
 .sheet-anim{animation:sheetUp .22s ease}
@@ -2190,6 +2213,12 @@ const S = {
   prodRowDrag: { borderColor: "var(--accent)", boxShadow: "0 12px 30px rgba(0,0,0,.45), 0 0 0 1px var(--accent)", background: "var(--surface2)" },
   grip: { display: "grid", placeItems: "center", width: 30, height: 40, margin: "-4px -4px -4px -2px", borderRadius: 8, touchAction: "none", userSelect: "none", WebkitUserSelect: "none", flexShrink: 0 },
   arrowBtn: { width: 28, height: 20, borderRadius: 6, background: "var(--surface2)", border: "1px solid var(--line)", color: "var(--text)", display: "grid", placeItems: "center", padding: 0 },
+  arrangeBar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12, padding: "10px 10px 10px 14px", borderRadius: 14, background: "rgba(255,90,60,.12)", border: "1px solid rgba(255,90,60,.45)", color: "var(--accent)", fontSize: 13.5 },
+  doneBtn: { background: "var(--accent)", color: "#fff", border: "none", borderRadius: 11, padding: "10px 18px", fontWeight: 800, fontSize: 14, flexShrink: 0 },
+  miniSeg: { display: "inline-flex", gap: 3, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 11, padding: 3 },
+  miniSegBtn: { display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: "var(--muted)", borderRadius: 8, padding: "7px 11px", fontWeight: 700, fontSize: 12.5 },
+  miniSegOn: { background: "var(--surface2)", color: "var(--text)", boxShadow: "inset 0 0 0 1px var(--line)" },
+  tileGrip: { position: "absolute", top: 8, left: 8, width: 28, height: 28, borderRadius: 8, background: "rgba(0,0,0,.35)", display: "grid", placeItems: "center", color: "#fff" },
   segWrap: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 12, padding: 4 },
   seg: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, background: "transparent", color: "var(--muted)", border: "none", borderRadius: 9, padding: "10px 8px", fontWeight: 700, fontSize: 13 },
   segOn: { background: "var(--surface2)", color: "var(--text)", boxShadow: "inset 0 0 0 1px var(--line), 0 0 0 0 transparent", },
