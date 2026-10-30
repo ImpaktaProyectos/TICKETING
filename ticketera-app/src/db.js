@@ -202,14 +202,19 @@ async function flushFondoDePunto(puntoId) {
 }
 
 async function doOrQueue(item) {
-  // Sin red, o con cosas pendientes delante: a la cola (respeta el orden)
-  if (!navigator.onLine || loadQ().length > 0) {
-    enqueue(item);
-    if (navigator.onLine) syncPending();                   // intenta vaciarla ya
-    return { offline: true };
+  // PRIMERO se guarda en el equipo y DESPUÉS se sube: si se corta el wifi, se apaga
+  // el ordenador o el wifi está "conectado pero sin internet", la venta nunca se pierde.
+  const it = { ...item, qid: item.qid || newQid() };
+  enqueue(it);
+  if (!navigator.onLine) return { offline: true };
+  const inQ = () => loadQ().some(x => x.qid === it.qid);
+  const until = Date.now() + 6000;
+  // Si ya había una subida en marcha (varias ventas seguidas), repetimos hasta que entre la nuestra
+  while (inQ() && navigator.onLine && Date.now() < until) {
+    const r = await Promise.race([syncPending().catch(() => null), new Promise(res => setTimeout(() => res(null), until - Date.now()))]);
+    if (!r || !r.synced) break;                            // sin internet de verdad: se queda guardada
   }
-  try { await runItem(item); return { offline: false }; }
-  catch { enqueue(item); return { offline: true }; }
+  return { offline: inQ() };
 }
 
 // folios y clientUuids los genera la App (para que el ticket optimista y la BD coincidan)

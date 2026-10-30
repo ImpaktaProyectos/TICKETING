@@ -26,7 +26,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.10.29d";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.10.30a";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -297,7 +297,9 @@ export default function App() {
   const hydrate = async () => {
     let data;
     try {
-      data = await db.loadAll();
+      // Wifi sin internet: no nos quedamos colgados, a los 8 s usamos la copia guardada
+      if (!navigator.onLine) throw new Error("offline");
+      data = await Promise.race([db.loadAll(), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 5000))]);
       if (!data.events.length) { await db.ensureDefaultEvent(); data = await db.loadAll(); }
       try { localStorage.setItem(SNAP, JSON.stringify({ events: data.events, closures: data.closures, sales: data.sales.slice(-4000) })); } catch {}
     } catch (e) {
@@ -326,7 +328,7 @@ export default function App() {
     } });
   };
   useEffect(() => { (async () => {
-    try { if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); } } catch {}
+    if (navigator.onLine) db.syncPending().then(() => setPending(db.pendingCount())).catch(() => {});   // en segundo plano: no frena el arranque
     try { await hydrate(); } catch (e) { console.error(e); flash("Error cargando datos", "warn"); }
     setLoading(false);
   })(); }, []);
@@ -745,7 +747,7 @@ export default function App() {
               <MenuRow big icon="check" label="Comprobación previa" onClick={() => { setMenuOpen(false); setShowCheck(true); }} right={<span style={{ color: "var(--muted)" }}><Ic n="chev" s={16} /></span>} />
               <MenuRow big icon="printer" label="Ticket de prueba" onClick={() => { setMenuOpen(false); testPrint(); }} right={<span style={{ color: "var(--muted)" }}><Ic n="chev" s={16} /></span>} />
               <MenuRow big icon="flask" label="Modo prueba" onClick={() => setTestMode(m => !m)} tone={testMode ? "warn" : undefined} right={<span style={{ ...S.onOff, ...(testMode ? S.onOffOn : {}) }}>{testMode ? "ACTIVADO" : "APAGADO"}</span>} />
-              <MenuRow big icon="refresh" label="Buscar actualización" onClick={async () => { try { const rs = await navigator.serviceWorker?.getRegistrations?.() || []; for (const r of rs) await r.unregister(); const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); } catch {} window.location.reload(true); }} right={<span style={{ color: "var(--muted)" }}><Ic n="chev" s={16} /></span>} />
+              <MenuRow big icon="refresh" label="Buscar actualización" onClick={async () => { if (!navigator.onLine || !(await fetch("/manifest.webmanifest", { cache: "no-store" }).then(r => r.ok).catch(() => false))) { flash("Sin internet: no se puede actualizar ahora (la app sigue funcionando)", "warn"); return; } try { const rs = await navigator.serviceWorker?.getRegistrations?.() || []; for (const r of rs) await r.unregister(); const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); } catch {} window.location.reload(true); }} right={<span style={{ color: "var(--muted)" }}><Ic n="chev" s={16} /></span>} />
             </div>
             <div className="menu-group" style={{ ...S.menuGroup, marginTop: 10 }}>
               <MenuRow big icon="swap" label="Cambiar de rol" onClick={() => { setMenuOpen(false); exitToLogin(); }} right={<span style={{ color: "var(--muted)" }}><Ic n="chev" s={16} /></span>} />

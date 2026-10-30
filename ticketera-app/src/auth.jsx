@@ -5,16 +5,40 @@ import { setUserScope, pendingCount } from "./db";
 /* ============================================================
    SESIÓN
    ============================================================ */
+// Sesión guardada en este equipo. Sin internet no se puede renovar el pase de acceso
+// (caduca cada hora), pero la cuenta sigue siendo la misma: la usamos para poder vender
+// offline y se renueva sola en cuanto vuelve la conexión.
+const SB_KEY = "sb-xnhcquehlyalwgqmdiov-auth-token";
+function storedSession() {
+  try { const s = JSON.parse(localStorage.getItem(SB_KEY) || "null"); return s && s.user && s.user.id && s.refresh_token ? s : null; } catch { return null; }
+}
+
 export function useSession() {
   const [session, setSession] = useState(undefined);
   const [recovery, setRecovery] = useState(false);
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    let settled = false;
+    // Sin red: entramos al momento con la sesión guardada (sin esperar a nadie)
+    if (!navigator.onLine) { const st = storedSession(); if (st) { settled = true; setSession(st); } }
+    // Wifi sin internet: si la comprobación tarda, entramos con la sesión guardada
+    const slow = setTimeout(() => { if (!settled) { const st = storedSession(); if (st) { settled = true; setSession(st); } } }, 2500);
+    supabase.auth.getSession().then(({ data, error }) => {
+      clearTimeout(slow);
+      if (data?.session) { settled = true; setSession(data.session); return; }
+      if (settled) return;
+      settled = true;
+      const st = storedSession();
+      setSession(st && (error || !navigator.onLine) ? st : null);
+    }).catch(() => { clearTimeout(slow); if (!settled) { settled = true; setSession(storedSession()); } });
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       if (event === "PASSWORD_RECOVERY") setRecovery(true);
-      setSession(s);
+      if (!s && event !== "SIGNED_OUT" && storedSession()) return;   // sin red: no echamos al usuario
+      if (s || event === "SIGNED_OUT") { settled = true; setSession(s); }
     });
-    return () => sub.subscription.unsubscribe();
+    // Al volver internet, renueva el pase en segundo plano
+    const onOnline = () => { supabase.auth.getSession().then(({ data }) => { if (data?.session) setSession(data.session); }).catch(() => {}); };
+    window.addEventListener("online", onOnline);
+    return () => { clearTimeout(slow); sub.subscription.unsubscribe(); window.removeEventListener("online", onOnline); };
   }, []);
   return { session, recovery, endRecovery: () => setRecovery(false) };
 }

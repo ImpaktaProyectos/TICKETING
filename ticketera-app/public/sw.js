@@ -2,9 +2,25 @@
    Regla de oro: con internet SIEMPRE se sirve la versión nueva.
    La copia guardada solo se usa cuando NO hay conexión (para poder vender offline).
    Nunca intercepta Supabase (login, datos, tiempo real). */
-const CACHE = "ticketera-v4";
+const CACHE = "ticketera-v5";
 
-self.addEventListener("install", () => self.skipWaiting());
+// Al instalar se guarda YA todo lo necesario para abrir sin internet (no hace falta una segunda visita)
+self.addEventListener("install", (e) => {
+  e.waitUntil((async () => {
+    try {
+      const cache = await caches.open(CACHE);
+      const res = await fetch("/", { cache: "reload" });
+      if (res.ok) {
+        const html = await res.clone().text();
+        await cache.put("/", res);
+        const assets = [...html.matchAll(/(?:src|href)="(\/[^"]+)"/g)].map(m => m[1]);
+        const extra = ["/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/brand/tixfast_isotipo_app.svg", "/brand/tixfast_logo_horizontal_oscuro.svg", "/brand/tixfast_logo_horizontal_claro.svg", "/brand/tixfast_logo_ticket_1bit.svg"];
+        await Promise.all([...new Set([...assets, ...extra])].map(u => cache.add(new Request(u, { cache: "reload" })).catch(() => {})));
+      }
+    } catch {}
+    await self.skipWaiting();
+  })());
+});
 
 self.addEventListener("activate", (e) => {
   e.waitUntil((async () => {
@@ -39,7 +55,7 @@ self.addEventListener("fetch", (e) => {
       // Sin conexión: tiramos de la copia guardada
       const hit = await cache.match(req);
       if (hit) return hit;
-      if (req.mode === "navigate") {
+      if (req.mode === "navigate" || (req.headers.get("accept") || "").includes("text/html")) {
         const home = await cache.match("/");
         if (home) return home;
       }
