@@ -27,7 +27,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.11.01b";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.01c";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -2129,7 +2129,9 @@ input,select{font-family:Inter,-apple-system,sans-serif;font-size:16px;}
 .livedot{animation:pulse 1.4s infinite}
 .sheet-anim{animation:sheetUp .22s ease}
 @media print{
- html,body{margin:0 !important;padding:0 !important;background:#fff !important;}
+ html,body{margin:0 !important;padding:0 !important;background:#fff !important;height:auto !important;min-height:0 !important;overflow:visible !important;}
+ #thermal-print-area,.ticket-page{height:auto !important;min-height:0 !important;}
+ .ticket-page{break-inside:avoid;page-break-inside:avoid;}
  #root{display:none !important;}
  body>*:not(#thermal-print-area){display:none !important;}
  #thermal-print-area,#thermal-print-area *{visibility:visible !important;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
