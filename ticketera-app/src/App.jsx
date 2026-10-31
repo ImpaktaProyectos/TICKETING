@@ -26,7 +26,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.10.30a";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.10.31a";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -108,7 +108,10 @@ function ThermalTicket({ ev, product, time, num, qty = 1, code, folio }) {
   const ref = showFolio ? (folio ? "Folio " + folio : (num != null ? "Nº " + String(num).padStart(4, "0") : "")) : "";
   const base = { fontFamily: "'Roboto Mono', ui-monospace, monospace", color: "#000", background: "#fff", width: mm + "mm", padding: "1.5mm 2mm 2.5mm", boxSizing: "border-box", lineHeight: 1.25, fontWeight: 700 };
   const dashed = <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />;
-  const Name = ({ size, align = "center" }) => <div style={{ fontWeight: 900, fontSize: size, letterSpacing: -0.3, textAlign: align, lineHeight: 1.04, color: "#000", wordBreak: "break-word" }}>{product?.name || "NOMBRE TICKET"}</div>;
+  const Name = ({ size, align = "center" }) => (<>
+    <div style={{ fontWeight: 900, fontSize: size, letterSpacing: -0.3, textAlign: align, lineHeight: 1.04, color: "#000", wordBreak: "break-word" }}>{product?.name || "NOMBRE TICKET"}</div>
+    {product?.subtitle ? <div style={{ fontWeight: 800, fontSize: Math.max(13, Math.round(size * 0.4)), textAlign: align, lineHeight: 1.15, color: "#000", marginTop: "1.2mm", wordBreak: "break-word" }}>{product.subtitle}</div> : null}
+  </>);
   const Logo = () => {
     if (!ev.logo || st.showLogo === false) return null;
     const isImg = typeof ev.logo === "string" && /^(data:|https?:)/.test(ev.logo);
@@ -1377,6 +1380,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onSe
                     {p.soldOut && <span style={S.soldOut}>AGOTADO</span>}
                     <span style={{ fontSize: 44 }}>{p.emoji}</span>
                     <span style={{ fontSize: 19, fontWeight: 800, lineHeight: 1.1, textShadow: p.soldOut ? "none" : "0 1px 3px rgba(0,0,0,.3)" }}>{p.name}</span>
+                    {p.subtitle ? <span style={{ fontSize: 11.5, fontWeight: 700, lineHeight: 1.15, opacity: .9, marginTop: -4 }}>{p.subtitle}</span> : null}
                     <span style={{ fontSize: 22, fontWeight: 800 }}>{money(p.price)}</span>
                   </button>
                 );
@@ -1551,7 +1555,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
   const isMobile = useIsMobile();
   const isAdmin = role === "admin";
   const [confirmReset, setConfirmReset] = useState(0); // 0 no, 1 primer aviso, 2 aviso final
-  const [draft, setDraft] = useState({ name: "", price: "", emoji: "🎟️", color: PALETTE[0] });
+  const [draft, setDraft] = useState({ name: "", subtitle: "", price: "", emoji: "🎟️", color: PALETTE[0] });
   const [newEvent, setNewEvent] = useState(null);
   const [newPunto, setNewPunto] = useState("");
   const [confirmDel, setConfirmDel] = useState(null);
@@ -1582,15 +1586,15 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
   };
   const saveProduct = () => {
     if (!editProd.name.trim() || editProd.price === "" || isNaN(parseFloat(editProd.price))) { flash("Pon nombre y precio válidos", "warn"); return; }
-    dispatch({ type: "UPDATE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: editProd.id, patch: { name: editProd.name.toUpperCase(), price: parseFloat(editProd.price), emoji: editProd.emoji, color: editProd.color, soldOut: editProd.soldOut } });
+    dispatch({ type: "UPDATE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: editProd.id, patch: { name: editProd.name.toUpperCase(), subtitle: (editProd.subtitle || "").trim().toUpperCase(), price: parseFloat(editProd.price), emoji: editProd.emoji, color: editProd.color, soldOut: editProd.soldOut } });
     setEditProd(null); flash("Producto actualizado");
   };
 
   const addProduct = () => {
     if (!draft.name.trim() || !draft.price) { flash("Pon nombre y precio", "warn"); return; }
     const nextOrden = punto.products.reduce((m, x) => Math.max(m, (x.orden ?? 0) + 1), punto.products.length);
-    dispatch({ type: "ADD_PRODUCT", eventId: ev.id, puntoId: punto.id, product: { id: uid(), name: draft.name.toUpperCase(), price: parseFloat(draft.price), emoji: draft.emoji, color: draft.color, soldOut: false, orden: nextOrden } });
-    setDraft({ name: "", price: "", emoji: "🎟️", color: PALETTE[Math.floor(Math.random() * PALETTE.length)] });
+    dispatch({ type: "ADD_PRODUCT", eventId: ev.id, puntoId: punto.id, product: { id: uid(), name: draft.name.toUpperCase(), subtitle: (draft.subtitle || "").trim().toUpperCase(), price: parseFloat(draft.price), emoji: draft.emoji, color: draft.color, soldOut: false, orden: nextOrden } });
+    setDraft({ name: "", subtitle: "", price: "", emoji: "🎟️", color: PALETTE[Math.floor(Math.random() * PALETTE.length)] });
     flash("Producto añadido a " + punto.name);
   };
   const addPunto = () => { if (!newPunto.trim()) { flash("Pon nombre al punto", "warn"); return; } dispatch({ type: "ADD_PUNTO", eventId: ev.id, punto: { id: uid(), name: newPunto.trim(), archivado: false, products: [] } }); setNewPunto(""); flash("Punto de venta creado"); };
@@ -1687,7 +1691,8 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
       <div>
         <h3 style={S.h3}>Productos de “{punto.name}” ({punto.products.length})</h3>
         <div style={S.panel}>
-          <input style={S.input} placeholder="Nombre (ej. ENTRADA GENERAL)" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} />
+          <input style={S.input} placeholder="Título (ej. ENTRADA TAQUILLA)" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} />
+          <input style={{ ...S.input, marginTop: 8 }} placeholder="Subtítulo opcional (ej. INCLUYE 1 COPA)" maxLength={60} value={draft.subtitle} onChange={e => setDraft({ ...draft, subtitle: e.target.value })} />
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}><input style={{ ...S.input, width: 110 }} type="number" placeholder="Precio €" value={draft.price} onChange={e => setDraft({ ...draft, price: e.target.value })} /><EmojiPicker value={draft.emoji} onChange={v => setDraft({ ...draft, emoji: v })} size={46} /></div>
           <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>{PALETTE.map(c => <button key={c} onClick={() => setDraft({ ...draft, color: c })} style={{ width: 26, height: 26, borderRadius: 7, background: c, border: draft.color === c ? "3px solid #fff" : "3px solid transparent", cursor: "pointer" }} />)}</div>
           <button onClick={addProduct} style={{ ...S.btnPrimary, marginTop: 12 }}>+ Añadir a {punto.name}</button>
@@ -1709,12 +1714,12 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
             <div style={{ ...S.prodRow, gap: isMobile ? 8 : 12, padding: isMobile ? "8px 8px 8px 6px" : 10, opacity: p.soldOut ? .55 : 1, ...(dragging ? S.prodRowDrag : {}) }}>
               {handle}
               <div style={{ width: 36, height: 36, borderRadius: 9, background: p.color, display: "grid", placeItems: "center", fontSize: 20, flexShrink: 0 }}>{p.emoji}</div>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{money(p.price)}{sortMode === "ventas" ? <> · <b style={{ color: "var(--accent)" }}>#{salesRank.indexOf(p.id) + 1}</b> · {sold[p.id] || 0} vendidos</> : (sold[p.id] ? ` · ${sold[p.id]} vendidos` : "")}</div></div>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{p.subtitle ? <span style={{ color: "var(--text)", opacity: .75 }}>{p.subtitle} · </span> : null}{money(p.price)}{sortMode === "ventas" ? <> · <b style={{ color: "var(--accent)" }}>#{salesRank.indexOf(p.id) + 1}</b> · {sold[p.id] || 0} vendidos</> : (sold[p.id] ? ` · ${sold[p.id]} vendidos` : "")}</div></div>
               {!isMobile && <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <button onClick={() => moveProd(p.id, -1)} disabled={i === 0} style={{ ...S.arrowBtn, opacity: i === 0 ? .3 : 1 }} title="Subir" aria-label="Subir"><Ic n="up" s={13} w={2.4} /></button>
                 <button onClick={() => moveProd(p.id, 1)} disabled={i === punto.products.length - 1} style={{ ...S.arrowBtn, opacity: i === punto.products.length - 1 ? .3 : 1 }} title="Bajar" aria-label="Bajar"><Ic n="down" s={13} w={2.4} /></button>
               </div>}
-              <button onClick={() => setEditProd({ id: p.id, name: p.name, price: String(p.price), emoji: p.emoji, color: p.color, soldOut: p.soldOut })} style={S.smallBtn} title="Editar producto">✏️</button>
+              <button onClick={() => setEditProd({ id: p.id, name: p.name, subtitle: p.subtitle || "", price: String(p.price), emoji: p.emoji, color: p.color, soldOut: p.soldOut })} style={S.smallBtn} title="Editar producto">✏️</button>
               <button onClick={() => dispatch({ type: "UPDATE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: p.id, patch: { soldOut: !p.soldOut } })} style={{ ...S.smallBtn, color: p.soldOut ? "var(--amber)" : "var(--muted)", borderColor: p.soldOut ? "var(--amber)" : "var(--line)" }}>{p.soldOut ? "Agotado" : "Disponible"}</button>
               <button onClick={() => dispatch({ type: "DELETE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: p.id })} style={S.del}>✕</button>
             </div>
@@ -1748,7 +1753,8 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
         <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, width: 360, maxWidth: "92vw", textAlign: "left" }} onClick={e => e.stopPropagation()}>
           {isMobile && <div style={S.grab} />}
           <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 14 }}>Editar producto</div>
-          <Field label="Nombre"><input style={S.input} value={editProd.name} onChange={e => setEditProd({ ...editProd, name: e.target.value })} /></Field>
+          <Field label="Título (grande en el ticket)"><input style={S.input} value={editProd.name} onChange={e => setEditProd({ ...editProd, name: e.target.value })} /></Field>
+          <Field label="Subtítulo (opcional, más pequeño) · ej. INCLUYE 1 COPA"><input style={S.input} placeholder="Sin subtítulo" maxLength={60} value={editProd.subtitle || ""} onChange={e => setEditProd({ ...editProd, subtitle: e.target.value })} /></Field>
           <div style={{ display: "flex", gap: 8 }}>
             <Field label="Precio €"><input type="number" style={S.input} value={editProd.price} onChange={e => setEditProd({ ...editProd, price: e.target.value })} /></Field>
             <Field label="Icono"><EmojiPicker value={editProd.emoji} onChange={v => setEditProd({ ...editProd, emoji: v })} size={46} /></Field>

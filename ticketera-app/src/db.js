@@ -1,7 +1,7 @@
 import { supabase, uid } from "./supabase";
 
 /* ===================== MAPEADORES BD <-> UI ===================== */
-const prodFromDb = (p) => ({ id: p.id, name: p.nombre, price: Number(p.precio), color: p.color, emoji: p.emoji, soldOut: p.agotado, orden: p.orden ?? 0 });
+const prodFromDb = (p) => ({ id: p.id, name: p.nombre, price: Number(p.precio), color: p.color, emoji: p.emoji, soldOut: p.agotado, orden: p.orden ?? 0, subtitle: p.subtitulo || "" });
 const byOrden = (a, b) => (a.orden - b.orden) || String(a.creado_en || "").localeCompare(String(b.creado_en || "")) || String(a.id).localeCompare(String(b.id));
 const puntoFromDb = (p) => ({ id: p.id, name: p.nombre, archivado: p.archivado, combos: p.combos || [], fondo: p.fondo != null ? Number(p.fondo) : null, fondoEn: p.fondo_en, fondoPor: p.fondo_por, sortMode: p.orden_modo === "ventas" ? "ventas" : "manual", products: (p.ticket_productos || []).slice().sort(byOrden).map(prodFromDb) });
 const evFromDb = (e) => ({
@@ -21,8 +21,8 @@ const evPatchToDb = (patch) => {
   const m = { name: "nombre", date: "fecha", venue: "recinto", template: "plantilla", paper: "papel", footer: "pie", logo: "logo_url", showEventName: "mostrar_evento", showDate: "mostrar_fecha", showTime: "mostrar_hora", showPrice: "mostrar_precio", anularPin: "anular_pin", closed: "cerrada", startsAt: "inicio", advanced: "venta_avanzada", changeHelp: "ayuda_cambio", style: "ticket_style", pin_admin: "pin_admin", pin_supervisor: "pin_supervisor" };
   const out = {}; for (const k in patch) if (m[k]) out[m[k]] = patch[k]; return out;
 };
-const prodToDb = (puntoId, p) => ({ id: p.id, punto_id: puntoId, nombre: p.name, precio: p.price, color: p.color, emoji: p.emoji, agotado: p.soldOut, orden: p.orden ?? 0 });
-const prodPatchToDb = (patch) => { const m = { name: "nombre", price: "precio", color: "color", emoji: "emoji", soldOut: "agotado", orden: "orden" }; const o = {}; for (const k in patch) if (m[k]) o[m[k]] = patch[k]; return o; };
+const prodToDb = (puntoId, p) => ({ id: p.id, punto_id: puntoId, nombre: p.name, precio: p.price, color: p.color, emoji: p.emoji, agotado: p.soldOut, orden: p.orden ?? 0, subtitulo: (p.subtitle || "").trim() });
+const prodPatchToDb = (patch) => { const m = { name: "nombre", price: "precio", color: "color", emoji: "emoji", soldOut: "agotado", orden: "orden", subtitle: "subtitulo" }; const o = {}; for (const k in patch) if (m[k]) o[m[k]] = patch[k]; return o; };
 
 /* ===================== CARGA INICIAL ===================== */
 // Supabase devuelve máx. 1000 filas por consulta: cargamos por páginas para no perder ventas
