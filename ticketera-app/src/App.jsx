@@ -1,4 +1,5 @@
 import React, { useReducer, useState, useMemo, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { uid } from "./supabase";
 import { logout } from "./auth";
 import * as db from "./db";
@@ -26,7 +27,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.11.01a";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.01b";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -810,7 +811,7 @@ export default function App() {
       )}
 
       {/* ===== Zona de impresión oculta (fuera de pantalla; en impresión se coloca en 0,0) ===== */}
-      <div id="thermal-print-area" aria-hidden style={{ position: "absolute", left: -9999, top: 0 }}>
+      {createPortal(<div id="thermal-print-area" aria-hidden style={{ position: "absolute", left: -9999, top: 0 }}>
         {printJob?.kind === "ticket" && <div className="ticket-page"><ThermalTicket ev={ev} product={printJob.product} time={printJob.time} num={printJob.num} qty={printJob.qty} folio={printJob.folio} /></div>}
         {printJob?.kind === "z" && <div className="ticket-page"><ZTicket ev={ev} z={printJob.z} /></div>}
         {printJob?.kind === "multi" && printJob.tickets.map((t, i) => (
@@ -818,7 +819,7 @@ export default function App() {
             <ThermalTicket ev={ev} product={t.product} time={printJob.time} num={t.num} folio={t.folio} />
           </div>
         ))}
-      </div>
+      </div>, document.body)}
 
       {/* ===== Facturación (PIN -> total) ===== */}
       {askRevenue && <PinModal correct={ev.pin_admin} onClose={() => setAskRevenue(false)} onOk={() => { setAskRevenue(false); setShowRevenue(true); }} />}
@@ -2129,9 +2130,10 @@ input,select{font-family:Inter,-apple-system,sans-serif;font-size:16px;}
 .sheet-anim{animation:sheetUp .22s ease}
 @media print{
  html,body{margin:0 !important;padding:0 !important;background:#fff !important;}
- body *{visibility:hidden !important;}
+ #root{display:none !important;}
+ body>*:not(#thermal-print-area){display:none !important;}
  #thermal-print-area,#thermal-print-area *{visibility:visible !important;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
- #thermal-print-area{position:absolute !important;left:0 !important;top:0 !important;width:auto !important;margin:0 !important;}
+ #thermal-print-area{position:static !important;left:0 !important;top:0 !important;width:auto !important;margin:0 !important;}
  .ticket-page{page-break-after:always;break-after:page;}
  .ticket-page:last-child{page-break-after:auto;break-after:auto;}
 }
