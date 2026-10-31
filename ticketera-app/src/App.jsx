@@ -1,5 +1,4 @@
 import React, { useReducer, useState, useMemo, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
 import { uid } from "./supabase";
 import { logout } from "./auth";
 import * as db from "./db";
@@ -27,7 +26,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.10.31b";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.01a";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -107,11 +106,11 @@ function ThermalTicket({ ev, product, time, num, qty = 1, code, folio }) {
   const logoTxt = st.logoSize === "sm" ? 18 : st.logoSize === "lg" ? 32 : 24;
   const showFolio = st.showFolio !== false;
   const ref = showFolio ? (folio ? "Folio " + folio : (num != null ? "Nº " + String(num).padStart(4, "0") : "")) : "";
-  const base = { fontFamily: "'Roboto Mono', ui-monospace, monospace", color: "#000", background: "#fff", width: mm + "mm", padding: "1.5mm 2mm 2.5mm", boxSizing: "border-box", lineHeight: 1.25, fontWeight: 700 };
-  const dashed = <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />;
+  const base = { fontFamily: "'Roboto Mono', ui-monospace, monospace", color: "#000", background: "#fff", width: mm + "mm", padding: "0.5mm 1.5mm 1mm", boxSizing: "border-box", lineHeight: 1.15, fontWeight: 700 };
+  const dashed = <div style={{ borderTop: "2px dashed #000", margin: "1.2mm 0" }} />;
   const Name = ({ size, align = "center" }) => (<>
     <div style={{ fontWeight: 900, fontSize: size, letterSpacing: -0.3, textAlign: align, lineHeight: 1.04, color: "#000", wordBreak: "break-word" }}>{product?.name || "NOMBRE TICKET"}</div>
-    {product?.subtitle ? <div style={{ fontWeight: 800, fontSize: Math.max(13, Math.round(size * 0.4)), textAlign: align, lineHeight: 1.15, color: "#000", marginTop: "1.2mm", wordBreak: "break-word" }}>{product.subtitle}</div> : null}
+    {product?.subtitle ? <div style={{ fontWeight: 800, fontSize: Math.max(13, Math.round(size * 0.4)), textAlign: align, lineHeight: 1.15, color: "#000", marginTop: "0.6mm", wordBreak: "break-word" }}>{product.subtitle}</div> : null}
   </>);
   const Logo = () => {
     if (!ev.logo || st.showLogo === false) return null;
@@ -121,7 +120,7 @@ function ThermalTicket({ ev, product, time, num, qty = 1, code, folio }) {
       : <div style={{ textAlign: "center", fontWeight: 900, fontSize: logoTxt, letterSpacing: 1, marginBottom: "1mm", color: "#000" }}>{ev.logo}</div>;
   };
   const Sub = () => st.subtitle ? <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "#000" }}>{st.subtitle}</div> : null;
-  const priceLine = ev.showPrice && !(qty > 1) && <div style={{ textAlign: "center", fontWeight: 800, fontSize: priceSize, marginTop: "1.5mm", color: "#000" }}>{money(product?.price)}</div>;
+  const priceLine = ev.showPrice && !(qty > 1) && <div style={{ textAlign: "center", fontWeight: 800, fontSize: priceSize, marginTop: "0.8mm", color: "#000" }}>{money(product?.price)}</div>;
   const qtyLine = qty > 1 && <div style={{ textAlign: "center", fontWeight: 900, fontSize: 16, marginTop: "1.5mm", color: "#000" }}>{qty} × {money(product?.price)} = {money(product?.price * qty)}</div>;
   const metaStyle = { fontSize: 12, color: "#000", fontWeight: 700 };
 
@@ -133,7 +132,7 @@ function ThermalTicket({ ev, product, time, num, qty = 1, code, folio }) {
       <Sub />
       {ev.venue && <div style={{ textAlign: "center", fontSize: 11, color: "#000", fontWeight: 600 }}>{ev.venue}</div>}
       {dashed}
-      <div style={{ border: "3px solid #000", textAlign: "center", padding: "3mm 2mm", borderRadius: 2 }}><Name size={big} />{priceLine}{qtyLine}</div>
+      <div style={{ border: "3px solid #000", textAlign: "center", padding: "1.8mm 1.5mm", borderRadius: 2 }}><Name size={big} />{priceLine}{qtyLine}</div>
       {dashed}
       <div style={{ display: "flex", justifyContent: "space-between", ...metaStyle }}>{ev.showDate && <span>{dateFmt(ev.date).split(" de ")[0]}/{ev.date.slice(5, 7)}</span>}{ev.showTime && <span>{time}</span>}</div>
       {ref && <div style={{ ...metaStyle, marginTop: "1mm" }}>{ref}</div>}
@@ -536,15 +535,7 @@ export default function App() {
     let st = document.getElementById("ticketera-page");
     if (!st) { st = document.createElement("style"); st.id = "ticketera-page"; document.head.appendChild(st); }
     st.textContent = `@page{size:${mm}mm auto;margin:0;}`;
-    const t = setTimeout(() => {
-      // Mide el ticket real y fija la página a ESE alto: sale solo el ticket, sin papel en blanco
-      try {
-        const pages = document.querySelectorAll("#thermal-print-area .ticket-page");
-        let px = 0; pages.forEach(el => { px = Math.max(px, el.getBoundingClientRect().height); });
-        if (px > 0) { const h = Math.ceil(px * 25.4 / 96) + 1; st.textContent = `@page{size:${mm}mm ${h}mm;margin:0;}`; }
-      } catch (e) {}
-      try { window.print(); } catch (e) {}
-    }, 80);
+    const t = setTimeout(() => { try { window.print(); } catch (e) {} }, 60);
     return () => clearTimeout(t);
   }, [printJob, printer, ev.paper]);
 
@@ -819,7 +810,7 @@ export default function App() {
       )}
 
       {/* ===== Zona de impresión oculta (fuera de pantalla; en impresión se coloca en 0,0) ===== */}
-      {createPortal(<div id="thermal-print-area" aria-hidden style={{ position: "absolute", left: -9999, top: 0 }}>
+      <div id="thermal-print-area" aria-hidden style={{ position: "absolute", left: -9999, top: 0 }}>
         {printJob?.kind === "ticket" && <div className="ticket-page"><ThermalTicket ev={ev} product={printJob.product} time={printJob.time} num={printJob.num} qty={printJob.qty} folio={printJob.folio} /></div>}
         {printJob?.kind === "z" && <div className="ticket-page"><ZTicket ev={ev} z={printJob.z} /></div>}
         {printJob?.kind === "multi" && printJob.tickets.map((t, i) => (
@@ -827,7 +818,7 @@ export default function App() {
             <ThermalTicket ev={ev} product={t.product} time={printJob.time} num={t.num} folio={t.folio} />
           </div>
         ))}
-      </div>, document.body)}
+      </div>
 
       {/* ===== Facturación (PIN -> total) ===== */}
       {askRevenue && <PinModal correct={ev.pin_admin} onClose={() => setAskRevenue(false)} onOk={() => { setAskRevenue(false); setShowRevenue(true); }} />}
@@ -2138,11 +2129,10 @@ input,select{font-family:Inter,-apple-system,sans-serif;font-size:16px;}
 .sheet-anim{animation:sheetUp .22s ease}
 @media print{
  html,body{margin:0 !important;padding:0 !important;background:#fff !important;}
- #root{display:none !important;}
- body>*:not(#thermal-print-area){display:none !important;}
+ body *{visibility:hidden !important;}
  #thermal-print-area,#thermal-print-area *{visibility:visible !important;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;color-adjust:exact !important;}
- #thermal-print-area{position:static !important;left:0 !important;top:0 !important;width:auto !important;margin:0 !important;}
- .ticket-page{page-break-after:always;break-after:page;break-inside:avoid;overflow:hidden;}
+ #thermal-print-area{position:absolute !important;left:0 !important;top:0 !important;width:auto !important;margin:0 !important;}
+ .ticket-page{page-break-after:always;break-after:page;}
  .ticket-page:last-child{page-break-after:auto;break-after:auto;}
 }
 `;
