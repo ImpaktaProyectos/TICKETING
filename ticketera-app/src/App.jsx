@@ -27,7 +27,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.11.01c";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.01d";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -536,7 +536,20 @@ export default function App() {
     let st = document.getElementById("ticketera-page");
     if (!st) { st = document.createElement("style"); st.id = "ticketera-page"; document.head.appendChild(st); }
     st.textContent = `@page{size:${mm}mm auto;margin:0;}`;
-    const t = setTimeout(() => { try { window.print(); } catch (e) {} }, 60);
+    const t = setTimeout(() => {
+      // Seguridad: ningún ticket pasa de 68 mm de alto (cabe en el papel "TICKET" de 70 mm).
+      // Si un nombre muy largo lo haría más alto, se reduce un poco para que no se parta en dos.
+      try {
+        const LIMIT = 68 * 96 / 25.4;
+        document.querySelectorAll("#thermal-print-area .ticket-page").forEach(pg => {
+          const inner = pg.firstElementChild; if (!inner) return;
+          inner.style.zoom = "";
+          const h = inner.getBoundingClientRect().height;
+          if (h > LIMIT) inner.style.zoom = String(Math.max(0.6, LIMIT / h));
+        });
+      } catch (e) {}
+      try { window.print(); } catch (e) {}
+    }, 60);
     return () => clearTimeout(t);
   }, [printJob, printer, ev.paper]);
 
