@@ -27,7 +27,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.11.01e";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.01f";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -859,6 +859,36 @@ export default function App() {
   );
 }
 
+/* ---------------------- Comisiones de proveedores (solo liquidaciones) ----------------------
+   Se guardan en el ajuste del evento: style.comisiones[productId] = [{ desde, proveedor, pct }]
+   Cada cambio añade una entrada con su fecha, así cada venta usa el % que había cuando se vendió.
+   NO cambia precios, tickets, facturación ni cierres. */
+function comisionActual(ev, productId) {
+  const l = (ev.style?.comisiones || {})[productId]; return l && l.length ? l[l.length - 1] : null;
+}
+function comisionEnFecha(ev, productId, ts) {
+  const l = (ev.style?.comisiones || {})[productId]; if (!l || !l.length) return null;
+  let e = null; for (const x of l) { if ((x.desde || 0) <= ts) e = x; else break; }
+  return e && e.proveedor && e.pct != null ? e : null;
+}
+function liquidacion(ev, sales) {
+  const prov = {};
+  sales.forEach(s => {
+    if (s.voided || !s.productId) return;
+    const e = comisionEnFecha(ev, s.productId, s.ts || 0); if (!e) return;
+    const k = e.proveedor;
+    const g = prov[k] || (prov[k] = { proveedor: k, vendido: 0, comision: 0, uds: 0, lineas: {} });
+    const c = s.price * e.pct / 100;
+    g.vendido += s.price; g.comision += c; g.uds++;
+    const lk = s.name + "|" + e.pct;
+    const L = g.lineas[lk] || (g.lineas[lk] = { name: s.name, pct: e.pct, uds: 0, vendido: 0, comision: 0 });
+    L.uds++; L.vendido += s.price; L.comision += c;
+  });
+  const list = Object.values(prov).map(g => ({ ...g, vendido: round2(g.vendido), comision: round2(g.comision), pagar: round2(g.vendido - g.comision), lineas: Object.values(g.lineas).map(l => ({ ...l, vendido: round2(l.vendido), comision: round2(l.comision), pagar: round2(l.vendido - l.comision) })) })).sort((a, b) => b.vendido - a.vendido);
+  const tot = list.reduce((t, g) => ({ vendido: t.vendido + g.vendido, comision: t.comision + g.comision, pagar: t.pagar + g.pagar }), { vendido: 0, comision: 0, pagar: 0 });
+  return { list, vendido: round2(tot.vendido), comision: round2(tot.comision), pagar: round2(tot.pagar) };
+}
+
 /* ---------------------- Orden de productos (lógica compartida) ---------------------- */
 function useProductOrder(ev, punto, evSales, dispatch, flash) {
   const sortMode = punto.sortMode === "ventas" ? "ventas" : "manual";
@@ -1603,8 +1633,20 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
     setRenamePunto(null); flash("Punto renombrado");
   };
   const saveProduct = () => {
+    if (editProd.isProv && !(editProd.prov || "").trim()) { flash("Pon el nombre del proveedor", "warn"); return; }
     if (!editProd.name.trim() || editProd.price === "" || isNaN(parseFloat(editProd.price))) { flash("Pon nombre y precio válidos", "warn"); return; }
     dispatch({ type: "UPDATE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: editProd.id, patch: { name: editProd.name.toUpperCase(), subtitle: (editProd.subtitle || "").trim().toUpperCase(), price: parseFloat(editProd.price), emoji: editProd.emoji, color: editProd.color, soldOut: editProd.soldOut, print: editProd.print !== false } });
+    // Comisión de proveedor (solo liquidaciones)
+    const cur = comisionActual(ev, editProd.id);
+    const want = editProd.isProv ? { proveedor: (editProd.prov || "").trim().toUpperCase(), pct: Math.min(100, Math.max(0, parseFloat(String(editProd.pct).replace(",", ".")) || 0)) } : { proveedor: "", pct: null };
+    const changed = cur ? (cur.proveedor !== want.proveedor || cur.pct !== want.pct) : !!want.proveedor;
+    if (changed) {
+      const all = { ...(ev.style?.comisiones || {}) };
+      const list = all[editProd.id] ? [...all[editProd.id]] : [];
+      list.push({ desde: list.length ? Date.now() : 0, ...want });      // la 1ª vez cuenta también lo ya vendido
+      all[editProd.id] = list;
+      dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { style: { ...(ev.style || {}), comisiones: all } } });
+    }
     setEditProd(null); flash("Producto actualizado");
   };
 
@@ -1732,12 +1774,12 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
             <div style={{ ...S.prodRow, gap: isMobile ? 8 : 12, padding: isMobile ? "8px 8px 8px 6px" : 10, opacity: p.soldOut ? .55 : 1, ...(dragging ? S.prodRowDrag : {}) }}>
               {handle}
               <div style={{ width: 36, height: 36, borderRadius: 9, background: p.color, display: "grid", placeItems: "center", fontSize: 20, flexShrink: 0 }}>{p.emoji}</div>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{p.print === false ? <b style={{ color: "var(--amber)" }}>Sin ticket · </b> : null}{p.subtitle ? <span style={{ color: "var(--text)", opacity: .75 }}>{p.subtitle} · </span> : null}{money(p.price)}{sortMode === "ventas" ? <> · <b style={{ color: "var(--accent)" }}>#{salesRank.indexOf(p.id) + 1}</b> · {sold[p.id] || 0} vendidos</> : (sold[p.id] ? ` · ${sold[p.id]} vendidos` : "")}</div></div>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{p.print === false ? <b style={{ color: "var(--amber)" }}>Sin ticket · </b> : null}{(() => { const c = comisionActual(ev, p.id); return c && c.proveedor ? <b style={{ color: "#60a5fa" }}>{c.proveedor} {c.pct}% · </b> : null; })()}{p.subtitle ? <span style={{ color: "var(--text)", opacity: .75 }}>{p.subtitle} · </span> : null}{money(p.price)}{sortMode === "ventas" ? <> · <b style={{ color: "var(--accent)" }}>#{salesRank.indexOf(p.id) + 1}</b> · {sold[p.id] || 0} vendidos</> : (sold[p.id] ? ` · ${sold[p.id]} vendidos` : "")}</div></div>
               {!isMobile && <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <button onClick={() => moveProd(p.id, -1)} disabled={i === 0} style={{ ...S.arrowBtn, opacity: i === 0 ? .3 : 1 }} title="Subir" aria-label="Subir"><Ic n="up" s={13} w={2.4} /></button>
                 <button onClick={() => moveProd(p.id, 1)} disabled={i === punto.products.length - 1} style={{ ...S.arrowBtn, opacity: i === punto.products.length - 1 ? .3 : 1 }} title="Bajar" aria-label="Bajar"><Ic n="down" s={13} w={2.4} /></button>
               </div>}
-              <button onClick={() => setEditProd({ id: p.id, name: p.name, subtitle: p.subtitle || "", price: String(p.price), emoji: p.emoji, color: p.color, soldOut: p.soldOut, print: p.print !== false })} style={S.smallBtn} title="Editar producto">✏️</button>
+              <button onClick={() => setEditProd({ id: p.id, name: p.name, subtitle: p.subtitle || "", price: String(p.price), emoji: p.emoji, color: p.color, soldOut: p.soldOut, print: p.print !== false, ...(() => { const c = comisionActual(ev, p.id); return { isProv: !!(c && c.proveedor), prov: c?.proveedor || "", pct: c?.pct != null ? String(c.pct) : "" }; })() })} style={S.smallBtn} title="Editar producto">✏️</button>
               <button onClick={() => dispatch({ type: "UPDATE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: p.id, patch: { soldOut: !p.soldOut } })} style={{ ...S.smallBtn, color: p.soldOut ? "var(--amber)" : "var(--muted)", borderColor: p.soldOut ? "var(--amber)" : "var(--line)" }}>{p.soldOut ? "Agotado" : "Disponible"}</button>
               <button onClick={() => dispatch({ type: "DELETE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: p.id })} style={S.del}>✕</button>
             </div>
@@ -1780,6 +1822,14 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
           <div style={{ fontSize: 12, color: "var(--muted)", margin: "8px 0 6px" }}>Color</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{PALETTE.map(c => <button key={c} onClick={() => setEditProd({ ...editProd, color: c })} style={{ width: 28, height: 28, borderRadius: 7, background: c, border: editProd.color === c ? "3px solid #fff" : "3px solid transparent", cursor: "pointer" }} />)}</div>
           <label style={{ ...S.toggleRow, marginTop: 14 }}><span>¿Imprimir ticket?<span style={{ display: "block", fontSize: 11.5, color: "var(--muted)" }}>{editProd.print !== false ? "Sí · al venderlo sale su ticket" : "No · solo se guarda la venta, sin imprimir"}</span></span><button onClick={() => setEditProd({ ...editProd, print: editProd.print === false })} style={{ ...S.switch, background: editProd.print !== false ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, left: 0, transform: editProd.print !== false ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          <label style={{ ...S.toggleRow }}><span>Producto de proveedor (comisión)<span style={{ display: "block", fontSize: 11.5, color: "var(--muted)" }}>Solo para liquidaciones · el precio y la facturación no cambian</span></span><button onClick={() => setEditProd({ ...editProd, isProv: !editProd.isProv })} style={{ ...S.switch, background: editProd.isProv ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, left: 0, transform: editProd.isProv ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          {editProd.isProv && (
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <Field label="Proveedor"><input style={S.input} placeholder="Ej. FOOD TRUCK BURGER" value={editProd.prov} onChange={e => setEditProd({ ...editProd, prov: e.target.value })} /></Field>
+              <div style={{ width: 110, flexShrink: 0 }}><Field label="Comisión %"><input style={S.input} inputMode="decimal" placeholder="20" value={editProd.pct} onChange={e => setEditProd({ ...editProd, pct: e.target.value })} /></Field></div>
+            </div>
+          )}
+          {editProd.isProv && editProd.pct !== "" && !isNaN(parseFloat(String(editProd.pct).replace(",", "."))) && editProd.price !== "" && (() => { const pr = parseFloat(editProd.price) || 0, pc = parseFloat(String(editProd.pct).replace(",", ".")) || 0; return <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>Por cada {money(pr)}: <b style={{ color: "var(--green)" }}>{money(round2(pr * pc / 100))} vuestro</b> · {money(round2(pr - pr * pc / 100))} para el proveedor</div>; })()}
           <label style={{ ...S.toggleRow }}><span>Marcar como agotado</span><button onClick={() => setEditProd({ ...editProd, soldOut: !editProd.soldOut })} style={{ ...S.switch, background: editProd.soldOut ? "var(--amber)" : "var(--line)" }}><span style={{ ...S.knob, left: 0, transform: editProd.soldOut ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}><button style={S.btnPrimary} onClick={saveProduct}>Guardar cambios</button><button style={S.btnGhost} onClick={() => setEditProd(null)}>Cancelar</button></div>
         </div>
@@ -1880,6 +1930,7 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash, onBackup, lastBa
   const maxRank = Math.max(1, ...ranking.map(r => r.qty));
   const voided = evSales.filter(s => s.voided).slice(-15).reverse();
 
+  const liq = liquidacion(ev, evSales);
   const exportCSV = () => {
     const rows = [["Punto de venta", "Producto", "Precio", "Unidades", "Total"]];
     byPunto.forEach(b => { b.punto.products.forEach(p => { const q = b.perProduct[p.id] || 0; rows.push([b.punto.name, p.name, p.price.toFixed(2), q, (q * p.price).toFixed(2)]); }); rows.push([b.punto.name, "— SUBTOTAL —", "", b.count, b.revenue.toFixed(2)]); rows.push([b.punto.name, "Anulaciones", "", b.voids, ""]); rows.push([]); });
@@ -1888,6 +1939,11 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash, onBackup, lastBa
       const efe = round2(evSales.filter(s => !s.voided && s.pago === "efectivo").reduce((t, s) => t + s.price, 0));
       const tar = round2(evSales.filter(s => !s.voided && s.pago === "tarjeta").reduce((t, s) => t + s.price, 0));
       rows.push([]); rows.push(["ARQUEO", "Efectivo (en caja)", "", "", efe.toFixed(2)]); rows.push(["ARQUEO", "Tarjeta", "", "", tar.toFixed(2)]);
+    }
+    if (liq.list.length) {
+      rows.push([]); rows.push(["LIQUIDACIÓN PROVEEDORES", "Producto", "Comisión %", "Unidades", "Vendido", "Comisión (nuestro)", "A pagar proveedor"]);
+      liq.list.forEach(g => { g.lineas.forEach(l => rows.push([g.proveedor, l.name, String(l.pct).replace(".", ","), l.uds, l.vendido.toFixed(2), l.comision.toFixed(2), l.pagar.toFixed(2)])); rows.push([g.proveedor, "— TOTAL —", "", g.uds, g.vendido.toFixed(2), g.comision.toFixed(2), g.pagar.toFixed(2)]); });
+      rows.push(["TOTAL PROVEEDORES", "", "", "", liq.vendido.toFixed(2), liq.comision.toFixed(2), liq.pagar.toFixed(2)]);
     }
     const csv = rows.map(r => r.join(";")).join("\n");
     const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
@@ -1981,6 +2037,32 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash, onBackup, lastBa
           ))}
         </div>
       </div>
+
+      {/* Liquidación de proveedores (solo informativo: no cambia la facturación) */}
+      {liq.list.length > 0 && (
+        <div style={{ ...S.panel, marginBottom: 16 }}>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}>🤝 Proveedores · Liquidación</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>Ya incluido en la facturación de arriba. Esto solo separa qué es del proveedor y qué os queda.</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginBottom: 14 }}>
+            <div style={S.statBox}><div style={S.miniLabel}>Vendido de proveedores</div><div style={{ fontSize: 22, fontWeight: 800 }}>{money(liq.vendido)}</div></div>
+            <div style={S.statBox}><div style={S.miniLabel}>Comisión (vuestro)</div><div style={{ fontSize: 22, fontWeight: 800, color: "var(--green)" }}>{money(liq.comision)}</div></div>
+            <div style={S.statBox}><div style={S.miniLabel}>A pagar a proveedores</div><div style={{ fontSize: 22, fontWeight: 800, color: "var(--amber)" }}>{money(liq.pagar)}</div></div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {liq.list.map(g => (
+              <div key={g.proveedor} style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                  <div style={{ fontWeight: 800 }}>{g.proveedor}</div>
+                  <div style={{ fontSize: 13 }}>Vendido <b>{money(g.vendido)}</b> · Vuestro <b style={{ color: "var(--green)" }}>{money(g.comision)}</b> · A pagar <b style={{ color: "var(--amber)", fontSize: 16 }}>{money(g.pagar)}</b></div>
+                </div>
+                <div style={{ marginTop: 8, borderTop: "1px solid var(--line)", paddingTop: 6 }}>
+                  {g.lineas.map(l => <div key={l.name + l.pct} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12.5, color: "var(--muted)", padding: "3px 0" }}><span>{l.uds} × {l.name} <b style={{ color: "var(--text)" }}>({l.pct}%)</b></span><span>{money(l.vendido)} → pagar {money(l.pagar)}</span></div>)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* curva por hora + ranking */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px,1fr))", gap: 16, marginBottom: 16 }}>
