@@ -27,7 +27,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.11.01d";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.01e";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -419,9 +419,11 @@ export default function App() {
     const baseNum = evSales.length;
     const rows = folios.map((f, i) => ({ id: clientUuids[i], clientUuid: clientUuids[i], code: f, num: baseNum + i + 1, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: product.price, ts: Date.now() + i, synced: online, voided: false, closureId: null, pago: pay?.pago || null, entregado: i === 0 ? (pay?.entregado ?? null) : null, cambio: i === 0 ? (pay?.cambio ?? null) : null }));
     baseDispatch({ type: "SELL", rows });
-    setPrintJob({ kind: "ticket", product, time, num: rows[0].num, folio: rows[0].code, qty, n: Date.now() });
+    if (product.print !== false) {
+      setPrintJob({ kind: "ticket", product, time, num: rows[0].num, folio: rows[0].code, qty, n: Date.now() });
+      flash(`🖨️ ${qty > 1 ? qty + "× " : ""}${product.name}`);
+    } else flash(`✅ Venta guardada · ${qty > 1 ? qty + "× " : ""}${product.name} (sin ticket)`);
     if (navigator.vibrate) navigator.vibrate(25);
-    flash(`🖨️ ${qty > 1 ? qty + "× " : ""}${product.name}`);
     db.vender({ eventoId: ev.id, puntoId: punto.id, producto: product, qty, operario: punto.name, folios, clientUuids, pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
   };
 
@@ -456,9 +458,10 @@ export default function App() {
     });
     if (!rows.length) return;
     baseDispatch({ type: "SELL", rows });
-    setPrintJob({ kind: "multi", tickets, time, n: Date.now() });
+    const toPrint = tickets.filter(t => t.product.print !== false);
+    if (toPrint.length) setPrintJob({ kind: "multi", tickets: toPrint, time, n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(40);
-    flash(`🖨️ ${tickets.length} tickets · ${money(rows.reduce((t, r) => t + r.price, 0))}`);
+    flash(toPrint.length ? `🖨️ ${toPrint.length} tickets · ${money(rows.reduce((t, r) => t + r.price, 0))}` : `✅ Venta guardada · ${money(rows.reduce((t, r) => t + r.price, 0))} (sin ticket)`);
   };
 
   const voidLast = async (by) => {
@@ -496,10 +499,10 @@ export default function App() {
     const cu = uid();
     const saleRow = { id: cu, clientUuid: cu, code: folio, num: evSales.length + 1, eventId: ev.id, puntoId: punto.id, productId: null, name: combo.name, price, ts: Date.now(), synced: online, voided: false, closureId: null, pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null };
     baseDispatch({ type: "SELL", rows: [saleRow] });
-    const tickets = vouchers.map((p, i) => ({ product: p, folio: `${folio}·${i + 1}` }));
-    setPrintJob({ kind: "multi", tickets, time: timeNow(), n: Date.now() });
+    const tickets = vouchers.map((p, i) => ({ product: p, folio: `${folio}·${i + 1}` })).filter(t => t.product.print !== false);
+    if (tickets.length) setPrintJob({ kind: "multi", tickets, time: timeNow(), n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(45);
-    flash(`🎟️ ${combo.name} · ${vouchers.length} tickets`);
+    flash(tickets.length ? `🎟️ ${combo.name} · ${tickets.length} tickets` : `✅ Venta guardada · ${combo.name} (sin ticket)`);
     db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: combo.name, price }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
   };
   const voidOne = async (sale, by) => { baseDispatch({ type: "VOID_ONE", saleId: sale.id, by }); const r = await db.anularVenta(sale.clientUuid || sale.id, by); if (r.offline) setPending(db.pendingCount()); };
@@ -1390,6 +1393,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onSe
                     onPointerDown={arranging ? (e => dStart(e, p.id)) : undefined} onPointerMove={arranging ? dMove : undefined} onPointerUp={arranging ? dEnd : undefined} onPointerCancel={arranging ? dEnd : undefined}
                     className={arranging ? "tile arranging" : "tile"} style={{ ...S.tile, background: p.soldOut ? "var(--surface2)" : `linear-gradient(160deg, ${p.color}, ${shade(p.color, -25)})`, color: p.soldOut ? "var(--muted)" : "#fff", cursor: p.soldOut ? "not-allowed" : "pointer", outline: grouping && cartQty(p.id) ? "3px solid #fff" : "none", ...arr }}>
                     {arranging && <span style={S.tileGrip}><Ic n="grip" s={16} w={2.6} /></span>}
+                    {!arranging && p.print === false && <span style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,.45)", borderRadius: 7, padding: "2px 7px", fontWeight: 800, fontSize: 10.5 }}>SIN TICKET</span>}
                     {badge && !arranging ? <span style={{ ...S.tileBadge, background: grouping ? "var(--accent)" : "rgba(0,0,0,.45)" }}>{badge}</span> : null}
                     {p.soldOut && <span style={S.soldOut}>AGOTADO</span>}
                     <span style={{ fontSize: 44 }}>{p.emoji}</span>
@@ -1600,7 +1604,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
   };
   const saveProduct = () => {
     if (!editProd.name.trim() || editProd.price === "" || isNaN(parseFloat(editProd.price))) { flash("Pon nombre y precio válidos", "warn"); return; }
-    dispatch({ type: "UPDATE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: editProd.id, patch: { name: editProd.name.toUpperCase(), subtitle: (editProd.subtitle || "").trim().toUpperCase(), price: parseFloat(editProd.price), emoji: editProd.emoji, color: editProd.color, soldOut: editProd.soldOut } });
+    dispatch({ type: "UPDATE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: editProd.id, patch: { name: editProd.name.toUpperCase(), subtitle: (editProd.subtitle || "").trim().toUpperCase(), price: parseFloat(editProd.price), emoji: editProd.emoji, color: editProd.color, soldOut: editProd.soldOut, print: editProd.print !== false } });
     setEditProd(null); flash("Producto actualizado");
   };
 
@@ -1728,12 +1732,12 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
             <div style={{ ...S.prodRow, gap: isMobile ? 8 : 12, padding: isMobile ? "8px 8px 8px 6px" : 10, opacity: p.soldOut ? .55 : 1, ...(dragging ? S.prodRowDrag : {}) }}>
               {handle}
               <div style={{ width: 36, height: 36, borderRadius: 9, background: p.color, display: "grid", placeItems: "center", fontSize: 20, flexShrink: 0 }}>{p.emoji}</div>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{p.subtitle ? <span style={{ color: "var(--text)", opacity: .75 }}>{p.subtitle} · </span> : null}{money(p.price)}{sortMode === "ventas" ? <> · <b style={{ color: "var(--accent)" }}>#{salesRank.indexOf(p.id) + 1}</b> · {sold[p.id] || 0} vendidos</> : (sold[p.id] ? ` · ${sold[p.id]} vendidos` : "")}</div></div>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{p.print === false ? <b style={{ color: "var(--amber)" }}>Sin ticket · </b> : null}{p.subtitle ? <span style={{ color: "var(--text)", opacity: .75 }}>{p.subtitle} · </span> : null}{money(p.price)}{sortMode === "ventas" ? <> · <b style={{ color: "var(--accent)" }}>#{salesRank.indexOf(p.id) + 1}</b> · {sold[p.id] || 0} vendidos</> : (sold[p.id] ? ` · ${sold[p.id]} vendidos` : "")}</div></div>
               {!isMobile && <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <button onClick={() => moveProd(p.id, -1)} disabled={i === 0} style={{ ...S.arrowBtn, opacity: i === 0 ? .3 : 1 }} title="Subir" aria-label="Subir"><Ic n="up" s={13} w={2.4} /></button>
                 <button onClick={() => moveProd(p.id, 1)} disabled={i === punto.products.length - 1} style={{ ...S.arrowBtn, opacity: i === punto.products.length - 1 ? .3 : 1 }} title="Bajar" aria-label="Bajar"><Ic n="down" s={13} w={2.4} /></button>
               </div>}
-              <button onClick={() => setEditProd({ id: p.id, name: p.name, subtitle: p.subtitle || "", price: String(p.price), emoji: p.emoji, color: p.color, soldOut: p.soldOut })} style={S.smallBtn} title="Editar producto">✏️</button>
+              <button onClick={() => setEditProd({ id: p.id, name: p.name, subtitle: p.subtitle || "", price: String(p.price), emoji: p.emoji, color: p.color, soldOut: p.soldOut, print: p.print !== false })} style={S.smallBtn} title="Editar producto">✏️</button>
               <button onClick={() => dispatch({ type: "UPDATE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: p.id, patch: { soldOut: !p.soldOut } })} style={{ ...S.smallBtn, color: p.soldOut ? "var(--amber)" : "var(--muted)", borderColor: p.soldOut ? "var(--amber)" : "var(--line)" }}>{p.soldOut ? "Agotado" : "Disponible"}</button>
               <button onClick={() => dispatch({ type: "DELETE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: p.id })} style={S.del}>✕</button>
             </div>
@@ -1775,7 +1779,8 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)", margin: "8px 0 6px" }}>Color</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{PALETTE.map(c => <button key={c} onClick={() => setEditProd({ ...editProd, color: c })} style={{ width: 28, height: 28, borderRadius: 7, background: c, border: editProd.color === c ? "3px solid #fff" : "3px solid transparent", cursor: "pointer" }} />)}</div>
-          <label style={{ ...S.toggleRow, marginTop: 14 }}><span>Marcar como agotado</span><button onClick={() => setEditProd({ ...editProd, soldOut: !editProd.soldOut })} style={{ ...S.switch, background: editProd.soldOut ? "var(--amber)" : "var(--line)" }}><span style={{ ...S.knob, transform: editProd.soldOut ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          <label style={{ ...S.toggleRow, marginTop: 14 }}><span>¿Imprimir ticket?<span style={{ display: "block", fontSize: 11.5, color: "var(--muted)" }}>{editProd.print !== false ? "Sí · al venderlo sale su ticket" : "No · solo se guarda la venta, sin imprimir"}</span></span><button onClick={() => setEditProd({ ...editProd, print: editProd.print === false })} style={{ ...S.switch, background: editProd.print !== false ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, left: 0, transform: editProd.print !== false ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          <label style={{ ...S.toggleRow }}><span>Marcar como agotado</span><button onClick={() => setEditProd({ ...editProd, soldOut: !editProd.soldOut })} style={{ ...S.switch, background: editProd.soldOut ? "var(--amber)" : "var(--line)" }}><span style={{ ...S.knob, left: 0, transform: editProd.soldOut ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}><button style={S.btnPrimary} onClick={saveProduct}>Guardar cambios</button><button style={S.btnGhost} onClick={() => setEditProd(null)}>Cancelar</button></div>
         </div>
       </div>
