@@ -27,7 +27,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.11.03a";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.03b";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -98,7 +98,7 @@ function reducer(state, a) {
    THERMAL TICKET
    ============================================================ */
 function ThermalTicket({ ev, product, time, num, qty = 1, code, folio }) {
-  const mm = ev.paper === 58 ? 48 : 72;          // ancho imprimible real del rollo
+  const mm = ev.paper === 58 ? 46 : 68;          // ancho del ticket con margen de seguridad (la impresora pierde ~3 mm a la derecha)
   const st = ev.style || {};
   const nd = st.nameSize === "xl" ? 18 : st.nameSize === "lg" ? 8 : 0;  // tamaño del nombre
   const big = (ev.paper === 58 ? 28 : 40) + nd;                          // el NOMBRE manda
@@ -215,7 +215,7 @@ function ThermalTicket({ ev, product, time, num, qty = 1, code, folio }) {
 
 /* ---------------------- Ticket de cierre Z ---------------------- */
 function ZTicket({ ev, z }) {
-  const mm = ev.paper === 58 ? 48 : 72;
+  const mm = ev.paper === 58 ? 46 : 68;
   const row = { display: "flex", justifyContent: "space-between", fontSize: 12, color: "#000", fontWeight: 700 };
   return (
     <div style={{ fontFamily: "'Roboto Mono', monospace", color: "#000", background: "#fff", width: mm + "mm", padding: "1.5mm 2mm 2.5mm", boxSizing: "border-box", lineHeight: 1.3, fontWeight: 700 }}>
