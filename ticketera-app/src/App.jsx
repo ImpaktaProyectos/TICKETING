@@ -27,7 +27,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.11.01f";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.03a";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -240,6 +240,7 @@ function ZTicket({ ev, z }) {
       </>)}
       <div style={{ ...row, marginTop: "1mm" }}><span>Tickets</span><span>{z.count}</span></div>
       <div style={row}><span>Anulaciones</span><span>{z.voids}</span></div>
+      {z.invites ? <div style={row}><span>Invitaciones ({z.invites})</span><span>{money(z.invitesValue || 0)}</span></div> : null}
       <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "2mm", fontWeight: 600 }}>{new Date(z.ts).toLocaleString("es-ES")}</div>
     </div>
   );
@@ -412,19 +413,40 @@ export default function App() {
   };
 
   // Registra e imprime la venta (con datos de pago si vienen del cobro avanzado)
-  const doSell = (product, qty = 1, pay = null) => {
+  const doSell = (product, qty = 1, pay = null, invite = false) => {
     const time = timeNow();
+    const salePrice = invite ? 0 : product.price;                 // invitación: 0 € (no cuenta en caja)
+    if (invite) pay = { pago: invPago(product.price) };
     const folios = nextFolios(ev.id, punto.id, prefijoDePunto(punto), qty);
     const clientUuids = folios.map(() => uid());
     const baseNum = evSales.length;
-    const rows = folios.map((f, i) => ({ id: clientUuids[i], clientUuid: clientUuids[i], code: f, num: baseNum + i + 1, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: product.price, ts: Date.now() + i, synced: online, voided: false, closureId: null, pago: pay?.pago || null, entregado: i === 0 ? (pay?.entregado ?? null) : null, cambio: i === 0 ? (pay?.cambio ?? null) : null }));
+    const rows = folios.map((f, i) => ({ id: clientUuids[i], clientUuid: clientUuids[i], code: f, num: baseNum + i + 1, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: salePrice, ts: Date.now() + i, synced: online, voided: false, closureId: null, pago: pay?.pago || null, invite, inviteValue: invite ? product.price : 0, entregado: i === 0 ? (pay?.entregado ?? null) : null, cambio: i === 0 ? (pay?.cambio ?? null) : null }));
     baseDispatch({ type: "SELL", rows });
     if (product.print !== false) {
       setPrintJob({ kind: "ticket", product, time, num: rows[0].num, folio: rows[0].code, qty, n: Date.now() });
-      flash(`🖨️ ${qty > 1 ? qty + "× " : ""}${product.name}`);
-    } else flash(`✅ Venta guardada · ${qty > 1 ? qty + "× " : ""}${product.name} (sin ticket)`);
-    if (navigator.vibrate) navigator.vibrate(25);
-    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: product, qty, operario: punto.name, folios, clientUuids, pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+      flash(invite ? `🎁 Invitación · ${qty > 1 ? qty + "× " : ""}${product.name}` : `🖨️ ${qty > 1 ? qty + "× " : ""}${product.name}`);
+    } else flash(invite ? `🎁 Invitación guardada · ${product.name} (sin ticket)` : `✅ Venta guardada · ${qty > 1 ? qty + "× " : ""}${product.name} (sin ticket)`);
+    if (navigator.vibrate) navigator.vibrate(invite ? [20, 40, 20] : 25);
+    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: invite ? { ...product, price: 0 } : product, qty, operario: punto.name, folios, clientUuids, pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+  };
+
+  // Invitación: el ticket sale normal, la venta cuenta a 0 € y queda marcada como invitación
+  const sellInvite = (product, qty = 1) => {
+    if (!ev.id || !punto?.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return; }
+    if (product.soldOut) { flash("Producto agotado", "warn"); return; }
+    if (ev.closed) { flash("Caja cerrada · no se puede vender", "warn"); return; }
+    if (testMode) { setPrintJob({ kind: "ticket", product, time: timeNow(), num: null, folio: "PRUEBA", qty, n: Date.now() }); flash("🧪 Prueba (no cuenta)"); return; }
+    doSell(product, qty, null, true);
+  };
+  const sellComboInvite = (combo) => {
+    if (!ev.id || !punto?.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return; }
+    if (ev.closed) { flash("Caja cerrada · no se puede vender", "warn"); return; }
+    const vouchers = [];
+    (combo.items || []).forEach(it => { const p = punto.products.find(x => x.id === it.productId); if (p) for (let k = 0; k < (it.qty || 1); k++) vouchers.push(p); });
+    if (!vouchers.length) { flash("Bono sin productos válidos", "warn"); return; }
+    if (testMode) { setPrintJob({ kind: "multi", tickets: vouchers.map((p) => ({ product: p, folio: "PRUEBA" })), time: timeNow(), n: Date.now() }); flash("🧪 Prueba (no cuenta)"); return; }
+    const value = round2((combo.price === "" || combo.price == null) ? vouchers.reduce((t, p) => t + p.price, 0) : Number(combo.price));
+    doSellCombo(combo, vouchers, 0, { pago: invPago(value) }, value);
   };
 
   const reprint = () => { if (!printJob) { flash("Nada que reimprimir", "warn"); return; } setPrintJob({ ...printJob, n: Date.now() }); flash("🖨️ Reimprimiendo último ticket"); };
@@ -494,23 +516,25 @@ export default function App() {
     doSellCombo(combo, vouchers, price);
   };
 
-  const doSellCombo = (combo, vouchers, price, pay = null) => {
+  const doSellCombo = (combo, vouchers, price, pay = null, inviteVal = null) => {
     const folio = nextFolios(ev.id, punto.id, prefijoDePunto(punto), 1)[0];
     const cu = uid();
-    const saleRow = { id: cu, clientUuid: cu, code: folio, num: evSales.length + 1, eventId: ev.id, puntoId: punto.id, productId: null, name: combo.name, price, ts: Date.now(), synced: online, voided: false, closureId: null, pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null };
+    const saleRow = { id: cu, clientUuid: cu, code: folio, num: evSales.length + 1, eventId: ev.id, puntoId: punto.id, productId: null, name: combo.name, price, ts: Date.now(), synced: online, voided: false, closureId: null, pago: pay?.pago || null, invite: inviteVal != null, inviteValue: inviteVal || 0, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null };
     baseDispatch({ type: "SELL", rows: [saleRow] });
     const tickets = vouchers.map((p, i) => ({ product: p, folio: `${folio}·${i + 1}` })).filter(t => t.product.print !== false);
     if (tickets.length) setPrintJob({ kind: "multi", tickets, time: timeNow(), n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(45);
-    flash(tickets.length ? `🎟️ ${combo.name} · ${tickets.length} tickets` : `✅ Venta guardada · ${combo.name} (sin ticket)`);
+    flash((inviteVal != null ? "🎁 Invitación · " : "") + (tickets.length ? `🎟️ ${combo.name} · ${tickets.length} tickets` : `✅ Venta guardada · ${combo.name} (sin ticket)`));
     db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: combo.name, price }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
   };
   const voidOne = async (sale, by) => { baseDispatch({ type: "VOID_ONE", saleId: sale.id, by }); const r = await db.anularVenta(sale.clientUuid || sale.id, by); if (r.offline) setPending(db.pendingCount()); };
 
   const cierreZ = async (puntoObj, contado = null) => {
-    const sales = evSales.filter(s => s.puntoId === puntoObj.id && !s.voided && !s.closureId);
+    const allOpen = evSales.filter(s => s.puntoId === puntoObj.id && !s.voided && !s.closureId);
+    const sales = allOpen.filter(s => !isInvite(s));
+    const invs = invitaciones(allOpen);
     const voids = evSales.filter(s => s.puntoId === puntoObj.id && s.voided && !s.closureId).length;
-    if (sales.length === 0 && voids === 0) { flash("Sin ventas en el turno actual", "warn"); return; }
+    if (allOpen.length === 0 && voids === 0) { flash("Sin ventas en el turno actual", "warn"); return; }
     const map = {};
     sales.forEach(s => { map[s.productId] = map[s.productId] || { name: s.name, qty: 0, total: 0 }; map[s.productId].qty++; map[s.productId].total += s.price; });
     const revenue = round2(sales.reduce((t, s) => t + s.price, 0));
@@ -519,7 +543,7 @@ export default function App() {
     const fondo = round2(puntoObj.fondo || 0);
     const esperado = round2(fondo + efectivo);                       // lo que debe haber en el cajón
     const descuadre = contado == null ? null : round2(contado - esperado);
-    const z = { puntoName: puntoObj.name, lines: Object.values(map).map(l => ({ ...l, total: round2(l.total) })), revenue, efectivo, tarjeta, fondo, esperado, contado, descuadre, advanced: !!ev.advanced, count: sales.length, voids, ts: Date.now() };
+    const z = { puntoName: puntoObj.name, lines: Object.values(map).map(l => ({ ...l, total: round2(l.total) })), revenue, efectivo, tarjeta, fondo, esperado, contado, descuadre, advanced: !!ev.advanced, count: sales.length, voids, invites: invs.n, invitesValue: invs.valor, ts: Date.now() };
     const closureId = uid();
     // Cierra el turno EN LOCAL (funciona sin wifi) y encola el cierre para el servidor
     baseDispatch({ type: "ADD_CLOSURE", closure: { id: closureId, eventId: ev.id, puntoId: puntoObj.id, ...z } });
@@ -654,7 +678,7 @@ export default function App() {
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn} aria-label="Menú"><Ic n="menu" /></button>
           </header>
           <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />
           </div>
         </div>
       ) : (
@@ -667,7 +691,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.topBtn}><Ic n="lock" s={16} />Salir</button></div>
           </header>
           <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />
           </div>
         </div>
       ))}
@@ -688,7 +712,7 @@ export default function App() {
                 <button onClick={() => setAskRevenue(true)} style={{ ...S.iconBtn, color: "var(--accent)" }} aria-label="Consultar facturación"><Ic n="euro" /></button>
               </div>
             </div>
-            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
+            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
             {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
             {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
@@ -732,7 +756,7 @@ export default function App() {
               </div>
             </header>
             <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
+              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
               {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
               {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
               {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
@@ -859,6 +883,23 @@ export default function App() {
   );
 }
 
+/* ---------------------- Invitaciones ----------------------
+   Se registran como venta a 0 € (no cambian facturación ni caja) con metodo_pago = "invitacion:<valor>".
+   El ticket impreso es el normal del producto; la invitación es solo para vuestro control. */
+const isInvite = (s) => !!(s && (s.invite || /^invitacion/.test(s.pago || "")));
+const inviteValue = (s) => s.inviteValue != null && s.invite ? s.inviteValue : (Number(String(s.pago || "").split(":")[1]) || 0);
+const invPago = (v) => "invitacion:" + round2(v || 0).toFixed(2);
+function invitaciones(sales) {
+  const by = {}, byP = {}; let n = 0, valor = 0;
+  sales.forEach(s => {
+    if (s.voided || !isInvite(s)) return;
+    const v = inviteValue(s); n++; valor += v;
+    const k = s.name; const g = by[k] || (by[k] = { name: k, uds: 0, valor: 0 }); g.uds++; g.valor += v;
+    byP[s.puntoId] = byP[s.puntoId] || { uds: 0, valor: 0 }; byP[s.puntoId].uds++; byP[s.puntoId].valor += v;
+  });
+  return { n, valor: round2(valor), list: Object.values(by).map(g => ({ ...g, valor: round2(g.valor) })).sort((a, b) => b.uds - a.uds), byPunto: byP };
+}
+
 /* ---------------------- Comisiones de proveedores (solo liquidaciones) ----------------------
    Se guardan en el ajuste del evento: style.comisiones[productId] = [{ desde, proveedor, pct }]
    Cada cambio añade una entrada con su fecha, así cada venta usa el % que había cuando se vendió.
@@ -874,7 +915,7 @@ function comisionEnFecha(ev, productId, ts) {
 function liquidacion(ev, sales) {
   const prov = {};
   sales.forEach(s => {
-    if (s.voided || !s.productId) return;
+    if (s.voided || !s.productId || isInvite(s)) return;
     const e = comisionEnFecha(ev, s.productId, s.ts || 0); if (!e) return;
     const k = e.proveedor;
     const g = prov[k] || (prov[k] = { proveedor: k, vendido: 0, comision: 0, uds: 0, lineas: {} });
@@ -1269,7 +1310,7 @@ function CheckCard({ state, title, value, note, children }) {
 /* ============================================================
    POS
    ============================================================ */
-function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, onToggleAdvanced }) {
+function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onInvite, onComboInvite, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, onToggleAdvanced }) {
   const isMobile = useIsMobile();
   const combos = punto.combos || [];
   const [qty, setQty] = useState(1);
@@ -1291,6 +1332,10 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onSe
   }, [punto.id, sortMode, rankKey, prodSig]);
   const shownProducts = rankOrder ? rankOrder.map(id => punto.products.find(p => p.id === id)).filter(Boolean) : punto.products;
   const rankStale = !!rankOrder && rankOrder.join(",") !== punto.products.map((p, i) => [p.id, (rankCounts || {})[p.id] || 0, i]).sort((x, y) => (y[1] - x[1]) || (x[2] - y[2])).map(x => x[0]).join(",");
+
+  // ---- Modo invitación: el SIGUIENTE producto que se toque es invitación; luego se apaga solo ----
+  const [inviting, setInviting] = useState(false);
+  useEffect(() => { setInviting(false); }, [punto.id]);
 
   // ---- Mover productos directamente en la pantalla (orden manual) ----
   const [arranging, setArranging] = useState(false);
@@ -1338,7 +1383,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onSe
     dragRef.current = null; setDragT(null);
     if (c && c.order.join() !== c.base.join()) onReorder && onReorder(c.order);
   };
-  const startArrange = () => { if (sortMode !== "manual") onSetSortMode && onSetSortMode("manual"); setGrouping(false); setCart([]); setArranging(true); };
+  const startArrange = () => { if (sortMode !== "manual") onSetSortMode && onSetSortMode("manual"); setInviting(false); setGrouping(false); setCart([]); setArranging(true); };
   const viewProducts = dragT ? dragT.order.map(id => punto.products.find(p => p.id === id)).filter(Boolean) : shownProducts;
 
   const cartQty = (id) => cart.find(c => c.product.id === id)?.qty || 0;
@@ -1347,12 +1392,13 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onSe
 
   const tap = (p) => {
     if (arranging || p.soldOut) return;
+    if (inviting && !grouping) { onInvite && onInvite(p, qty); setQty(1); setInviting(false); return; }
     if (grouping) {
       setCart(prev => { const i = prev.findIndex(c => c.product.id === p.id); if (i >= 0) { const cp = [...prev]; cp[i] = { ...cp[i], qty: cp[i].qty + 1 }; return cp; } return [...prev, { product: p, qty: 1 }]; });
     } else { onSell(p, qty); setQty(1); }
   };
   const changeQty = (id, d) => setCart(prev => prev.flatMap(c => c.product.id === id ? (c.qty + d <= 0 ? [] : [{ ...c, qty: c.qty + d }]) : [c]));
-  const startGroup = () => { setArranging(false); setGrouping(true); setCart([]); };
+  const startGroup = () => { setArranging(false); setInviting(false); setGrouping(true); setCart([]); };
   const cancelGroup = () => { setGrouping(false); setCart([]); setCharging(null); };
   const confirmCharge = () => { onSellMany(cart.map(c => ({ product: c.product, qty: c.qty }))); cancelGroup(); };
 
@@ -1376,6 +1422,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onSe
               {[1, 2, 3, 4, 5, 7, 10].map(q => <button key={q} onClick={() => setQty(q)} style={{ ...S.qtyChip, flexShrink: 0, ...(qty === q ? S.qtyActive : {}) }}>×{q}</button>)}
             </div>
             <div style={{ display: "flex", gap: 8, width: isMobile ? "100%" : "auto" }}>
+              <button onClick={() => { setArranging(false); setInviting(v => !v); }} style={{ ...S.inviteBtn, ...(inviting ? S.inviteBtnOn : {}), flex: isMobile ? 1 : "none" }}>🎁 {inviting ? "Cancelar" : isMobile ? "Invit." : "Invitación"}</button>
               <button onClick={startGroup} style={{ ...S.groupBtn, flex: isMobile ? 1 : "none" }}>🧾 Unir</button>
               <button onClick={onReprint} disabled={!canReprint} style={{ ...S.btnGhost, flex: isMobile ? 1 : "none", opacity: canReprint ? 1 : .4 }}>🖨️ {isMobile ? "Reimp." : "Reimprimir"}</button>
               <button onClick={onVoid} style={{ ...S.voidBtn, flex: isMobile ? 1 : "none" }}>↩︎ Anular</button>
@@ -1389,6 +1436,16 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onSe
         )}
       </div>
 
+      {inviting && !grouping && (
+        <div className="invite-banner" style={S.inviteBanner}>
+          <span style={{ fontSize: isMobile ? 28 : 34, flexShrink: 0 }}>🎁</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontWeight: 900, fontSize: isMobile ? 16 : 19, letterSpacing: .3 }}>MODO INVITACIÓN ACTIVO</span>
+            <span style={{ display: "block", fontSize: isMobile ? 12 : 13.5, fontWeight: 700, opacity: .9 }}>Toca el producto a invitar{qty > 1 ? ` (×${qty})` : ""} · cuenta como invitación, no se cobra · luego se apaga solo</span>
+          </span>
+          <button onClick={() => setInviting(false)} style={S.inviteCancel}>✕ Cancelar</button>
+        </div>
+      )}
       <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 18, alignItems: "flex-start" }}>
         {/* productos */}
         <div style={{ flex: 1, width: "100%" }}>
@@ -1421,10 +1478,11 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onSe
                 return (
                   <button key={p.id} ref={el => { tileRefs.current[p.id] = el; }} onClick={() => tap(p)} disabled={!arranging && p.soldOut}
                     onPointerDown={arranging ? (e => dStart(e, p.id)) : undefined} onPointerMove={arranging ? dMove : undefined} onPointerUp={arranging ? dEnd : undefined} onPointerCancel={arranging ? dEnd : undefined}
-                    className={arranging ? "tile arranging" : "tile"} style={{ ...S.tile, background: p.soldOut ? "var(--surface2)" : `linear-gradient(160deg, ${p.color}, ${shade(p.color, -25)})`, color: p.soldOut ? "var(--muted)" : "#fff", cursor: p.soldOut ? "not-allowed" : "pointer", outline: grouping && cartQty(p.id) ? "3px solid #fff" : "none", ...arr }}>
+                    className={arranging ? "tile arranging" : inviting ? "tile inviting" : "tile"} style={{ ...S.tile, background: p.soldOut ? "var(--surface2)" : `linear-gradient(160deg, ${p.color}, ${shade(p.color, -25)})`, color: p.soldOut ? "var(--muted)" : "#fff", cursor: p.soldOut ? "not-allowed" : "pointer", outline: grouping && cartQty(p.id) ? "3px solid #fff" : "none", ...arr }}>
                     {arranging && <span style={S.tileGrip}><Ic n="grip" s={16} w={2.6} /></span>}
+                    {inviting && !arranging && !p.soldOut && <span style={S.tileInvite}>🎁 INVITAR</span>}
                     {!arranging && p.print === false && <span style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,.45)", borderRadius: 7, padding: "2px 7px", fontWeight: 800, fontSize: 10.5 }}>SIN TICKET</span>}
-                    {badge && !arranging ? <span style={{ ...S.tileBadge, background: grouping ? "var(--accent)" : "rgba(0,0,0,.45)" }}>{badge}</span> : null}
+                    {badge && !arranging && !inviting ? <span style={{ ...S.tileBadge, background: grouping ? "var(--accent)" : "rgba(0,0,0,.45)" }}>{badge}</span> : null}
                     {p.soldOut && <span style={S.soldOut}>AGOTADO</span>}
                     <span style={{ fontSize: 44 }}>{p.emoji}</span>
                     <span style={{ fontSize: 19, fontWeight: 800, lineHeight: 1.1, textShadow: p.soldOut ? "none" : "0 1px 3px rgba(0,0,0,.3)" }}>{p.name}</span>
@@ -1445,7 +1503,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onSe
                   const units = (c.items || []).reduce((t, it) => t + (it.qty || 1), 0);
                   const price = (c.price === "" || c.price == null) ? (c.items || []).reduce((t, it) => { const p = punto.products.find(x => x.id === it.productId); return t + (p ? p.price * (it.qty || 1) : 0); }, 0) : Number(c.price);
                   return (
-                    <button key={c.id} onClick={() => onCombo(c)} className="tile" style={{ ...S.tile, minHeight: 130, background: "linear-gradient(160deg, #ffb400, #d98e00)", color: "#1a1205", border: "2px solid #ffd479" }}>
+                    <button key={c.id} onClick={() => { if (inviting) { onComboInvite && onComboInvite(c); setInviting(false); } else onCombo(c); }} className={inviting ? "tile inviting" : "tile"} style={{ ...S.tile, minHeight: 130, background: "linear-gradient(160deg, #ffb400, #d98e00)", color: "#1a1205", border: "2px solid #ffd479" }}>
                       <span style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,.18)", borderRadius: 8, padding: "2px 8px", fontWeight: 900, fontSize: 12 }}>{units} tickets</span>
                       <span style={{ fontSize: 34 }}>🎟️</span>
                       <span style={{ fontSize: 18, fontWeight: 900, lineHeight: 1.1, textAlign: "center" }}>{c.name}</span>
@@ -1909,7 +1967,7 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash, onBackup, lastBa
   const [confirmVoid, setConfirmVoid] = useState(null);
   const [countZ, setCountZ] = useState(null);   // {punto, esperado, fondo, efectivo, valor}
   const byPunto = ev.puntos.map(p => {
-    const live = evSales.filter(s => s.puntoId === p.id && !s.voided);
+    const live = evSales.filter(s => s.puntoId === p.id && !s.voided && !isInvite(s));
     const perProduct = {}; let revenue = 0;
     live.forEach(s => { perProduct[s.productId] = (perProduct[s.productId] || 0) + 1; revenue += s.price; });
     return { punto: p, perProduct, revenue: round2(revenue), count: live.length, voids: evSales.filter(s => s.puntoId === p.id && s.voided).length };
@@ -1925,12 +1983,13 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash, onBackup, lastBa
   const maxHour = Math.max(1, ...Object.values(hours));
   // ranking
   const rank = {};
-  evSales.filter(s => !s.voided).forEach(s => { rank[s.name] = rank[s.name] || { name: s.name, qty: 0, total: 0 }; rank[s.name].qty++; rank[s.name].total += s.price; });
+  evSales.filter(s => !s.voided && !isInvite(s)).forEach(s => { rank[s.name] = rank[s.name] || { name: s.name, qty: 0, total: 0 }; rank[s.name].qty++; rank[s.name].total += s.price; });
   const ranking = Object.values(rank).sort((a, b) => b.qty - a.qty).slice(0, 6);
   const maxRank = Math.max(1, ...ranking.map(r => r.qty));
   const voided = evSales.filter(s => s.voided).slice(-15).reverse();
 
   const liq = liquidacion(ev, evSales);
+  const inv = invitaciones(evSales);
   const exportCSV = () => {
     const rows = [["Punto de venta", "Producto", "Precio", "Unidades", "Total"]];
     byPunto.forEach(b => { b.punto.products.forEach(p => { const q = b.perProduct[p.id] || 0; rows.push([b.punto.name, p.name, p.price.toFixed(2), q, (q * p.price).toFixed(2)]); }); rows.push([b.punto.name, "— SUBTOTAL —", "", b.count, b.revenue.toFixed(2)]); rows.push([b.punto.name, "Anulaciones", "", b.voids, ""]); rows.push([]); });
@@ -1939,6 +1998,11 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash, onBackup, lastBa
       const efe = round2(evSales.filter(s => !s.voided && s.pago === "efectivo").reduce((t, s) => t + s.price, 0));
       const tar = round2(evSales.filter(s => !s.voided && s.pago === "tarjeta").reduce((t, s) => t + s.price, 0));
       rows.push([]); rows.push(["ARQUEO", "Efectivo (en caja)", "", "", efe.toFixed(2)]); rows.push(["ARQUEO", "Tarjeta", "", "", tar.toFixed(2)]);
+    }
+    if (inv.n) {
+      rows.push([]); rows.push(["INVITACIONES", "Producto", "", "Unidades", "Valor"]);
+      inv.list.forEach(g => rows.push(["INVITACIONES", g.name, "", g.uds, g.valor.toFixed(2)]));
+      rows.push(["TOTAL INVITACIONES", "", "", inv.n, inv.valor.toFixed(2)]);
     }
     if (liq.list.length) {
       rows.push([]); rows.push(["LIQUIDACIÓN PROVEEDORES", "Producto", "Comisión %", "Unidades", "Vendido", "Comisión (nuestro)", "A pagar proveedor"]);
@@ -2037,6 +2101,20 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash, onBackup, lastBa
           ))}
         </div>
       </div>
+
+      {/* Invitaciones (solo control: no suman a la facturación) */}
+      {inv.n > 0 && (
+        <div style={{ ...S.panel, marginBottom: 16 }}>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}>🎁 Invitaciones</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>No suman a la facturación ni a la caja. Valor = precio normal del producto.</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginBottom: 14 }}>
+            <div style={S.statBox}><div style={S.miniLabel}>Invitaciones dadas</div><div style={{ fontSize: 22, fontWeight: 800, color: "#c084fc" }}>{inv.n}</div></div>
+            <div style={S.statBox}><div style={S.miniLabel}>Valor regalado</div><div style={{ fontSize: 22, fontWeight: 800, color: "#c084fc" }}>{money(inv.valor)}</div></div>
+          </div>
+          {inv.list.map(g => <div key={g.name} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 14, padding: "6px 0", borderBottom: "1px solid var(--line)" }}><span><b>{g.uds}</b> × {g.name}</span><b>{money(g.valor)}</b></div>)}
+          {ev.puntos.filter(p => inv.byPunto[p.id]).length > 1 && <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--muted)" }}>{ev.puntos.filter(p => inv.byPunto[p.id]).map(p => `${p.name}: ${inv.byPunto[p.id].uds} (${money(round2(inv.byPunto[p.id].valor))})`).join(" · ")}</div>}
+        </div>
+      )}
 
       {/* Liquidación de proveedores (solo informativo: no cambia la facturación) */}
       {liq.list.length > 0 && (
@@ -2223,6 +2301,9 @@ input,select{font-family:Inter,-apple-system,sans-serif;font-size:16px;}
 ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes invPulse{0%,100%{box-shadow:0 0 0 3px #e9d5ff, 0 0 18px rgba(168,85,247,.55)}50%{box-shadow:0 0 0 5px #c084fc, 0 0 30px rgba(168,85,247,.85)}}
+.tile.inviting{animation:invPulse 1.2s ease-in-out infinite;}
+.invite-banner{animation:invPulse 1.2s ease-in-out infinite;}
 @keyframes jiggle{from{transform:rotate(-.7deg)}to{transform:rotate(.7deg)}}
 .tile.arranging:active{transform:none;}
 @keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
@@ -2325,6 +2406,11 @@ const S = {
   prodRowDrag: { borderColor: "var(--accent)", boxShadow: "0 12px 30px rgba(0,0,0,.45), 0 0 0 1px var(--accent)", background: "var(--surface2)" },
   grip: { display: "grid", placeItems: "center", width: 30, height: 40, margin: "-4px -4px -4px -2px", borderRadius: 8, touchAction: "none", userSelect: "none", WebkitUserSelect: "none", flexShrink: 0 },
   arrowBtn: { width: 28, height: 20, borderRadius: 6, background: "var(--surface2)", border: "1px solid var(--line)", color: "var(--text)", display: "grid", placeItems: "center", padding: 0 },
+  inviteBtn: { background: "rgba(168,85,247,.14)", color: "#d8b4fe", border: "2px solid rgba(168,85,247,.55)", borderRadius: 12, padding: "8px 16px", fontWeight: 800 },
+  inviteBtnOn: { background: "#a855f7", color: "#fff", borderColor: "#e9d5ff", boxShadow: "0 0 0 4px rgba(168,85,247,.35), 0 0 24px rgba(168,85,247,.6)" },
+  inviteBanner: { display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", marginBottom: 14, borderRadius: 16, background: "linear-gradient(135deg,#7e22ce,#a855f7)", color: "#fff", border: "2px solid #e9d5ff", boxShadow: "0 10px 30px rgba(168,85,247,.45)" },
+  inviteCancel: { background: "rgba(0,0,0,.25)", color: "#fff", border: "1px solid rgba(255,255,255,.5)", borderRadius: 11, padding: "10px 14px", fontWeight: 800, flexShrink: 0 },
+  tileInvite: { position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)", background: "#a855f7", color: "#fff", borderRadius: 20, padding: "3px 10px", fontWeight: 900, fontSize: 11, whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(0,0,0,.35)" },
   arrangeBar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12, padding: "10px 10px 10px 14px", borderRadius: 14, background: "rgba(255,90,60,.12)", border: "1px solid rgba(255,90,60,.45)", color: "var(--accent)", fontSize: 13.5 },
   doneBtn: { background: "var(--accent)", color: "#fff", border: "none", borderRadius: 11, padding: "10px 18px", fontWeight: 800, fontSize: 14, flexShrink: 0 },
   miniSeg: { display: "inline-flex", gap: 3, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 11, padding: 3 },
