@@ -27,7 +27,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.11.03b";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.03c";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -109,10 +109,23 @@ function ThermalTicket({ ev, product, time, num, qty = 1, code, folio }) {
   const ref = showFolio ? (folio ? "Folio " + folio : (num != null ? "Nº " + String(num).padStart(4, "0") : "")) : "";
   const base = { fontFamily: "'Roboto Mono', ui-monospace, monospace", color: "#000", background: "#fff", width: mm + "mm", padding: "0.5mm 1.5mm 1mm", boxSizing: "border-box", lineHeight: 1.15, fontWeight: 700 };
   const dashed = <div style={{ borderTop: "2px dashed #000", margin: "1.2mm 0" }} />;
-  const Name = ({ size, align = "center" }) => (<>
-    <div style={{ fontWeight: 900, fontSize: size, letterSpacing: -0.3, textAlign: align, lineHeight: 1.04, color: "#000", wordBreak: "break-word" }}>{product?.name || "NOMBRE TICKET"}</div>
-    {product?.subtitle ? <div style={{ fontWeight: 800, fontSize: Math.max(13, Math.round(size * 0.4)), textAlign: align, lineHeight: 1.15, color: "#000", marginTop: "0.6mm", wordBreak: "break-word" }}>{product.subtitle}</div> : null}
-  </>);
+  // Ajuste automático: la palabra más larga SIEMPRE cabe entera (nunca "REFRES-CO"); las cortas siguen grandes
+  const innerPx = (mm - 10) * 96 / 25.4;                                   // ancho útil dentro del recuadro
+  const fitSize = (text, size, weight) => {
+    const words = String(text || "").split(/\s+/).filter(Boolean); if (!words.length) return size;
+    let w = 0;
+    try {
+      const ctx = (fitSize.c || (fitSize.c = document.createElement("canvas"))).getContext("2d");
+      ctx.font = `${weight} 100px 'Roboto Mono', ui-monospace, monospace`;
+      w = Math.max(...words.map(x => ctx.measureText(x).width)) / 100;    // ancho por px de fuente
+    } catch { w = 0; }
+    if (!w) w = Math.max(...words.map(x => x.length)) * 0.62;             // respaldo: letra monoespaciada
+    return Math.max(12, Math.min(size, Math.floor(innerPx / (w * 1.04))));
+  };
+  const Name = ({ size, align = "center" }) => { const nm = product?.name || "NOMBRE TICKET"; const sz = fitSize(nm, size, 900); return (<>
+    <div style={{ fontWeight: 900, fontSize: sz, letterSpacing: -0.3, textAlign: align, lineHeight: 1.04, color: "#000", wordBreak: "normal", overflowWrap: "anywhere" }}>{nm}</div>
+    {product?.subtitle ? <div style={{ fontWeight: 800, fontSize: fitSize(product.subtitle, Math.max(13, Math.round(size * 0.4)), 800), textAlign: align, lineHeight: 1.15, color: "#000", marginTop: "0.6mm", wordBreak: "normal", overflowWrap: "anywhere" }}>{product.subtitle}</div> : null}
+  </>); };
   const Logo = () => {
     if (!ev.logo || st.showLogo === false) return null;
     const isImg = typeof ev.logo === "string" && /^(data:|https?:)/.test(ev.logo);
