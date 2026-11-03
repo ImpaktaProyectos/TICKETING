@@ -27,7 +27,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.11.03d";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.03e";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -280,6 +280,8 @@ export default function App() {
   const [pending, setPending] = useState(db.pendingCount());
   const isMobile = useIsMobile();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [updateReady, setUpdateReady] = useState(false);
+  useEffect(() => { const h = () => setUpdateReady(true); window.addEventListener("tixfast-update", h); if (window.__tixfastUpdate) setUpdateReady(true); return () => window.removeEventListener("tixfast-update", h); }, []);
   const [showCheck, setShowCheck] = useState(false);
   const [testMode, setTestMode] = useState(false);
   const [payFlow, setPayFlow] = useState(null);   // cobro avanzado en curso
@@ -901,6 +903,14 @@ export default function App() {
         </div>
       )}
 
+      {updateReady && (
+        <div style={S.updateBar} role="status">
+          <span style={{ fontSize: 18 }}>✨</span>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 1.3 }}><b>Versión nueva lista.</b> Actualiza cuando no haya cola (las ventas no se pierden).</span>
+          <button onClick={() => window.location.reload()} style={S.updateBtn}>Actualizar</button>
+          <button onClick={() => setUpdateReady(false)} style={S.updateX} aria-label="Más tarde">✕</button>
+        </div>
+      )}
       {toast && <div role="status" style={{ ...S.toast, background: toast.kind === "warn" ? "var(--amber)" : "var(--green)", ...(isMobile && isPriv ? { bottom: "calc(84px + env(safe-area-inset-bottom))" } : {}) }}>{toast.msg}</div>}
     </div>
   );
@@ -1687,6 +1697,8 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
   const [confirmReset, setConfirmReset] = useState(0); // 0 no, 1 primer aviso, 2 aviso final
   const [draft, setDraft] = useState({ name: "", subtitle: "", price: "", emoji: "🎟️", color: PALETTE[0] });
   const [newEvent, setNewEvent] = useState(null);
+  const neOpen = !!newEvent;
+  useEffect(() => { if (neOpen) setTimeout(() => document.getElementById("nuevo-evento")?.scrollIntoView({ behavior: "smooth", block: "center" }), 60); }, [neOpen]);
   const [newPunto, setNewPunto] = useState("");
   const [confirmDel, setConfirmDel] = useState(null);
   const [editProd, setEditProd] = useState(null);   // producto en edición
@@ -1740,13 +1752,32 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
     flash("Producto añadido a " + punto.name);
   };
   const addPunto = () => { if (!newPunto.trim()) { flash("Pon nombre al punto", "warn"); return; } dispatch({ type: "ADD_PUNTO", eventId: ev.id, punto: { id: uid(), name: newPunto.trim(), archivado: false, products: [] } }); setNewPunto(""); flash("Punto de venta creado"); };
-  const createEvent = () => { if (!newEvent.name.trim()) { flash("Falta el nombre", "warn"); return; } dispatch({ type: "ADD_EVENT", event: { id: uid(), name: newEvent.name.toUpperCase(), date: newEvent.date || "2026-01-01", venue: newEvent.venue, template: "festival", paper: 80, footer: "", logo: "", showEventName: true, showDate: true, showTime: true, showPrice: true, anularPin: false, puntos: [{ id: uid(), name: "Taquilla", archivado: false, products: [] }] } }); setNewEvent(null); flash("Evento creado"); };
+  const duplicarEvento = (src, name, date, venue) => {
+    const pmap = {};
+    const puntos = src.puntos.filter(p => !p.archivado).map(p => {
+      const products = p.products.map((x, i) => { const id = uid(); pmap[x.id] = id; return { ...x, id, orden: x.orden ?? i }; });
+      return { id: uid(), name: p.name, archivado: false, fondo: null, sortMode: p.sortMode || "manual", products, combos: [] , _src: p };
+    });
+    puntos.forEach(p => { p.combos = (p._src.combos || []).map(c => ({ ...c, id: uid(), items: (c.items || []).map(it => ({ ...it, productId: pmap[it.productId] || it.productId })) })); delete p._src; });
+    const st = { ...(src.style || {}) };
+    if (st.comisiones) { const nc = {}; Object.entries(st.comisiones).forEach(([pid, l]) => { const last = l && l[l.length - 1]; if (pmap[pid] && last && last.proveedor) nc[pmap[pid]] = [{ ...last, desde: 0 }]; }); st.comisiones = nc; }
+    const event = { ...src, id: uid(), name, date, venue, closed: false, startsAt: "", style: st, puntos };
+    dispatch({ type: "ADD_EVENT", event });
+    flash(`Evento duplicado: ${puntos.length} barras y ${puntos.reduce((t, p) => t + p.products.length, 0)} productos copiados`);
+  };
+  const createEvent = () => {
+    if (!newEvent.name.trim()) { flash("Falta el nombre", "warn"); return; }
+    if (newEvent.copyFrom) {
+      const src = state.events.find(e => e.id === newEvent.copyFrom);
+      if (src) { duplicarEvento(src, newEvent.name.trim().toUpperCase(), newEvent.date || new Date().toISOString().slice(0, 10), newEvent.venue); setNewEvent(null); return; }
+    }
+    dispatch({ type: "ADD_EVENT", event: { id: uid(), name: newEvent.name.toUpperCase(), date: newEvent.date || "2026-01-01", venue: newEvent.venue, template: "festival", paper: 80, footer: "", logo: "", showEventName: true, showDate: true, showTime: true, showPrice: true, anularPin: false, puntos: [{ id: uid(), name: "Taquilla", archivado: false, products: [] }] } }); setNewEvent(null); flash("Evento creado"); };
 
   return (
     <>
     <div style={{ display: "grid", gridTemplateColumns: isMobile ? "minmax(0,1fr)" : "minmax(0,1fr) minmax(0,1fr)", gap: 24, alignItems: "start" }}>
       <div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><h3 style={S.h3}>Datos del evento</h3><button onClick={() => setNewEvent({ name: "", date: "", venue: "" })} style={S.btnGhost}>+ Nuevo evento</button></div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><h3 style={S.h3}>Datos del evento</h3><div style={{ display: "flex", gap: 8 }}><button onClick={() => setNewEvent({ name: `${ev.name} (COPIA)`, date: "", venue: ev.venue || "", copyFrom: ev.id })} style={S.btnGhost} title="Copia barras, productos, bonos, plantilla y ajustes, sin ventas">⧉ Duplicar</button><button onClick={() => setNewEvent({ name: "", date: "", venue: "", copyFrom: "" })} style={S.btnGhost}>+ Nuevo evento</button></div></div>
         <div style={S.panel}>
           <Field label="Nombre"><input style={S.input} value={ev.name} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { name: e.target.value } })} /></Field>
           <Field label="Fecha"><input type="date" style={S.input} value={ev.date} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { date: e.target.value } })} /></Field>
@@ -1781,12 +1812,18 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
           </div>
         )}
         {newEvent && (
-          <div style={{ ...S.panel, marginTop: 16, border: "1px solid var(--accent)" }}>
-            <div style={{ fontWeight: 800, marginBottom: 10 }}>Crear evento nuevo</div>
+          <div id="nuevo-evento" style={{ ...S.panel, marginTop: 16, border: "1px solid var(--accent)" }}>
+            <div style={{ fontWeight: 800, marginBottom: 10 }}>{newEvent.copyFrom ? "Duplicar evento" : "Crear evento nuevo"}</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Copiar barras, productos, bonos, plantilla del ticket y ajustes de:</div>
+            <select value={newEvent.copyFrom || ""} onChange={e => setNewEvent({ ...newEvent, copyFrom: e.target.value })} style={{ ...S.select, marginBottom: 10 }}>
+              <option value="">— Empezar de cero —</option>
+              {state.events.map(e => <option key={e.id} value={e.id}>{e.name}{e.date ? ` · ${e.date}` : ""}</option>)}
+            </select>
+            {newEvent.copyFrom && <div style={{ fontSize: 12, color: "var(--green)", marginBottom: 10 }}>✓ Se copia todo menos las ventas, los cierres y el fondo de caja.</div>}
             <input style={S.input} placeholder="Nombre del evento" value={newEvent.name} onChange={e => setNewEvent({ ...newEvent, name: e.target.value })} /><div style={{ height: 8 }} />
             <input type="date" style={S.input} value={newEvent.date} onChange={e => setNewEvent({ ...newEvent, date: e.target.value })} /><div style={{ height: 8 }} />
             <input style={S.input} placeholder="Recinto" value={newEvent.venue} onChange={e => setNewEvent({ ...newEvent, venue: e.target.value })} />
-            <div style={{ display: "flex", gap: 8, marginTop: 12 }}><button style={S.btnPrimary} onClick={createEvent}>Crear</button><button style={S.btnGhost} onClick={() => setNewEvent(null)}>Cancelar</button></div>
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}><button style={S.btnPrimary} onClick={createEvent}>{newEvent.copyFrom ? "Duplicar" : "Crear"}</button><button style={S.btnGhost} onClick={() => setNewEvent(null)}>Cancelar</button></div>
           </div>
         )}
         <h3 style={{ ...S.h3, marginTop: 22 }}>Puntos de venta ({ev.puntos.filter(p => !p.archivado).length} activos)</h3>
@@ -2598,6 +2635,9 @@ const S = {
   inviteBanner: { display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", marginBottom: 14, borderRadius: 16, background: "linear-gradient(135deg,#7e22ce,#a855f7)", color: "#fff", border: "2px solid #e9d5ff", boxShadow: "0 10px 30px rgba(168,85,247,.45)" },
   inviteCancel: { background: "rgba(0,0,0,.25)", color: "#fff", border: "1px solid rgba(255,255,255,.5)", borderRadius: 11, padding: "10px 14px", fontWeight: 800, flexShrink: 0 },
   tileInvite: { position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)", background: "#a855f7", color: "#fff", borderRadius: 20, padding: "3px 10px", fontWeight: 900, fontSize: 11, whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(0,0,0,.35)" },
+  updateBar: { position: "fixed", zIndex: 65, left: "50%", transform: "translateX(-50%)", bottom: "calc(16px + env(safe-area-inset-bottom))", width: "min(560px, calc(100vw - 24px))", display: "flex", alignItems: "center", gap: 10, background: "#1e2230", border: "1px solid var(--accent)", color: "var(--text)", borderRadius: 14, padding: "10px 10px 10px 14px", boxShadow: "0 16px 40px rgba(0,0,0,.55)" },
+  updateBtn: { background: "var(--accent)", color: "#fff", border: "none", borderRadius: 10, padding: "9px 14px", fontWeight: 800, flexShrink: 0 },
+  updateX: { background: "transparent", color: "var(--muted)", border: "none", padding: "6px 6px", fontSize: 16, flexShrink: 0 },
   arrangeBar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12, padding: "10px 10px 10px 14px", borderRadius: 14, background: "rgba(255,90,60,.12)", border: "1px solid rgba(255,90,60,.45)", color: "var(--accent)", fontSize: 13.5 },
   doneBtn: { background: "var(--accent)", color: "#fff", border: "none", borderRadius: 11, padding: "10px 18px", fontWeight: 800, fontSize: 14, flexShrink: 0 },
   miniSeg: { display: "inline-flex", gap: 3, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 11, padding: 3 },

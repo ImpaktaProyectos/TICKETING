@@ -1,0 +1,18 @@
+# Mantiene despierta la base de datos de TIXFAST (Supabase gratuito se pausa tras ~7 días sin uso).
+# Cada 2 días hace una consulta mínima de solo lectura. No lee ni cambia ningún dato (la seguridad RLS devuelve vacío).
+name: Supabase despierto
+on:
+  schedule:
+    - cron: "17 6 */2 * *"
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Consulta ligera a Supabase
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://xnhcquehlyalwgqmdiov.supabase.co/rest/v1/ticket_eventos?select=id&limit=1" \
+            -H "apikey: sb_publishable__yt00om5AQfG8fvVCSM_IA_G75zTGSS")
+          echo "Respuesta de Supabase: $code"
+          test "$code" = "200"

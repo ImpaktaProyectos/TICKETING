@@ -57,12 +57,30 @@ if ("serviceWorker" in navigator) {
           }
         });
       });
-      let recargando = false;
+      // Ya NO se recarga sola (podía pillar a mitad de una venta): avisa y se actualiza al pulsar "Actualizar"
+      const habiaVersion = !!navigator.serviceWorker.controller;
       navigator.serviceWorker.addEventListener("controllerchange", () => {
-        if (recargando) return;
-        recargando = true;
-        window.location.reload();
+        if (!habiaVersion) return;                      // primera instalación: nada que avisar
+        window.__tixfastUpdate = true;
+        window.dispatchEvent(new Event("tixfast-update"));
       });
     } catch (e) { console.warn("SW no registrado:", e); }
   });
 }
+
+// Detecta versión nueva publicada (compara el archivo principal de la app) y AVISA, sin recargar sola
+(() => {
+  const actual = () => { const s = document.querySelector('script[type="module"][src*="/assets/"]'); return s ? s.getAttribute("src") : null; };
+  const mio = actual();
+  if (!mio) return;                                    // modo desarrollo
+  const check = async () => {
+    if (!navigator.onLine || window.__tixfastUpdate) return;
+    try {
+      const html = await (await fetch("/", { cache: "no-store" })).text();
+      const m = html.match(/<script[^>]+type="module"[^>]+src="([^"]+)"/) || html.match(/src="(\/assets\/[^"]+\.js)"/);
+      if (m && m[1] && m[1] !== mio) { window.__tixfastUpdate = true; window.dispatchEvent(new Event("tixfast-update")); }
+    } catch {}
+  };
+  setTimeout(check, 15000);
+  setInterval(check, 60000);
+})();

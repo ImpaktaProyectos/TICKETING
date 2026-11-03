@@ -77,8 +77,13 @@ export async function persistAction(action, ctx = {}) {
   try {
     switch (action.type) {
       case "ADD_EVENT": {
-        await supabase.from("ticket_eventos").insert(evToDb(action.event));
-        if (action.event.puntos?.length) await supabase.from("ticket_puntos").insert(action.event.puntos.map(p => ({ id: p.id, evento_id: action.event.id, nombre: p.name, archivado: !!p.archivado })));
+        const r1 = await supabase.from("ticket_eventos").insert(evToDb(action.event)); if (r1.error) throw r1.error;
+        if (action.event.puntos?.length) {
+          const r2 = await supabase.from("ticket_puntos").insert(action.event.puntos.map(p => ({ id: p.id, evento_id: action.event.id, nombre: p.name, archivado: !!p.archivado, combos: p.combos || [], orden_modo: p.sortMode === "ventas" ? "ventas" : "manual" }))); if (r2.error) throw r2.error;
+          // Evento duplicado: también sus productos (con orden, colores, emojis, subtítulos…)
+          const prods = action.event.puntos.flatMap(p => (p.products || []).map((x, i) => prodToDb(p.id, { ...x, orden: x.orden ?? i })));
+          if (prods.length) { const r3 = await supabase.from("ticket_productos").insert(prods); if (r3.error) throw r3.error; }
+        }
         break;
       }
       case "UPDATE_EVENT": await supabase.from("ticket_eventos").update(evPatchToDb(action.patch)).eq("id", action.id); break;
