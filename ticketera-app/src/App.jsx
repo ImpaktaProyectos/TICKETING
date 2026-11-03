@@ -27,7 +27,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.11.03e";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.04a";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -128,7 +128,7 @@ function ThermalTicket({ ev, product, time, num, qty = 1, code, folio }) {
   </>); };
   const Logo = () => {
     if (!ev.logo || st.showLogo === false) return null;
-    const isImg = typeof ev.logo === "string" && /^(data:|https?:)/.test(ev.logo);
+    const isImg = typeof ev.logo === "string" && /^data:image\/(png|jpe?g|gif|webp|svg\+xml);/i.test(ev.logo);
     return isImg
       ? <div style={{ textAlign: "center", marginBottom: "1mm" }}><img src={ev.logo} alt="" style={{ maxHeight: logoMax, maxWidth: "70%", filter: "grayscale(1) contrast(3) brightness(.9)" }} /></div>
       : <div style={{ textAlign: "center", fontWeight: 900, fontSize: logoTxt, letterSpacing: 1, marginBottom: "1mm", color: "#000" }}>{ev.logo}</div>;
@@ -1096,8 +1096,8 @@ function RoleGate({ ev, events, adminPin, supervisorPin, onSelectEvent, onRole }
             <button onClick={() => setMode(null)} style={{ ...S.btnGhost, marginTop: 8, width: "100%" }}>Volver</button>
           </div>
         )}
-        {mode === "supervisor" && <PinModal correct={supervisorPin} onOk={() => onRole("supervisor")} onClose={() => setMode(null)} label="PIN de supervisor (demo 0000)" />}
-        {mode === "admin" && <PinModal correct={adminPin} onOk={() => onRole("admin")} onClose={() => setMode(null)} label="PIN de administrador (demo 1234)" />}
+        {mode === "supervisor" && <PinModal correct={supervisorPin} onOk={() => onRole("supervisor")} onClose={() => setMode(null)} label="PIN de supervisor" />}
+        {mode === "admin" && <PinModal correct={adminPin} onOk={() => onRole("admin")} onClose={() => setMode(null)} label="PIN de administrador" />}
       </div>
     </div>
   );
@@ -1632,7 +1632,7 @@ function TemplateDesigner({ ev, dispatch, flash }) {
         <div style={{ display: "flex", gap: 10, marginBottom: 22 }}>{[58, 80].map(w => <button key={w} onClick={() => set({ paper: w })} style={{ ...S.chip, ...(ev.paper === w ? S.chipActive : {}) }}>{w} mm</button>)}</div>
         <h3 style={S.h3}>Logo del ticket</h3>
         <div style={S.panel}>
-          {ev.logo && typeof ev.logo === "string" && ev.logo.startsWith("data:") ? (
+          {ev.logo && typeof ev.logo === "string" && /^data:image\//i.test(ev.logo) ? (
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
               <div style={{ background: "#fff", borderRadius: 8, padding: 8 }}><img src={ev.logo} alt="logo" style={{ maxHeight: 50, maxWidth: 120, display: "block" }} /></div>
               <div style={{ flex: 1 }}>
@@ -1647,6 +1647,7 @@ function TemplateDesigner({ ev, dispatch, flash }) {
                 <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => {
                   const f = e.target.files?.[0]; if (!f) return;
                   if (f.size > 1500000) { flash("Imagen muy grande (máx 1,5 MB)", "warn"); return; }
+                  if (!/^image\/(png|jpe?g|gif|webp)$/i.test(f.type)) { flash("Formato no válido: usa PNG o JPG", "warn"); return; }
                   const reader = new FileReader();
                   reader.onload = () => { set({ logo: reader.result }); flash("Logo cargado"); };
                   reader.readAsDataURL(f);
@@ -2068,7 +2069,7 @@ function Historico({ state, onOpenEvent, flash }) {
     const rows = [["Evento", "Fecha", "Recinto", "Facturación", "Tickets", "Ticket medio", "Efectivo", "Tarjeta", "Invitaciones", "Valor invitaciones", "Pagar proveedores", "Comisión", "Anulaciones", "Descuadre caja", "vs anterior %"]];
     lista.forEach(r => rows.push([r.ev.name, r.ev.date, r.ev.venue || "", r.revenue.toFixed(2), r.tickets, r.medio.toFixed(2), r.efectivo.toFixed(2), r.tarjeta.toFixed(2), r.inv.n, r.inv.valor.toFixed(2), r.liq.pagar.toFixed(2), r.liq.comision.toFixed(2), r.anul, r.descuadre != null ? r.descuadre.toFixed(2) : "", r.delta != null ? r.delta : ""]));
     rows.push(["TOTAL", "", "", round2(T.revenue).toFixed(2), T.tickets, "", round2(T.efectivo).toFixed(2), round2(T.tarjeta).toFixed(2), T.invN, round2(T.invV).toFixed(2), round2(T.pagar).toFixed(2), round2(T.comision).toFixed(2), T.anul, T.hayDesc ? round2(T.desc).toFixed(2) : "", ""]);
-    const csv = rows.map(r => r.map(x => String(x).replace(/;/g, ",")).join(";")).join("\n");
+    const csv = rows.map(r => r.map(csvCell).join(";")).join("\n");
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" })); a.download = `TIXFAST_historico_${periodo}.csv`; a.click(); flash("CSV del histórico descargado");
   };
   const csvEvento = (r) => {
@@ -2077,7 +2078,7 @@ function Historico({ state, onOpenEvent, flash }) {
     rows.push([]); rows.push(["Producto", "Unidades", "Total"]); r.top.forEach(p => rows.push([p.name, p.uds, p.total.toFixed(2)]));
     if (r.inv.n) { rows.push([]); rows.push(["Invitaciones", r.inv.n, r.inv.valor.toFixed(2)]); r.inv.list.forEach(g => rows.push(["  " + g.name, g.uds, g.valor.toFixed(2)])); }
     if (r.liq.list.length) { rows.push([]); rows.push(["Proveedor", "Vendido", "Comisión", "A pagar"]); r.liq.list.forEach(g => rows.push([g.proveedor, g.vendido.toFixed(2), g.comision.toFixed(2), g.pagar.toFixed(2)])); }
-    const csv = rows.map(r2 => r2.map(x => String(x).replace(/;/g, ",")).join(";")).join("\n");
+    const csv = rows.map(r2 => r2.map(csvCell).join(";")).join("\n");
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" })); a.download = `${r.ev.name.replace(/\s+/g, "_")}_resumen.csv`; a.click(); flash("CSV del evento descargado");
   };
   const Delta = ({ d }) => d == null ? null : <span style={{ fontSize: 12, fontWeight: 800, color: d >= 0 ? "var(--green)" : "var(--red)", background: d >= 0 ? "rgba(34,211,166,.12)" : "rgba(255,77,77,.12)", borderRadius: 20, padding: "2px 8px" }}>{d >= 0 ? "▲" : "▼"} {Math.abs(d)}% vs anterior</span>;
@@ -2233,7 +2234,7 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash, onBackup, lastBa
       liq.list.forEach(g => { g.lineas.forEach(l => rows.push([g.proveedor, l.name, String(l.pct).replace(".", ","), l.uds, l.vendido.toFixed(2), l.comision.toFixed(2), l.pagar.toFixed(2)])); rows.push([g.proveedor, "— TOTAL —", "", g.uds, g.vendido.toFixed(2), g.comision.toFixed(2), g.pagar.toFixed(2)]); });
       rows.push(["TOTAL PROVEEDORES", "", "", "", liq.vendido.toFixed(2), liq.comision.toFixed(2), liq.pagar.toFixed(2)]);
     }
-    const csv = rows.map(r => r.join(";")).join("\n");
+    const csv = rows.map(r => r.map(csvCell).join(";")).join("\n");
     const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${ev.name.replace(/\s+/g, "_")}_cierre.csv`; a.click(); flash("CSV exportado");
   };
@@ -2471,22 +2472,43 @@ function BigStat({ label, value, c }) {
 
 
 /* ---------------------- PIN modal ---------------------- */
+// Bloqueo anti fuerza bruta: tras 5 fallos seguidos, espera creciente (30 s, 60 s, 2 min… máx. 15 min). Se guarda en el equipo.
+const PIN_LOCK_KEY = "tixfast_pin_lock";
+const pinLockRead = () => { try { return JSON.parse(localStorage.getItem(PIN_LOCK_KEY)) || { fails: 0, until: 0 }; } catch { return { fails: 0, until: 0 }; } };
+const pinLockWrite = (v) => { try { localStorage.setItem(PIN_LOCK_KEY, JSON.stringify(v)); } catch {} };
+// Celda CSV segura: evita que Excel ejecute fórmulas escritas en nombres (=, +, -, @) y que ";" rompa columnas
+function csvCell(x) { if (x == null) return ""; if (typeof x === "number") return String(x); let v = String(x).replace(/[;\r\n]+/g, " "); if (/^[=+\-@\t]/.test(v) && !/^-?\d+([.,]\d+)?$/.test(v)) v = "'" + v; return v; }
 function PinModal({ correct, onOk, onClose, label }) {
   const isMobile = useIsMobile();
   const [pin, setPin] = useState(""); const [err, setErr] = useState(false);
-  const press = (d) => { const np = (pin + d).slice(0, 6); setPin(np); setErr(false); if (np === correct) setTimeout(onOk, 150); };
-  useEffect(() => { if (pin.length === correct.length && pin !== correct) { setErr(true); setTimeout(() => setPin(""), 400); } }, [pin, correct]);
+  const [lock, setLock] = useState(pinLockRead); const [now, setNow] = useState(Date.now());
+  const locked = lock.until > now;
+  useEffect(() => { if (!locked) return; const t = setInterval(() => setNow(Date.now()), 500); return () => clearInterval(t); }, [locked]);
+  const ok = String(correct || "");
+  const press = (d) => {
+    if (locked || !ok) return;
+    const np = (pin + d).slice(0, 8); setPin(np); setErr(false);
+    if (np === ok) { pinLockWrite({ fails: 0, until: 0 }); setTimeout(onOk, 150); }
+  };
+  useEffect(() => {
+    if (!ok || pin.length !== ok.length || pin === ok) return;
+    setErr(true); setTimeout(() => setPin(""), 400);
+    const cur = pinLockRead(); const fails = cur.fails + 1;
+    const next = { fails, until: fails >= 5 ? Date.now() + Math.min(15 * 60, 30 * 2 ** (fails - 5)) * 1000 : 0 };
+    pinLockWrite(next); setLock(next); setNow(Date.now());
+  }, [pin, ok]);
+  const secs = Math.max(0, Math.ceil((lock.until - now) / 1000));
   return (
     <div style={isMobile ? S.sheetWrap : S.overlay} onClick={onClose}>
       <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? { ...S.sheet, animation: err ? "shake .3s" : undefined } : { ...S.pinCard, animation: err ? "shake .3s" : "none" }} onClick={e => e.stopPropagation()}>
         {isMobile && <div style={S.grab} />}
         <div style={{ textAlign: "center", fontWeight: 800, fontSize: 18, marginBottom: 4 }}>🔒 Acceso restringido</div>
-        <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13, marginBottom: 16 }}>{label || "Introduce el PIN"}</div>
+        <div style={{ textAlign: "center", color: locked ? "var(--red)" : "var(--muted)", fontSize: 13, marginBottom: 16, fontWeight: locked ? 700 : 400 }}>{locked ? `Demasiados intentos. Espera ${secs >= 60 ? Math.floor(secs / 60) + " min " + (secs % 60) + " s" : secs + " s"}` : (label || "Introduce el PIN")}</div>
         <div style={{ display: "flex", gap: 10, justifyContent: "center", marginBottom: 18 }}>{Array.from({ length: Math.max(4, pin.length) }).map((_, i) => <div key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: i < pin.length ? (err ? "var(--red)" : "var(--accent)") : "var(--line)" }} />)}</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => <button key={n} onClick={() => press(n)} style={S.pinBtn}>{n}</button>)}
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => <button key={n} disabled={locked} onClick={() => press(n)} style={{ ...S.pinBtn, opacity: locked ? .35 : 1 }}>{n}</button>)}
           <button onClick={() => setPin("")} style={{ ...S.pinBtn, fontSize: 14 }}>C</button>
-          <button onClick={() => press(0)} style={S.pinBtn}>0</button>
+          <button disabled={locked} onClick={() => press(0)} style={{ ...S.pinBtn, opacity: locked ? .35 : 1 }}>0</button>
           <button onClick={() => setPin(pin.slice(0, -1))} style={{ ...S.pinBtn, fontSize: 18 }}>⌫</button>
         </div>
       </div>

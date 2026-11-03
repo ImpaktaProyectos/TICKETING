@@ -285,13 +285,15 @@ export async function loadBackups(eventId, limit = 48) {
 export function exportPending() {
   return JSON.stringify({ app: "ticketera", version: 1, dispositivo: deviceName(), exportado: new Date().toISOString(), cola: loadQ() }, null, 1);
 }
+const OPS_OK = new Set(["vender", "anularUltima", "anularVenta", "cerrarZ", "backup", "setFondo"]);
 export function importPending(text) {
+  if (typeof text !== "string" || text.length > 5 * 1024 * 1024) throw new Error("Archivo demasiado grande");
   const obj = JSON.parse(text);
   if (!obj || obj.app !== "ticketera" || !Array.isArray(obj.cola)) throw new Error("Archivo no válido");
   const q = loadQ(); const have = new Set(q.map(it => it.qid));
   let added = 0;
   for (const it of obj.cola) {
-    if (!it || !it.op) continue;
+    if (!it || typeof it !== "object" || !OPS_OK.has(it.op)) continue;   // solo operaciones conocidas
     const item = { ...it, qid: it.qid || newQid() };
     if (have.has(item.qid)) continue;                     // ya estaba: no se duplica
     q.push(item); have.add(item.qid); added++;

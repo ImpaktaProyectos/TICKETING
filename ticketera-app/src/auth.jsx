@@ -457,6 +457,7 @@ function LoginCard({ emailRef, mode, setMode }) {   // mode: in | up | reset
         const { error } = await supabase.auth.signInWithPassword({ email: mail, password: pass });
         if (error) setMsg({ kind: "err", text: niceError(error) });
       } else if (mode === "up") {
+        if (pass.length < 8) { setMsg({ kind: "err", text: "La contraseña debe tener al menos 8 caracteres." }); setBusy(false); return; }
         const { data, error } = await supabase.auth.signUp({ email: mail, password: pass });
         if (error) setMsg({ kind: "err", text: niceError(error) });
         else if (!data?.session) setMsg({ kind: "ok", text: "Cuenta creada. Te hemos enviado un email para confirmarla; después, entra con tu contraseña." });
@@ -524,7 +525,7 @@ function NewPassword({ onDone }) {
   const [msg, setMsg] = useState(null);
   const submit = async (e) => {
     e.preventDefault();
-    if (pass.length < 6) { setMsg({ kind: "err", text: "La contraseña debe tener al menos 6 caracteres." }); return; }
+    if (pass.length < 8) { setMsg({ kind: "err", text: "La contraseña debe tener al menos 8 caracteres." }); return; }
     setBusy(true);
     const { error } = await supabase.auth.updateUser({ password: pass });
     setBusy(false);
@@ -540,7 +541,7 @@ function NewPassword({ onDone }) {
         <p className="tf-muted">Úsala a partir de ahora para entrar en TIXFAST.</p>
         <form onSubmit={submit}>
           <label className="tf-field" htmlFor="tf-np">Nueva contraseña</label>
-          <input id="tf-np" type="password" autoComplete="new-password" placeholder="Mínimo 6 caracteres" value={pass} onChange={e => setPass(e.target.value)} autoFocus />
+          <input id="tf-np" type="password" autoComplete="new-password" placeholder="Mínimo 8 caracteres" value={pass} onChange={e => setPass(e.target.value)} autoFocus />
           <div style={{ height: 22 }} />
           {msg && <div className={"tf-msg " + (msg.kind === "ok" ? "ok" : "err")}>{msg.text}</div>}
           <button className="tf-primary" type="submit" disabled={busy}>{busy ? "Guardando…" : "Guardar contraseña"}</button>

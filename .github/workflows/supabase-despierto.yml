@@ -1,5 +1,6 @@
 # Mantiene despierta la base de datos de TIXFAST (Supabase gratuito se pausa tras ~7 días sin uso).
-# Cada 2 días hace una consulta mínima de solo lectura. No lee ni cambia ningún dato (la seguridad RLS devuelve vacío).
+# Cada 2 días hace una consulta mínima. No lee ni cambia ningún dato: el acceso anónimo está cerrado, así que la base
+# de datos responde "sin permiso" (401), que igualmente cuenta como actividad.
 name: Supabase despierto
 on:
   schedule:
@@ -15,4 +16,4 @@ jobs:
             "https://xnhcquehlyalwgqmdiov.supabase.co/rest/v1/ticket_eventos?select=id&limit=1" \
             -H "apikey: sb_publishable__yt00om5AQfG8fvVCSM_IA_G75zTGSS")
           echo "Respuesta de Supabase: $code"
-          test "$code" = "200"
+          case "$code" in 200|401|403) echo "OK: base de datos activa";; *) exit 1;; esac
