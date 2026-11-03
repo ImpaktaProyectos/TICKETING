@@ -307,6 +307,15 @@ export async function resetStats(eventId) {
 }
 
 /* ===================== REALTIME ===================== */
+// Cambios de configuración hechos desde OTRO equipo de la misma cuenta (RLS: solo llegan los de esta cuenta)
+export function subscribeConfig(onChange) {
+  const ch = supabase.channel("cfg-" + Math.random().toString(36).slice(2))
+    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_eventos" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_puntos" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_productos" }, onChange)
+    .subscribe();
+  return () => supabase.removeChannel(ch);
+}
 export function subscribeEvento(eventoId, onChange) {
   const ch = supabase.channel("ev-" + eventoId)
     .on("postgres_changes", { event: "*", schema: "public", table: "ticket_ventas", filter: `evento_id=eq.${eventoId}` }, onChange)
