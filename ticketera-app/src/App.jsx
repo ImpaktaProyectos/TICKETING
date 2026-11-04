@@ -30,7 +30,7 @@ const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.04c";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.04d";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -103,7 +103,14 @@ function reducer(state, a) {
 /* ============================================================
    THERMAL TICKET
    ============================================================ */
-function ThermalTicket({ ev, product, time, num, qty = 1, code, folio }) {
+// Ticket de prueba: bandas negras "PRUEBA · NO VÁLIDO" arriba y abajo para que nadie lo canjee
+function ThermalTicket(props) {
+  if (props.folio !== "PRUEBA") return <ThermalTicketBody {...props} />;
+  const mm = props.ev.paper === 58 ? 46 : 68;
+  const band = <div style={{ background: "#000", color: "#fff", textAlign: "center", fontFamily: "'Roboto Mono', monospace", fontWeight: 900, fontSize: 13, letterSpacing: 1, padding: "1mm 0", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>✕ PRUEBA · NO VÁLIDO ✕</div>;
+  return <div style={{ width: mm + "mm", background: "#fff" }}>{band}<ThermalTicketBody {...props} />{band}</div>;
+}
+function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio }) {
   const mm = ev.paper === 58 ? 46 : 68;          // ancho del ticket con margen de seguridad (la impresora pierde ~3 mm a la derecha)
   const st = ev.style || {};
   const nd = st.nameSize === "xl" ? 18 : st.nameSize === "lg" ? 8 : 0;  // tamaño del nombre
@@ -304,7 +311,8 @@ export default function App() {
   const [updateReady, setUpdateReady] = useState(false);
   useEffect(() => { const h = () => setUpdateReady(true); window.addEventListener("tixfast-update", h); if (window.__tixfastUpdate) setUpdateReady(true); return () => window.removeEventListener("tixfast-update", h); }, []);
   const [showCheck, setShowCheck] = useState(false);
-  const [testMode, setTestMode] = useState(false);
+  // Modo prueba POR BARRA: toda barra empieza en prueba (imprime "NO VÁLIDO" y no cuenta)
+  // hasta que se pulsa "Iniciar venta". Tras el cierre Z vuelve a quedar sin vender.
   const [payFlow, setPayFlow] = useState(null);   // cobro avanzado en curso
 
   const ev = state.events.find(e => e.id === state.currentEventId) || state.events[0] || EMPTY_EV;
@@ -313,6 +321,7 @@ export default function App() {
   const evSales = useMemo(() => state.sales.filter(s => s.eventId === ev.id), [state.sales, ev.id]);
   const evGastos = useMemo(() => (state.gastos || []).filter(g => g.eventId === ev.id), [state.gastos, ev.id]);
   const turnoMovs = useMemo(() => evGastos.filter(g => g.puntoId === punto.id && !g.voided && !g.closureId), [evGastos, punto.id]);
+  const testMode = !ev.id || !punto?.id || (punto.estado || "prueba") !== "abierta";
   const livePuntoSales = useMemo(() => evSales.filter(s => s.puntoId === punto.id && !s.voided && !s.closureId), [evSales, punto.id]);
   const totals = useMemo(() => {
     const perProduct = {}; let revenue = 0;
@@ -331,8 +340,11 @@ export default function App() {
     const pend = db.pendingSaleUuids(), voids = db.pendingVoidUuids();
     const serverIds = new Set(serverSales.map(s => s.clientUuid).filter(Boolean));
     const local = stateRef.current.sales.filter(s => s.clientUuid && pend.has(s.clientUuid) && !serverIds.has(s.clientUuid));
+    // Tras recargar sin internet, las ventas pendientes se recuperan de la cola guardada en el equipo
+    const localIds = new Set(local.map(s => s.clientUuid));
+    db.pendingSales().forEach(s => { if (!serverIds.has(s.clientUuid) && !localIds.has(s.clientUuid)) { local.push(s); localIds.add(s.clientUuid); } });
     const sales = serverSales.concat(local).map(s => (s.clientUuid && voids.has(s.clientUuid)) ? { ...s, voided: true } : s);
-    const evs = events.map(e => ({ ...e, puntos: e.puntos.map(p => { const f = db.pendingFondo(p.id); return f != null ? { ...p, fondo: f } : p; }) }));
+    const evs = events.map(e => ({ ...e, puntos: e.puntos.map(p => { const pp = db.pendingPunto(p.id); return pp ? { ...p, ...pp } : p; }) }));
     return { events: evs, sales };
   };
 
@@ -542,6 +554,7 @@ export default function App() {
   };
 
   const voidLast = async (by) => {
+    if (testMode) { flash("🧪 Modo prueba: no hay ventas que anular", "warn"); return; }
     const last = evSales.filter(s => s.puntoId === punto.id && !s.voided && !s.closureId).sort((a, b) => b.ts - a.ts)[0];
     if (!last) { flash("No hay tickets que anular en este turno", "warn"); return; }
     baseDispatch({ type: "VOID_ONE", saleId: last.id, by });
@@ -549,7 +562,7 @@ export default function App() {
     const r = await db.anularVenta(last.clientUuid || last.id, by);
     if (r.offline) setPending(db.pendingCount());
   };
-  const requestVoidCajero = () => { if (ev.anularPin) setAskVoidPin(true); else voidLast(punto.name); };
+  const requestVoidCajero = () => { if (testMode) { flash("🧪 Modo prueba: no hay ventas que anular", "warn"); return; } if (ev.anularPin) setAskVoidPin(true); else voidLast(punto.name); };
 
   // Venta avanzada desde el propio TPV (cobro con cálculo de cambio)
   const toggleAdvanced = () => {
@@ -618,7 +631,7 @@ export default function App() {
     const voids = evSales.filter(s => s.puntoId === puntoObj.id && s.voided && !s.closureId).length;
     const gTurno = (stateRef.current.gastos || []).filter(g => g.eventId === ev.id && g.puntoId === puntoObj.id && !g.voided && !g.closureId);
     const gastos = sumMov(gTurno, "gasto"), entradas = sumMov(gTurno, "entrada");
-    if (allOpen.length === 0 && voids === 0 && gTurno.length === 0) { flash("Sin ventas en el turno actual", "warn"); return; }
+    if (allOpen.length === 0 && voids === 0 && gTurno.length === 0 && puntoObj.estado !== "abierta") { flash("Sin ventas en el turno actual", "warn"); return; }
     const map = {};
     sales.forEach(s => { map[s.productId] = map[s.productId] || { name: s.name, qty: 0, total: 0 }; map[s.productId].qty++; map[s.productId].total += s.price; });
     const revenue = round2(sales.reduce((t, s) => t + s.price, 0));
@@ -633,7 +646,7 @@ export default function App() {
     // Cierra el turno EN LOCAL (funciona sin wifi) y encola el cierre para el servidor
     baseDispatch({ type: "ADD_CLOSURE", closure: { id: closureId, eventId: ev.id, puntoId: puntoObj.id, ...z } });
     baseDispatch({ type: "CLOSE_PUNTO_SALES", eventId: ev.id, puntoId: puntoObj.id, closureId });
-    baseDispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: puntoObj.id, patch: { fondo: null } }); // vuelve a pedir fondo
+    baseDispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: puntoObj.id, patch: { fondo: null, estado: "cerrada", cerradaEn: new Date().toISOString(), cerradaPor: puntoObj.name } }); // venta cerrada
     setPrintJob({ kind: "z", z, n: Date.now() });
     flash(`Cierre Z de ${puntoObj.name} · turno cerrado`);
     const r = await db.cerrarZ(ev.id, puntoObj.id, puntoObj.name, contado);
@@ -697,14 +710,29 @@ export default function App() {
 
   // Fondo de caja: obligatorio antes de vender cuando la venta avanzada está activa
   // Fondo de caja: se confirma al abrir cada barra (y tras cada cierre Z). Se puede desactivar en el evento.
-  const needsFondo = ev.pedirFondo !== false && !ev.closed && !!ev.id && !!punto?.id && punto.fondo == null && (role === "cajero" || ((role === "admin" || role === "supervisor") && view === "pos"));
+  const [opening, setOpening] = useState(false);          // pantalla "Iniciar venta" (fondo del cajón)
+  useEffect(() => { setOpening(false); }, [punto?.id]);
   const ultimoFondo = useMemo(() => { const c = state.closures.filter(x => x.puntoId === punto?.id && x.fondo != null).sort((a, b) => (a.ts || 0) - (b.ts || 0)); return c.length ? Number(c[c.length - 1].fondo) : null; }, [state.closures, punto?.id]);
-  const saveFondo = async (amount) => {
-    // Optimista: se guarda en local YA (deja vender al momento), y sube sola si no hay red
-    baseDispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: punto.id, patch: { fondo: amount, fondoPor: role } });
-    const r = await db.setFondo(punto.id, amount, role);
-    if (r.offline) { setPending(db.pendingCount()); flash(`Fondo declarado: ${money(amount)} · se subirá al recuperar conexión`, "warn"); }
-    else flash(`Fondo declarado: ${money(amount)}`);
+  const quien = () => role === "cajero" ? punto.name : role === "admin" ? "Admin" : "Supervisor";
+  // Iniciar la venta (una vez por barra): deja el modo prueba y guarda el fondo. Optimista y sin conexión.
+  const iniciarVenta = async (amount = null) => {
+    if (!ev.id || !punto?.id) return;
+    if (ev.closed) { flash("Caja del evento cerrada", "warn"); return; }
+    const fondo = amount == null ? null : round2(amount);
+    const now = new Date().toISOString();
+    baseDispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: punto.id, patch: { estado: "abierta", fondo, fondoPor: quien(), abiertaEn: now, abiertaPor: quien() } });
+    setOpening(false);
+    if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+    const r = await db.abrirBarra(punto.id, ev.id, fondo, quien());
+    if (r.offline) setPending(db.pendingCount());
+    flash(`🟢 Venta iniciada en ${punto.name}${fondo != null ? ` · fondo ${money(fondo)}` : ""}`);
+  };
+  // Volver a modo prueba (solo admin): reabrir tras un Z o deshacer un inicio por error
+  const pasarPrueba = async (puntoObj) => {
+    baseDispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: puntoObj.id, patch: { estado: "prueba", fondo: null } });
+    const r = await db.pasarPrueba(puntoObj.id, ev.id, quien());
+    if (r.offline) setPending(db.pendingCount());
+    flash(`🧪 ${puntoObj.name} en modo prueba`, "warn");
   };
 
   const exitToLogin = () => { setRole(null); setView("pos"); };
@@ -766,7 +794,7 @@ export default function App() {
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn} aria-label="Menú"><Ic n="menu" /></button>
           </header>
           <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => setShowGasto(true)} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={() => { if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
           </div>
         </div>
       ) : (
@@ -779,7 +807,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.topBtn}><Ic n="lock" s={16} />Salir</button></div>
           </header>
           <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => setShowGasto(true)} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={() => { if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
           </div>
         </div>
       ))}
@@ -800,11 +828,11 @@ export default function App() {
                 <button onClick={() => setAskRevenue(true)} style={{ ...S.iconBtn, color: "var(--accent)" }} aria-label="Consultar facturación"><Ic n="euro" /></button>
               </div>
             </div>
-            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => setShowGasto(true)} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
+            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={() => { if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
             {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
             {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
-            {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
+            {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
           </div>
           <nav style={S.bottomNav}>
             {navItems.map(n => <button key={n.id} onClick={() => setView(n.id)} style={{ ...S.bTab, ...(safeView === n.id ? S.bTabActive : {}) }}>
@@ -831,7 +859,6 @@ export default function App() {
               <div style={{ display: "flex", gap: 6, margin: "10px 0 12px" }}><OnlinePill /><PrinterPill /></div>
               <div style={S.sideDivider} />
               <MenuRow icon="printer" label="Ticket de prueba" onClick={testPrint} />
-              <MenuRow icon="flask" label="Modo prueba" onClick={() => setTestMode(m => !m)} tone={testMode ? "warn" : undefined} right={<span style={{ ...S.onOff, ...(testMode ? S.onOffOn : {}) }}>{testMode ? "ON" : "OFF"}</span>} />
               <MenuRow icon="swap" label="Cambiar de rol" onClick={exitToLogin} />
               <MenuRow icon="logout" label="Cerrar sesión" onClick={() => logout()} tone="danger" />
             </div>
@@ -845,11 +872,11 @@ export default function App() {
               </div>
             </header>
             <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => setShowGasto(true)} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
+              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={() => { if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
               {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
               {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
               {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
-            {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
+            {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
             </div>
           </main>
         </div>
@@ -880,7 +907,6 @@ export default function App() {
             <div className="menu-group" style={S.menuGroup}>
               <MenuRow big icon="check" label="Comprobación previa" onClick={() => { setMenuOpen(false); setShowCheck(true); }} right={<span style={{ color: "var(--muted)" }}><Ic n="chev" s={16} /></span>} />
               <MenuRow big icon="printer" label="Ticket de prueba" onClick={() => { setMenuOpen(false); testPrint(); }} right={<span style={{ color: "var(--muted)" }}><Ic n="chev" s={16} /></span>} />
-              <MenuRow big icon="flask" label="Modo prueba" onClick={() => setTestMode(m => !m)} tone={testMode ? "warn" : undefined} right={<span style={{ ...S.onOff, ...(testMode ? S.onOffOn : {}) }}>{testMode ? "ACTIVADO" : "APAGADO"}</span>} />
               <MenuRow big icon="refresh" label="Buscar actualización" onClick={async () => { if (!navigator.onLine || !(await fetch("/manifest.webmanifest", { cache: "no-store" }).then(r => r.ok).catch(() => false))) { flash("Sin internet: no se puede actualizar ahora (la app sigue funcionando)", "warn"); return; } try { const rs = await navigator.serviceWorker?.getRegistrations?.() || []; for (const r of rs) await r.unregister(); const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); } catch {} window.location.reload(true); }} right={<span style={{ color: "var(--muted)" }}><Ic n="chev" s={16} /></span>} />
             </div>
             <div className="menu-group" style={{ ...S.menuGroup, marginTop: 10 }}>
@@ -893,8 +919,8 @@ export default function App() {
       )}
 
       {/* ===== Fondo de caja (bloquea la venta hasta declararlo) ===== */}
-      {needsFondo && !showCheck && (
-        <FondoGate key={punto.id} puntoName={punto.name} previsto={punto.fondoPrevisto} ultimo={ultimoFondo} onSave={saveFondo} onBack={exitToLogin} pending={!online} />
+      {opening && (
+        <FondoGate key={punto.id} puntoName={punto.name} previsto={punto.fondoPrevisto} ultimo={ultimoFondo} onSave={iniciarVenta} onBack={() => setOpening(false)} pending={!online} />
       )}
 
       {/* ===== Gasto de caja ===== */}
@@ -1264,13 +1290,13 @@ function FondoGate({ puntoName, previsto = null, ultimo = null, onSave, onBack, 
   const head = (
     <div style={{ textAlign: "center", marginBottom: 18 }}>
       <div style={{ fontSize: 44 }}>💰</div>
-      <div style={{ ...S.display, marginTop: 4 }}>Abrir barra</div>
-      <div style={{ color: "var(--muted)", fontSize: 13.5, marginTop: 4 }}>Cuenta el cambio del cajón de <b style={{ color: "var(--accent)" }}>{puntoName}</b> antes de empezar a vender</div>
+      <div style={{ ...S.display, marginTop: 4 }}>Iniciar venta</div>
+      <div style={{ color: "var(--muted)", fontSize: 13.5, marginTop: 4 }}>Cuenta el cambio del cajón de <b style={{ color: "var(--accent)" }}>{puntoName}</b>. Desde ahora todo lo que se venda <b style={{ color: "var(--text)" }}>cuenta en la caja</b>.</div>
     </div>
   );
   const foot = (<>
     {pending && <div style={{ fontSize: 12, color: "var(--amber)", textAlign: "center", marginTop: 10 }}>⏳ Se guardará en este equipo y subirá solo cuando haya conexión.</div>}
-    <button onClick={onBack} style={{ ...S.btnGhost, width: "100%", marginTop: 12, padding: "13px" }}>Cambiar de barra / rol</button>
+    <button onClick={onBack} style={{ ...S.btnGhost, width: "100%", marginTop: 12, padding: "13px" }}>Cancelar · seguir en modo prueba</button>
   </>);
 
   if (!edit) return (
@@ -1282,7 +1308,7 @@ function FondoGate({ puntoName, previsto = null, ultimo = null, onSave, onBack, 
           <div style={{ fontSize: 58, fontWeight: 900, lineHeight: 1.05, color: "var(--green)", margin: "4px 0" }}>{money(sugerido)}</div>
           <div style={{ fontSize: 13, color: "var(--muted)" }}>¿Es lo que hay en el cajón?</div>
         </div>
-        <button onClick={() => onSave(round2(sugerido))} style={{ ...S.btnPrimary, width: "100%", padding: "20px", fontSize: 18, background: "var(--green)", color: "#04241b" }}>✅ Sí, hay {money(sugerido)} · Abrir barra</button>
+        <button onClick={() => onSave(round2(sugerido))} style={{ ...S.btnPrimary, width: "100%", padding: "20px", fontSize: 18, background: "var(--green)", color: "#04241b" }}>✅ Sí, hay {money(sugerido)} · Iniciar venta</button>
         <button onClick={() => { setV(""); setEdit(true); }} style={{ ...S.btnGhost, width: "100%", marginTop: 10, padding: "15px", fontSize: 15, fontWeight: 800 }}>✏️ Hay otra cantidad</button>
         {previsto != null && ultimo != null && ultimo !== previsto && <button onClick={() => onSave(round2(ultimo))} style={{ ...S.btnGhost, width: "100%", marginTop: 8, padding: "13px" }}>↺ Lo mismo que el turno anterior ({money(ultimo)})</button>}
         {sugerido !== 0 && <button onClick={() => onSave(0)} style={{ ...S.btnGhost, width: "100%", marginTop: 8, padding: "13px", color: "var(--muted)" }}>Sin cambio (0 €)</button>}
@@ -1311,7 +1337,7 @@ function FondoGate({ puntoName, previsto = null, ultimo = null, onSave, onBack, 
         </div>
 
         <button disabled={v === ""} onClick={() => onSave(round2(amount))} style={{ ...S.btnPrimary, width: "100%", marginTop: 14, padding: "18px", fontSize: 17, opacity: v === "" ? .4 : 1, background: "var(--green)", color: "#04241b" }}>
-          ✅ {v === "" ? "Escribe el fondo" : `Abrir barra con ${money(amount)}`}
+          ✅ {v === "" ? "Escribe el fondo" : `Iniciar venta con ${money(amount)}`}
         </button>
         {sugerido != null && <button onClick={() => setEdit(false)} style={{ ...S.btnGhost, width: "100%", marginTop: 10, padding: "13px" }}>← Volver ({money(sugerido)})</button>}
         <div style={{ fontSize: 12, color: "var(--muted)", textAlign: "center", marginTop: 10 }}>Al cerrar el turno se usa para cuadrar la caja.</div>
@@ -1530,7 +1556,7 @@ function CheckCard({ state, title, value, note, children }) {
 /* ============================================================
    POS
    ============================================================ */
-function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onInvite, onComboInvite, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, onToggleAdvanced, onGasto, gastoTotal = 0, entradaTotal = 0, fondo = null }) {
+function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onInvite, onComboInvite, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, onToggleAdvanced, onGasto, gastoTotal = 0, entradaTotal = 0, fondo = null, onIniciar }) {
   const isMobile = useIsMobile();
   const combos = punto.combos || [];
   const [qty, setQty] = useState(1);
@@ -1625,7 +1651,33 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
   return (
     <div>
       {closed && <div style={{ background: "var(--red)", color: "#fff", fontWeight: 800, textAlign: "center", padding: "12px", borderRadius: 12, marginBottom: 14 }}>🔒 CAJA CERRADA · no se puede vender en este evento</div>}
-      {testMode && !closed && <div style={{ background: "var(--amber)", color: "#1a1205", fontWeight: 800, textAlign: "center", padding: "12px", borderRadius: 12, marginBottom: 14 }}>🧪 MODO PRUEBA · imprime pero NO cuenta en la caja</div>}
+      {testMode && !closed && <div className="prueba-frame" aria-hidden="true" />}
+      {testMode && !closed && punto.estado !== "cerrada" && (
+        <div className="prueba-banner" style={S.pruebaBanner}>
+          <span style={{ fontSize: isMobile ? 30 : 38, flexShrink: 0 }}>🧪</span>
+          <span style={{ flex: "1 1 220px", minWidth: 0 }}>
+            <span style={{ display: "block", fontWeight: 900, fontSize: isMobile ? 17 : 21, letterSpacing: .5 }}>MODO PRUEBA · NO CUENTA</span>
+            <span style={{ display: "block", fontSize: isMobile ? 12 : 13.5, fontWeight: 700 }}>Toca e imprime lo que quieras: los tickets salen marcados «NO VÁLIDO». Cuando abráis, inicia la venta.</span>
+          </span>
+          {onIniciar && <button onClick={onIniciar} style={{ ...S.iniciarBtn, ...(isMobile ? { width: "100%" } : {}) }}>▶ Iniciar venta</button>}
+        </div>
+      )}
+      {testMode && !closed && punto.estado === "cerrada" && (
+        <div className="prueba-banner" style={{ ...S.pruebaBanner, background: "repeating-linear-gradient(135deg,#3a0d0d 0 18px,#2a0a0a 18px 36px)", borderColor: "var(--red)", color: "#fff" }}>
+          <span style={{ fontSize: isMobile ? 30 : 38, flexShrink: 0 }}>🔒</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontWeight: 900, fontSize: isMobile ? 17 : 21 }}>VENTA CERRADA{punto.cerradaEn ? ` · Z a las ${new Date(punto.cerradaEn).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}` : ""}</span>
+            <span style={{ display: "block", fontSize: isMobile ? 12 : 13.5, fontWeight: 700, opacity: .9 }}>Ya no cuenta nada (los tickets salen «NO VÁLIDO»). Para volver a vender, un administrador puede reabrir la barra en Informes.</span>
+          </span>
+        </div>
+      )}
+      {!testMode && !closed && (
+        <div style={S.abiertaPill}>
+          <span className="livedot" style={{ ...S.liveDot, background: "var(--green)" }} />
+          <b>VENTA ABIERTA</b>{punto.abiertaEn ? <span style={{ color: "var(--muted)", fontWeight: 600 }}>· desde las {new Date(punto.abiertaEn).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</span> : null}
+          {fondo != null && <span style={{ color: "var(--muted)", fontWeight: 600 }}>· fondo {money(fondo)}</span>}
+        </div>
+      )}
       <button onClick={onToggleAdvanced} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", marginBottom: 14, borderRadius: 14, cursor: "pointer", textAlign: "left", background: advanced ? "rgba(34,211,166,.12)" : "var(--surface)", border: `2px solid ${advanced ? "var(--green)" : "var(--line)"}`, color: "var(--text)" }}>
         <span style={{ fontSize: 26, flexShrink: 0 }}>💶</span>
         <span style={{ flex: 1, minWidth: 0 }}>
@@ -1699,8 +1751,9 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
                 return (
                   <button key={p.id} ref={el => { tileRefs.current[p.id] = el; }} onClick={() => tap(p)} disabled={!arranging && p.soldOut}
                     onPointerDown={arranging ? (e => dStart(e, p.id)) : undefined} onPointerMove={arranging ? dMove : undefined} onPointerUp={arranging ? dEnd : undefined} onPointerCancel={arranging ? dEnd : undefined}
-                    className={arranging ? "tile arranging" : inviting ? "tile inviting" : "tile"} style={{ ...S.tile, background: p.soldOut ? "var(--surface2)" : `linear-gradient(160deg, ${p.color}, ${shade(p.color, -25)})`, color: p.soldOut ? "var(--muted)" : "#fff", cursor: p.soldOut ? "not-allowed" : "pointer", outline: grouping && cartQty(p.id) ? "3px solid #fff" : "none", ...arr }}>
+                    className={arranging ? "tile arranging" : inviting ? "tile inviting" : "tile"} style={{ ...S.tile, background: p.soldOut ? "var(--surface2)" : `linear-gradient(160deg, ${p.color}, ${shade(p.color, -25)})`, color: p.soldOut ? "var(--muted)" : "#fff", cursor: p.soldOut ? "not-allowed" : "pointer", outline: grouping && cartQty(p.id) ? "3px solid #fff" : "none", ...(testMode ? { paddingBottom: 30 } : {}), ...arr }}>
                     {arranging && <span style={S.tileGrip}><Ic n="grip" s={16} w={2.6} /></span>}
+                    {testMode && !arranging && <span style={S.tilePrueba}><span style={S.tilePruebaTxt}>PRUEBA</span></span>}
                     {inviting && !arranging && !p.soldOut && <span style={S.tileInvite}>🎁 INVITAR</span>}
                     {!arranging && p.print === false && <span style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,.45)", borderRadius: 7, padding: "2px 7px", fontWeight: 800, fontSize: 10.5 }}>SIN TICKET</span>}
                     {badge && !arranging && !inviting ? <span style={{ ...S.tileBadge, background: grouping ? "var(--accent)" : "rgba(0,0,0,.45)" }}>{badge}</span> : null}
@@ -1724,8 +1777,9 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
                   const units = (c.items || []).reduce((t, it) => t + (it.qty || 1), 0);
                   const price = (c.price === "" || c.price == null) ? (c.items || []).reduce((t, it) => { const p = punto.products.find(x => x.id === it.productId); return t + (p ? p.price * (it.qty || 1) : 0); }, 0) : Number(c.price);
                   return (
-                    <button key={c.id} onClick={() => { if (inviting) { onComboInvite && onComboInvite(c); setInviting(false); } else onCombo(c); }} className={inviting ? "tile inviting" : "tile"} style={{ ...S.tile, minHeight: 130, background: "linear-gradient(160deg, #ffb400, #d98e00)", color: "#1a1205", border: "2px solid #ffd479" }}>
+                    <button key={c.id} onClick={() => { if (inviting) { onComboInvite && onComboInvite(c); setInviting(false); } else onCombo(c); }} className={inviting ? "tile inviting" : "tile"} style={{ ...S.tile, minHeight: 130, background: "linear-gradient(160deg, #ffb400, #d98e00)", color: "#1a1205", border: "2px solid #ffd479", ...(testMode ? { paddingBottom: 30 } : {}) }}>
                       <span style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,.18)", borderRadius: 8, padding: "2px 8px", fontWeight: 900, fontSize: 12 }}>{units} tickets</span>
+                      {testMode && <span style={S.tilePrueba}><span style={S.tilePruebaTxt}>PRUEBA</span></span>}
                       <span style={{ fontSize: 34 }}>🎟️</span>
                       <span style={{ fontSize: 18, fontWeight: 900, lineHeight: 1.1, textAlign: "center" }}>{c.name}</span>
                       <span style={{ fontSize: 20, fontWeight: 900 }}>{money(price)}</span>
@@ -1983,13 +2037,13 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
 
         <div style={{ ...S.panel, marginTop: 16 }}>
           <div style={{ fontWeight: 800, marginBottom: 4 }}>💰 Fondo de caja (cambio inicial)</div>
-          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>Al abrir cada barra, el camarero confirma el cambio del cajón con un toque. Pon aquí lo que vas a dejar en cada una.</div>
-          <label style={S.toggleRow}><span>Pedir el fondo al abrir cada barra</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pedirFondo: !(ev.pedirFondo !== false) } })} style={{ ...S.switch, background: ev.pedirFondo !== false ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.pedirFondo !== false ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>Las barras están en modo prueba hasta que alguien pulsa «Iniciar venta» en el TPV; entonces se confirma el cambio del cajón con un toque. Pon aquí lo que vas a dejar en cada una.</div>
+          <label style={S.toggleRow}><span>Pedir el fondo al iniciar la venta</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pedirFondo: !(ev.pedirFondo !== false) } })} style={{ ...S.switch, background: ev.pedirFondo !== false ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.pedirFondo !== false ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
           {ev.pedirFondo !== false && ev.puntos.filter(p => !p.archivado).map(p => (
             <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: "1px solid var(--line)" }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700 }}>📍 {p.name}</div>
-                <div style={{ fontSize: 12, color: p.fondo != null ? "var(--green)" : "var(--muted)" }}>{p.fondo != null ? `Abierta con ${money(p.fondo)}` : "Sin abrir todavía"}</div>
+                <div style={{ fontSize: 12, color: p.estado === "abierta" ? "var(--green)" : p.estado === "cerrada" ? "var(--red)" : "var(--amber)" }}>{p.estado === "abierta" ? `🟢 Venta abierta${p.fondo != null ? ` con ${money(p.fondo)}` : ""}` : p.estado === "cerrada" ? "🔒 Venta cerrada (Z hecho)" : "🧪 En modo prueba"}</div>
               </div>
               <FondoPrevistoInput value={p.fondoPrevisto} onSave={(n) => { dispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: p.id, patch: { fondoPrevisto: n } }); flash(n == null ? `Sin fondo previsto en ${p.name}` : `Fondo previsto ${p.name}: ${money(n)}`); }} />
             </div>
@@ -2378,7 +2432,7 @@ function Historico({ state, onOpenEvent, flash }) {
   );
 }
 
-function Reports({ ev, evSales, evGastos = [], onVoidGasto, role, onVoid, onCierreZ, flash, onBackup, lastBackup, onImported }) {
+function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role, onVoid, onCierreZ, flash, onBackup, lastBackup, onImported }) {
   const [backups, setBackups] = useState(null);
   const [showBackups, setShowBackups] = useState(false);
   const fileRef = useRef(null);
@@ -2426,6 +2480,14 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, role, onVoid, onCier
   const gTurnoDe = (pid) => sumMov(evGastos.filter(g => g.puntoId === pid && !g.closureId), "gasto");
   const eTurnoDe = (pid) => sumMov(evGastos.filter(g => g.puntoId === pid && !g.closureId), "entrada");
   const [confirmGasto, setConfirmGasto] = useState(null);
+  const [confirmPrueba, setConfirmPrueba] = useState(null);
+  const hhmm = (t) => t ? new Date(t).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }) : "";
+  const EstadoChip = ({ p }) => {
+    const e = p.estado || "prueba";
+    const c = e === "abierta" ? "var(--green)" : e === "cerrada" ? "var(--red)" : "var(--amber)";
+    const t = e === "abierta" ? `🟢 Venta abierta${p.abiertaEn ? " · " + hhmm(p.abiertaEn) : ""}` : e === "cerrada" ? `🔒 Cerrada${p.cerradaEn ? " · " + hhmm(p.cerradaEn) : ""}` : "🧪 Modo prueba";
+    return <div style={{ display: "inline-block", fontSize: 11.5, fontWeight: 800, color: c, border: `1px solid ${c}`, borderRadius: 20, padding: "2px 9px", marginTop: 6 }}>{t}</div>;
+  };
   const exportCSV = () => {
     const rows = [["Punto de venta", "Producto", "Precio", "Unidades", "Total"]];
     byPunto.forEach(b => { b.punto.products.forEach(p => { const q = b.perProduct[p.id] || 0; rows.push([b.punto.name, p.name, p.price.toFixed(2), q, (q * p.price).toFixed(2)]); }); rows.push([b.punto.name, "— SUBTOTAL —", "", b.count, b.revenue.toFixed(2)]); rows.push([b.punto.name, "Anulaciones", "", b.voids, ""]); rows.push([]); });
@@ -2536,12 +2598,13 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, role, onVoid, onCier
           {byPunto.map(b => (
             <div key={b.punto.id} style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: 14 }}>
               <div style={{ fontWeight: 700, fontSize: 14 }}>📍 {b.punto.name}</div>
+              <EstadoChip p={b.punto} />
               <div style={{ fontSize: 22, fontWeight: 800, color: "var(--green)", marginTop: 4 }}>{money(b.revenue)}</div>
               <div style={{ fontSize: 12, color: "var(--muted)" }}>{b.count} tickets · {b.voids} anul.</div>
               {gTurnoDe(b.punto.id) > 0 && <div style={{ fontSize: 12, color: "var(--amber)", marginTop: 4, fontWeight: 700 }}>💸 Gastos del turno: -{money(gTurnoDe(b.punto.id))}</div>}
               {eTurnoDe(b.punto.id) > 0 && <div style={{ fontSize: 12, color: "var(--green)", marginTop: 4, fontWeight: 700 }}>➕ Cambio añadido: +{money(eTurnoDe(b.punto.id))}</div>}
-              {(ev.advanced || ev.pedirFondo !== false) && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>💰 Fondo: <b style={{ color: b.punto.fondo != null ? "var(--green)" : "var(--amber)" }}>{b.punto.fondo != null ? money(b.punto.fondo) : "sin declarar"}</b>{b.punto.fondo != null && db.pendingFondo(b.punto.id) != null && <span style={{ color: "var(--amber)" }}> · ⏳ subiendo…</span>}</div>}
-              {(role === "admin" || role === "supervisor") && <button onClick={() => {
+              {(ev.advanced || ev.pedirFondo !== false) && b.punto.estado === "abierta" && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>💰 Fondo: <b style={{ color: b.punto.fondo != null ? "var(--green)" : "var(--amber)" }}>{b.punto.fondo != null ? money(b.punto.fondo) : "sin declarar"}</b>{db.pendingPunto(b.punto.id) && <span style={{ color: "var(--amber)" }}> · ⏳ subiendo…</span>}</div>}
+              {(role === "admin" || role === "supervisor") && (b.punto.estado === "abierta" || evSales.some(x => x.puntoId === b.punto.id && !x.closureId)) && <button onClick={() => {
                 const abiertas = evSales.filter(s => s.puntoId === b.punto.id && !s.voided && !s.closureId && !isInvite(s));
                 const efe = round2(abiertas.filter(s => s.pago === "efectivo").reduce((t, s) => t + s.price, 0));
                 const fact = round2(abiertas.reduce((t, s) => t + s.price, 0));
@@ -2550,6 +2613,9 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, role, onVoid, onCier
                 const base = ev.advanced ? efe : fact;
                 setCountZ({ punto: b.punto, advanced: !!ev.advanced, fondo, efectivo: base, gastos: gas, entradas: ent, esperado: round2(fondo + base + ent - gas), valor: "" });
               }} style={{ ...S.smallBtn, marginTop: 8, width: "100%", color: "var(--accent)", borderColor: "var(--accent)" }}>Cierre Z 🧾</button>}
+              {role === "admin" && onPasarPrueba && b.punto.estado !== "prueba" && !(b.punto.estado === "abierta" && evSales.some(x => x.puntoId === b.punto.id && !x.closureId && !x.voided)) && (confirmPrueba === b.punto.id
+                ? <div style={{ display: "flex", gap: 6, marginTop: 8 }}><button onClick={() => { onPasarPrueba(b.punto); setConfirmPrueba(null); }} style={{ ...S.smallBtn, flex: 1, color: "var(--amber)", borderColor: "var(--amber)" }}>✓ Sí, a prueba</button><button onClick={() => setConfirmPrueba(null)} style={S.smallBtn}>✗</button></div>
+                : <button onClick={() => setConfirmPrueba(b.punto.id)} style={{ ...S.smallBtn, marginTop: 8, width: "100%" }}>{b.punto.estado === "cerrada" ? "↺ Reabrir barra (vuelve a prueba)" : "🧪 Volver a modo prueba"}</button>)}
             </div>
           ))}
         </div>
@@ -2827,6 +2893,8 @@ input,select{font-family:Inter,-apple-system,sans-serif;font-size:16px;}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 @keyframes invPulse{0%,100%{box-shadow:0 0 0 3px #e9d5ff, 0 0 18px rgba(168,85,247,.55)}50%{box-shadow:0 0 0 5px #c084fc, 0 0 30px rgba(168,85,247,.85)}}
+.prueba-frame{position:fixed;inset:0;z-index:60;pointer-events:none;border:7px solid transparent;border-image:repeating-linear-gradient(135deg,#ffb400 0 16px,#1a1205 16px 32px) 7;}
+@media print{.prueba-frame{display:none !important;}}
 .tile.inviting{animation:invPulse 1.2s ease-in-out infinite;}
 .invite-banner{animation:invPulse 1.2s ease-in-out infinite;}
 @keyframes jiggle{from{transform:rotate(-.7deg)}to{transform:rotate(.7deg)}}
@@ -2932,6 +3000,11 @@ const S = {
   grip: { display: "grid", placeItems: "center", width: 30, height: 40, margin: "-4px -4px -4px -2px", borderRadius: 8, touchAction: "none", userSelect: "none", WebkitUserSelect: "none", flexShrink: 0 },
   arrowBtn: { width: 28, height: 20, borderRadius: 6, background: "var(--surface2)", border: "1px solid var(--line)", color: "var(--text)", display: "grid", placeItems: "center", padding: 0 },
   cajaTile: { background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: "8px 10px", textAlign: "center", minWidth: 0 },
+  pruebaBanner: { display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", padding: "14px 16px", marginBottom: 14, borderRadius: 16, border: "3px solid #ffb400", color: "#1a1205", background: "repeating-linear-gradient(135deg,#ffb400 0 18px,#ffc93c 18px 36px)", boxShadow: "0 6px 24px rgba(255,180,0,.25)" },
+  iniciarBtn: { background: "var(--green)", color: "#04241b", border: "3px solid #0b3b2d", borderRadius: 14, padding: "14px 22px", fontWeight: 900, fontSize: 17, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 4px 14px rgba(0,0,0,.25)" },
+  abiertaPill: { display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "8px 14px", marginBottom: 14, borderRadius: 30, border: "1px solid rgba(34,211,166,.45)", background: "rgba(34,211,166,.1)", color: "var(--green)", fontSize: 13.5 },
+  tilePrueba: { position: "absolute", left: 0, right: 0, bottom: 0, height: 20, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "0 0 18px 18px", background: "repeating-linear-gradient(135deg,#ffb400 0 10px,#1a1205 10px 20px)", pointerEvents: "none" },
+  tilePruebaTxt: { background: "#ffb400", color: "#1a1205", fontWeight: 900, fontSize: 11, letterSpacing: 2, padding: "1px 8px", borderRadius: 4 },
   gastoBtn: { background: "rgba(255,180,0,.12)", color: "var(--amber)", border: "2px solid rgba(255,180,0,.55)", borderRadius: 12, padding: "8px 14px", fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, whiteSpace: "nowrap" },
   gastoBadge: { background: "var(--amber)", color: "#1a1205", borderRadius: 20, padding: "1px 8px", fontSize: 12, fontWeight: 900 },
   inviteBtn: { background: "rgba(168,85,247,.14)", color: "#d8b4fe", border: "2px solid rgba(168,85,247,.55)", borderRadius: 12, padding: "8px 16px", fontWeight: 800 },

@@ -3,7 +3,7 @@ import { supabase, uid } from "./supabase";
 /* ===================== MAPEADORES BD <-> UI ===================== */
 const prodFromDb = (p) => ({ id: p.id, name: p.nombre, price: Number(p.precio), color: p.color, emoji: p.emoji, soldOut: p.agotado, orden: p.orden ?? 0, subtitle: p.subtitulo || "", print: p.imprimir !== false });
 const byOrden = (a, b) => (a.orden - b.orden) || String(a.creado_en || "").localeCompare(String(b.creado_en || "")) || String(a.id).localeCompare(String(b.id));
-const puntoFromDb = (p) => ({ id: p.id, name: p.nombre, archivado: p.archivado, combos: p.combos || [], fondo: p.fondo != null ? Number(p.fondo) : null, fondoEn: p.fondo_en, fondoPor: p.fondo_por, fondoPrevisto: p.fondo_previsto != null ? Number(p.fondo_previsto) : null, sortMode: p.orden_modo === "ventas" ? "ventas" : "manual", products: (p.ticket_productos || []).slice().sort(byOrden).map(prodFromDb) });
+const puntoFromDb = (p) => ({ id: p.id, name: p.nombre, archivado: p.archivado, combos: p.combos || [], fondo: p.fondo != null ? Number(p.fondo) : null, fondoEn: p.fondo_en, fondoPor: p.fondo_por, fondoPrevisto: p.fondo_previsto != null ? Number(p.fondo_previsto) : null, estado: ["abierta", "cerrada"].includes(p.estado) ? p.estado : "prueba", abiertaEn: p.abierta_en, abiertaPor: p.abierta_por, cerradaEn: p.cerrada_en, cerradaPor: p.cerrada_por, sortMode: p.orden_modo === "ventas" ? "ventas" : "manual", products: (p.ticket_productos || []).slice().sort(byOrden).map(prodFromDb) });
 const evFromDb = (e) => ({
   id: e.id, name: e.nombre, date: e.fecha, venue: e.recinto || "", template: e.plantilla, paper: e.papel,
   footer: e.pie || "", logo: e.logo_url || "", showEventName: e.mostrar_evento, showDate: e.mostrar_fecha,
@@ -158,6 +158,18 @@ export function pendingSaleUuids() { const s = new Set(); loadQ().forEach(it => 
 // Gastos de caja aún sin subir (registrados en este equipo) y anulaciones de gasto pendientes
 export function pendingGastos() { return loadQ().filter(it => it.op === "gasto").map(it => ({ tipo: it.tipo === "entrada" ? "entrada" : "gasto", id: it.id, eventId: it.evento, puntoId: it.punto, importe: Number(it.importe), concepto: it.concepto || "", por: it.por || "", ts: new Date(it.fecha).getTime(), voided: false, closureId: null, synced: false })); }
 export function pendingGastoVoids() { const s = new Set(); loadQ().forEach(it => { if (it.op === "anularGasto") s.add(it.id); }); return s; }
+// Ventas aún sin subir reconstruidas desde la cola (si se recarga la página sin internet, siguen contando en pantalla)
+export function pendingSales() {
+  const out = [];
+  loadQ().forEach(it => {
+    if (it.op !== "vender" || !it.args) return;
+    const a = it.args, uu = a.p_client_uuids || [], cc = a.p_codigos || [];
+    const pago = a.p_metodo || null, inv = /^invitacion/.test(pago || "");
+    const ts = it.fecha ? new Date(it.fecha).getTime() : Date.now();
+    uu.forEach((u, i) => out.push({ id: u, clientUuid: u, code: cc[i] || null, num: null, eventId: a.p_evento, puntoId: a.p_punto, productId: a.p_producto, name: a.p_nombre, price: Number(a.p_precio) || 0, ts: ts + i, voided: false, closureId: null, operario: a.p_operario, pago, invite: inv, inviteValue: inv ? (Number(String(pago).split(":")[1]) || 0) : 0, entregado: i === 0 ? a.p_entregado ?? null : null, cambio: i === 0 ? a.p_cambio ?? null : null, synced: false }));
+  });
+  return out;
+}
 export function pendingVoidUuids() { const s = new Set(); loadQ().forEach(it => { if (it.op === "anularVenta") s.add(it.clientUuid); }); return s; }
 
 const isDuplicate = (err) => err && (err.code === "23505" || /duplicate key/i.test(err.message || ""));
@@ -181,6 +193,14 @@ async function runItem(it) {
   }
   else if (it.op === "anularGasto") {
     const { error } = await supabase.from("ticket_gastos").update({ anulado: true }).eq("id", it.id);
+    if (error) throw error;
+  }
+  else if (it.op === "abrirBarra") {
+    const { error } = await supabase.from("ticket_puntos").update({ estado: "abierta", abierta_en: it.fecha, abierta_por: it.por || null, fondo: it.fondo, fondo_en: it.fondo != null ? it.fecha : null, fondo_por: it.fondo != null ? (it.por || null) : null }).eq("id", it.punto);
+    if (error) throw error;
+  }
+  else if (it.op === "pasarPrueba") {
+    const { error } = await supabase.from("ticket_puntos").update({ estado: "prueba", fondo: null, fondo_en: null, fondo_por: null }).eq("id", it.punto);
     if (error) throw error;
   }
   else if (it.op === "setFondo") {
@@ -246,7 +266,7 @@ async function doOrQueue(item) {
 
 // folios y clientUuids los genera la App (para que el ticket optimista y la BD coincidan)
 export function vender({ eventoId, puntoId, producto, qty, operario, folios, clientUuids, pago = null, entregado = null, cambio = null }) {
-  return doOrQueue({ op: "vender", args: { p_evento: eventoId, p_punto: puntoId, p_producto: producto.id, p_nombre: producto.name, p_precio: producto.price, p_qty: qty, p_codigos: folios, p_operario: operario, p_client_uuids: clientUuids, p_metodo: pago, p_entregado: entregado, p_cambio: cambio } });
+  return doOrQueue({ op: "vender", fecha: new Date().toISOString(), args: { p_evento: eventoId, p_punto: puntoId, p_producto: producto.id, p_nombre: producto.name, p_precio: producto.price, p_qty: qty, p_codigos: folios, p_operario: operario, p_client_uuids: clientUuids, p_metodo: pago, p_entregado: entregado, p_cambio: cambio } });
 }
 export function anularUltima(eventoId, puntoId, por) { return doOrQueue({ op: "anularUltima", evento: eventoId, punto: puntoId, por }); }
 export function anularVenta(clientUuid, por) { return doOrQueue({ op: "anularVenta", clientUuid, por }); }
@@ -267,6 +287,25 @@ export async function cerrarZ(eventoId, puntoId, por, contado = null) {
 }
 
 
+/* ===================== ESTADO DE LA BARRA: prueba -> venta abierta -> cerrada (Z) ===================== */
+// Iniciar la venta: la barra deja el modo prueba y (si se pide) declara el fondo del cajón. Offline-safe.
+export function abrirBarra(puntoId, eventoId, fondo, por) {
+  return doOrQueue({ op: "abrirBarra", punto: puntoId, evento: eventoId, fondo: fondo ?? null, por, fecha: new Date().toISOString() });
+}
+// Volver a modo prueba (solo admin): reabre una barra cerrada o deshace un inicio por error.
+export function pasarPrueba(puntoId, eventoId, por) { return doOrQueue({ op: "pasarPrueba", punto: puntoId, evento: eventoId, por }); }
+// Estado pendiente de subir de una barra (para que la pantalla no "vuelva atrás" antes de sincronizar)
+export function pendingPunto(puntoId) {
+  let patch = null;
+  loadQ().forEach(it => {
+    if (it.op === "abrirBarra" && it.punto === puntoId) patch = { estado: "abierta", fondo: it.fondo ?? null, abiertaEn: it.fecha, abiertaPor: it.por };
+    else if (it.op === "pasarPrueba" && it.punto === puntoId) patch = { estado: "prueba", fondo: null };
+    else if (it.op === "cerrarZ" && it.punto === puntoId) patch = { estado: "cerrada", fondo: null };
+    else if (it.op === "setFondo" && it.punto === puntoId) patch = { ...(patch || {}), fondo: it.fondo };
+  });
+  return patch;
+}
+
 /* ===================== FONDO DE CAJA ===================== */
 // Declara el fondo inicial del cajón de una barra (obligatorio para abrir).
 // Offline-safe: si no hay red, se encola como todo lo demás y se sincroniza solo.
@@ -285,7 +324,7 @@ export function pendingFondo(puntoId) {
 // Borra de la cola lo pendiente de un evento (para que un reset no "resucite" ventas de prueba)
 export function dropPendingForEvent(eventId, puntoIds = []) {
   const pts = new Set(puntoIds);
-  saveQ(loadQ().filter(it => !((it.args && it.args.p_evento === eventId) || it.evento === eventId || (it.op === "setFondo" && pts.has(it.punto)))));
+  saveQ(loadQ().filter(it => !((it.args && it.args.p_evento === eventId) || it.evento === eventId || (it.punto && pts.has(it.punto)))));
 }
 
 /* ===================== COPIAS DE SEGURIDAD ===================== */
@@ -314,7 +353,7 @@ export async function loadBackups(eventId, limit = 48) {
 export function exportPending() {
   return JSON.stringify({ app: "ticketera", version: 1, dispositivo: deviceName(), exportado: new Date().toISOString(), cola: loadQ() }, null, 1);
 }
-const OPS_OK = new Set(["vender", "anularUltima", "anularVenta", "cerrarZ", "backup", "setFondo", "gasto", "anularGasto"]);
+const OPS_OK = new Set(["vender", "anularUltima", "anularVenta", "cerrarZ", "backup", "setFondo", "gasto", "anularGasto", "abrirBarra", "pasarPrueba"]);
 export function importPending(text) {
   if (typeof text !== "string" || text.length > 5 * 1024 * 1024) throw new Error("Archivo demasiado grande");
   const obj = JSON.parse(text);
@@ -340,6 +379,8 @@ export async function resetStats(eventId) {
   const b = await supabase.from("ticket_cierres").delete().eq("evento_id", eventId);
   if (b.error) throw b.error;
   await supabase.from("ticket_backups").delete().eq("evento_id", eventId);
+  // Las barras vuelven a modo prueba, sin fondo (listas para el evento real)
+  await supabase.from("ticket_puntos").update({ estado: "prueba", fondo: null, fondo_en: null, fondo_por: null, abierta_en: null, abierta_por: null, cerrada_en: null, cerrada_por: null }).eq("evento_id", eventId);
   return true;
 }
 
