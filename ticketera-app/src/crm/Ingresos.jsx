@@ -2,16 +2,23 @@
 // De un vistazo: total, de dónde viene, qué tienen los socios, ventas del TPV en directo y lo apuntado a mano.
 import React, { useState } from "react";
 import { money, r2, hoy, fechaCorta, parseImporte, useIsMobile, C, Icon, Tile, Avatar, Badge, Seg, Head, Sheet, Field, IconGrid, MoneyInput } from "./ui";
-import { GRUPOS, CATS, catInfo, grupoInfo } from "./modelo";
+import { GRUPOS, catInfo, grupoInfo, catsIngreso, TICKETERA_CAT } from "./categorias";
 
 const METODOS = [{ k: "efectivo", t: "Efectivo", tm: "Efectivo", i: "cash" }, { k: "transferencia", t: "Transferencia", tm: "Transf.", i: "bank" }, { k: "bizum", t: "Bizum", tm: "Bizum", i: "phone" }, { k: "tarjeta", t: "Tarjeta", tm: "Tarjeta", i: "card" }, { k: "otro", t: "Otro", tm: "Otro", i: "dots" }];
 const metodo = (k) => METODOS.find(m => m.k === k) || METODOS[4];
 const FUENTES_PUNTO = [["barra", "Barra"], ["entradas", "Entradas"], ["merch", "Merch"], ["otros", "Otros"]];
 
-export function Ingresos({ ev, T, barras, ingresos, socios, socioById, onNuevo, onEditar, onFuente, onEntregar }) {
+const haceTxt = (iso) => { if (!iso) return "nunca"; const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000); return m < 1 ? "ahora mismo" : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : new Date(iso).toLocaleDateString("es-ES", { day: "2-digit", month: "short" }); };
+export const esExterno = (i) => i.origen === "api" || i.origen === "csv";
+
+export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById, conexion, vinculo, sincronizando, onNuevo, onEditar, onFuente, onEntregar, onSync, onImportar, onAjustes }) {
   const isMobile = useIsMobile();
   const [filtro, setFiltro] = useState("todos");
   const [cat, setCat] = useState("");
+  const externos = todos.filter(esExterno);
+  const ingresos = todos.filter(i => !esExterno(i));
+  const totalExt = r2(externos.reduce((t, i) => t + i.importe, 0));
+  const udsExt = externos.reduce((t, i) => t + (i.unidades || 0), 0);
   const cats = Array.from(new Set(ingresos.map(i => i.categoria)));
   const lista = ingresos.filter(i => (filtro === "todos" ? true : filtro === "socios" ? (i.cobradoPor && !i.entregado) : i.estado === "pendiente") && (!cat || i.categoria === cat));
   const grupos = GRUPOS.map(g => ({ ...g, v: T.porGrupo[g.k] || 0 }));
@@ -42,8 +49,11 @@ export function Ingresos({ ev, T, barras, ingresos, socios, socioById, onNuevo, 
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
           <Stat i="pos" t="TPV en directo" v={money(T.tpv)} />
+          {T.ticketera > 0 && <Stat i="globe" t="Ticketera online" v={money(T.ticketera)} />}
           <Stat i="edit" t="Apuntado a mano" v={money(T.manual)} />
           {T.pendiente > 0 && <Stat i="clock" t="Pendiente de cobrar" v={money(T.pendiente)} c="var(--amber)" />}
+          {F?.comisionTotal > 0 && <Stat i="percent" t="Comisiones" v={"−" + money(F.comisionTotal)} c="#fb7185" />}
+          {F?.iva?.activo && <Stat i="bank" t="IVA incluido en ventas" v={money(F.iva.repercutido)} />}
         </div>
       </section>
 
@@ -82,6 +92,33 @@ export function Ingresos({ ev, T, barras, ingresos, socios, socioById, onNuevo, 
             {!isMobile && <TipoSelect value={b.fuente} onChange={(f) => onFuente(b.punto.id, f)} />}
             <b style={{ minWidth: 96, textAlign: "right", fontSize: 16, flexShrink: 0 }}>{money(b.total)}</b>
           </div>); })}
+      </section>
+
+      {/* ===== Ticketera online ===== */}
+      <section style={C.panel}>
+        <Head i="globe" c="#a855f7" t="Ticketera online"
+          sub={vinculo ? `Fourvenues · ${vinculo.extNombre || vinculo.extId} · actualizado ${haceTxt(vinculo.ultimaSync)}` : "Las entradas vendidas online entran solas o desde un CSV."}
+          right={externos.length > 0 ? <b style={{ fontSize: 18 }}>{money(totalExt)}</b> : null} />
+        {vinculo?.error && <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--amber)", fontWeight: 700, fontSize: 13, marginBottom: 10 }}><Icon n="alert" s={16} />{vinculo.error}</div>}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: externos.length ? 6 : 0 }}>
+          {vinculo && conexion
+            ? <button disabled={sincronizando} onClick={onSync} style={{ ...C.btnPrimary, opacity: sincronizando ? .6 : 1 }}><Icon n="refresh" s={16} w={2.2} />{sincronizando ? "Sincronizando…" : "Sincronizar ahora"}</button>
+            : <button onClick={onAjustes} style={C.btnPrimary}><Icon n="link" s={16} w={2.2} />Conectar Fourvenues</button>}
+          <button onClick={onImportar} style={C.btnGhost}><Icon n="upload" s={16} />Importar CSV</button>
+        </div>
+        {externos.map(i => (
+          <div key={i.id} style={{ ...C.listBtn, cursor: "default" }}>
+            <Tile n="ticket" c="#a855f7" />
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: "block", fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.concepto}</span>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>{i.unidades != null ? `${i.unidades} entradas · ` : ""}{i.origen === "api" ? "sincronizado" : "importado de CSV"}</span>
+            </span>
+            <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+              <b style={{ fontSize: 16 }}>{money(i.importe)}</b>
+              <Badge c="#a855f7"><Icon n="lock" s={11} w={2.2} />{i.origen === "api" ? "Automático" : "CSV"}</Badge>
+            </span>
+          </div>))}
+        {externos.length > 0 && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>{udsExt} entradas. Importe sin gastos de gestión ni devoluciones.</div>}
       </section>
 
       {/* ===== Otros ingresos ===== */}
@@ -135,7 +172,7 @@ export function IngresoForm({ ingreso, socios, usadas, busy, onClose, onSave, on
   const isMobile = useIsMobile();
   const nuevo = !ingreso.id;
   const [f, setF] = useState(() => ({
-    id: ingreso.id, importe: ingreso.importe ? String(ingreso.importe).replace(".", ",") : "", categoria: ingreso.categoria || "Entradas anticipadas",
+    id: ingreso.id, importe: ingreso.importe ? String(ingreso.importe).replace(".", ",") : "", categoria: ingreso.categoria || (catsIngreso(true)[0]?.k || "Entradas anticipadas"),
     concepto: ingreso.concepto || "", cobradoPor: ingreso.cobradoPor || null, entregado: !!ingreso.entregado, estado: ingreso.estado || "cobrado",
     metodo: ingreso.metodo || "efectivo", fecha: ingreso.fecha || hoy(), nota: ingreso.nota || "",
   }));
@@ -144,8 +181,9 @@ export function IngresoForm({ ingreso, socios, usadas, busy, onClose, onSave, on
   const [confirmDel, setConfirmDel] = useState(false);
   const set = (p) => setF(x => ({ ...x, ...p }));
   const imp = parseImporte(f.importe);
-  const extra = Array.from(new Set([...usadas, f.categoria])).filter(c => c && !CATS.some(x => x.k === c));
-  const items = [...CATS.map(c => ({ k: c.k, i: c.i, c: c.c })), ...extra.map(k => ({ k, i: "sparkle", c: "#ffb400" })), { k: "__otra", t: "Nueva…", i: "plus", c: "var(--muted)" }];
+  const visibles = catsIngreso(true);
+  const extra = Array.from(new Set([...usadas, f.categoria])).filter(c => c && !visibles.some(x => x.k === c));
+  const items = [...visibles.map(c => ({ k: c.k, i: c.i, c: c.c })), ...extra.map(k => { const c = catInfo(k); return { k, i: c.i, c: c.c }; }), { k: "__otra", t: "Nueva…", i: "plus", c: "var(--muted)" }];
   const catFinal = otra ? otraCat.trim() : f.categoria;
   const ok = imp > 0 && !!catFinal;
   const guardar = () => { if (!ok || busy) return; onSave({ ...f, importe: imp, categoria: catFinal }); };

@@ -11,7 +11,7 @@ const partFrom = (p) => ({ id: p.id, eventoId: p.evento_id, socioId: p.socio_id,
 const ingresoFrom = (i) => ({
   id: i.id, eventoId: i.evento_id, categoria: i.categoria, concepto: i.concepto || "", importe: n(i.importe),
   fecha: i.fecha, metodo: i.metodo, estado: i.estado, cobradoPor: i.cobrado_por || null, entregado: !!i.entregado,
-  origen: i.origen, nota: i.nota || "", creadoEn: i.creado_en,
+  origen: i.origen, refExterna: i.ref_externa || null, unidades: i.unidades != null ? Number(i.unidades) : null, nota: i.nota || "", creadoEn: i.creado_en,
 });
 
 const gastoFrom = (g) => ({
@@ -19,16 +19,23 @@ const gastoFrom = (g) => ({
   proveedor: g.proveedor || "", previsto: g.previsto != null ? n(g.previsto) : null, real: g.real != null ? n(g.real) : null,
   personas: g.personas != null ? Number(g.personas) : null, precioHora: g.precio_hora != null ? n(g.precio_hora) : null, horas: g.horas != null ? n(g.horas) : null,
   estado: g.estado || "previsto", pagadoPor: g.pagado_por || null, fecha: g.fecha || null, nota: g.nota || "", creadoEn: g.creado_en,
+  iva: g.iva != null ? Number(g.iva) : null, factura: g.factura == null ? null : !!g.factura,
 });
+const CONEX_COLS = "id, proveedor, entorno, clave_fin, estado, ultimo_error, ultima_sync, actualizado_en";
+const conexFrom = (c) => c ? { id: c.id, proveedor: c.proveedor, entorno: c.entorno, claveFin: c.clave_fin || "", estado: c.estado, error: c.ultimo_error || "", ultimaSync: c.ultima_sync } : null;
+const vincFrom = (v) => ({ id: v.id, eventoId: v.evento_id, proveedor: v.proveedor, extId: v.ext_id, extNombre: v.ext_nombre || "", ultimaSync: v.ultima_sync, error: v.ultimo_error || "" });
 
 export async function loadCRM(eventoId) {
-  const [s, es, ing, fp, gs, lq] = await Promise.all([
+  const [s, es, ing, fp, gs, lq, aj, cx, vs] = await Promise.all([
     supabase.from("ticket_crm_socios").select("*").order("creado_en", { ascending: true }),
     supabase.from("ticket_crm_evento_socios").select("*").eq("evento_id", eventoId),
     supabase.from("ticket_crm_ingresos").select("*").eq("evento_id", eventoId).order("fecha", { ascending: false }).order("creado_en", { ascending: false }),
     supabase.from("ticket_crm_fuentes_punto").select("*"),
     supabase.from("ticket_crm_gastos").select("*").eq("evento_id", eventoId).order("creado_en", { ascending: true }),
     supabase.from("ticket_crm_liquidaciones").select("*").eq("evento_id", eventoId).maybeSingle(),
+    supabase.from("ticket_crm_ajustes").select("datos").maybeSingle(),
+    supabase.from("ticket_crm_conexiones").select(CONEX_COLS).eq("proveedor", "fourvenues").maybeSingle(),
+    supabase.from("ticket_crm_vinculos").select("*"),
   ]);
   const liq = ok(lq);
   return {
@@ -38,6 +45,9 @@ export async function loadCRM(eventoId) {
     fuentes: Object.fromEntries(ok(fp).map(x => [x.punto_id, x.fuente])),
     gastos: ok(gs).map(gastoFrom),
     liquidacion: liq ? { id: liq.id, datos: liq.datos || {}, cerradaEn: liq.cerrada_en } : null,
+    ajustes: ok(aj)?.datos || {},
+    conexion: conexFrom(ok(cx)),
+    vinculos: (ok(vs) || []).map(vincFrom),
   };
 }
 
@@ -108,6 +118,8 @@ const gastoTo = (x) => ({
   estado: ["previsto", "confirmado", "pagado"].includes(x.estado) ? x.estado : "previsto",
   pagado_por: x.pagadoPor || null,
   fecha: x.fecha || null,
+  iva: x.iva == null || x.iva === "" ? null : Math.min(30, Math.max(0, Number(x.iva) || 0)),
+  factura: x.factura == null ? null : !!x.factura,
   nota: String(x.nota || "").trim().slice(0, 500) || null,
   actualizado_en: new Date().toISOString(),
 });
@@ -122,7 +134,7 @@ export async function copiarPresupuesto(desdeEventoId, haciaEventoId) {
   const src = ok(await supabase.from("ticket_crm_gastos").select("*").eq("evento_id", desdeEventoId).order("creado_en", { ascending: true }));
   if (!src.length) return 0;
   const base = (g) => ({ evento_id: haciaEventoId, tipo: g.tipo, categoria: g.categoria, concepto: g.concepto, proveedor: g.proveedor,
-    previsto: g.previsto != null ? g.previsto : g.real, personas: g.personas, precio_hora: g.precio_hora, horas: g.horas, estado: "previsto", nota: g.nota });
+    previsto: g.previsto != null ? g.previsto : g.real, personas: g.personas, precio_hora: g.precio_hora, horas: g.horas, estado: "previsto", nota: g.nota, iva: g.iva, factura: g.factura });
   const padres = src.filter(g => !g.padre_id);
   const nuevos = ok(await supabase.from("ticket_crm_gastos").insert(padres.map(base)).select("id"));
   const mapa = Object.fromEntries(padres.map((g, i) => [g.id, nuevos[i]?.id]));
@@ -159,4 +171,49 @@ export async function loadCuenta() {
     supabase.from("ticket_crm_fuentes_punto").select("*"),
   ]);
   return { ingresos: ing.map(ingresoFrom), gastos: gs.map(gastoFrom), fuentes: Object.fromEntries(ok(fp).map(x => [x.punto_id, x.fuente])) };
+}
+
+/* ---------- Ajustes de la cuenta (categorías, comisiones, IVA) ---------- */
+export async function saveAjustes(datos) {
+  ok(await supabase.from("ticket_crm_ajustes").upsert({ datos, actualizado_en: new Date().toISOString() }, { onConflict: "owner_id" }));
+}
+export async function renombrarCategoria(ambito, viejo, nuevo) {
+  return ok(await supabase.rpc("ticket_crm_renombrar_categoria", { p_ambito: ambito, p_viejo: viejo, p_nuevo: nuevo }));
+}
+
+/* ---------- Conexión con la ticketera ----------
+   La clave se envía UNA vez a la base de datos (se guarda cifrada) y nunca vuelve al navegador.
+   Las consultas a Fourvenues las hace el servidor (función crm-ticketera). */
+export async function guardarConexion(entorno, clave) {
+  ok(await supabase.rpc("ticket_crm_guardar_conexion", { p_proveedor: "fourvenues", p_entorno: entorno, p_clave: clave || null }));
+}
+export async function borrarConexion() { ok(await supabase.from("ticket_crm_conexiones").delete().eq("proveedor", "fourvenues")); }
+export async function ticketera(accion, extra = {}) {
+  const { data, error } = await supabase.functions.invoke("crm-ticketera", { body: { accion, ...extra } });
+  if (error) throw new Error(navigator.onLine ? "No se ha podido conectar con el servidor." : "Sin conexión a internet.");
+  if (!data?.ok) throw new Error(data?.error || "No se ha podido completar.");
+  return data;
+}
+export async function vincular(eventoId, extId, extNombre) {
+  ok(await supabase.from("ticket_crm_vinculos").upsert({ evento_id: eventoId, proveedor: "fourvenues", ext_id: String(extId).trim().slice(0, 100), ext_nombre: extNombre ? String(extNombre).slice(0, 200) : null }, { onConflict: "evento_id,proveedor" }));
+}
+export async function desvincular(eventoId) { ok(await supabase.from("ticket_crm_vinculos").delete().eq("evento_id", eventoId).eq("proveedor", "fourvenues")); }
+
+/* ---------- Importar ventas desde un CSV (una fila por tipo de entrada) ----------
+   Reimportar el mismo fichero sustituye los totales anteriores de esa ticketera (no duplica). */
+const slug = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "general";
+export async function importarCSV(eventoId, ticketera, categoria, grupos) {
+  const pref = `csv:${eventoId}:${slug(ticketera)}:`;
+  const ahora = new Date().toISOString();
+  const filas = grupos.map(g => ({
+    evento_id: eventoId, categoria: String(categoria || "Ticketera online").slice(0, 60), concepto: `${ticketera} · ${g.nombre}`.slice(0, 160),
+    importe: Math.round(n(g.importe) * 100) / 100, unidades: Math.max(0, Math.round(n(g.unidades))), fecha: g.fecha || ahora.slice(0, 10),
+    metodo: "tarjeta", estado: "cobrado", origen: "csv", ref_externa: (pref + slug(g.nombre)).slice(0, 200), actualizado_en: ahora,
+  }));
+  const prev = ok(await supabase.from("ticket_crm_ingresos").select("id, ref_externa").eq("evento_id", eventoId).eq("origen", "csv").like("ref_externa", pref + "%"));
+  if (filas.length) ok(await supabase.from("ticket_crm_ingresos").upsert(filas, { onConflict: "evento_id,ref_externa" }));
+  const vivos = new Set(filas.map(f => f.ref_externa));
+  const sobran = prev.filter(p => !vivos.has(p.ref_externa)).map(p => p.id);
+  if (sobran.length) ok(await supabase.from("ticket_crm_ingresos").delete().in("id", sobran));
+  return filas.length;
 }

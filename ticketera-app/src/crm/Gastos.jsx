@@ -4,59 +4,55 @@
 import React, { useMemo, useState } from "react";
 import { money, r2, fechaCorta, parseImporte, useIsMobile, C, Icon, Tile, Avatar, Badge, Seg, Head, Sheet, Field, IconGrid, MoneyInput } from "./ui";
 import { Vacio, Pill } from "./Ingresos";
+import { GCATS, CAJA_CAT, COMIS_CAT, IVA_CAT, gcatInfo, catsGasto, esAuto } from "./categorias";
+import { importe, ivaGasto, ivaDe, TIPOS_IVA } from "./fiscal";
 
-export const GCATS = [
-  { k: "Espacio y permisos", i: "home", c: "#f97316" }, { k: "Artistas", i: "mic", c: "#a855f7" }, { k: "Producción técnica", i: "speaker", c: "#3b82f6" },
-  { k: "Técnicos", i: "wrench", c: "#0ea5e9" }, { k: "Personal", i: "users", c: "#22d3a6" }, { k: "Barra y producto", i: "bottle", c: "#ff5a3c" },
-  { k: "Marketing", i: "megaphone", c: "#ec4899" }, { k: "Servicios", i: "shield", c: "#14b8a6" }, { k: "Decoración y efectos", i: "sparkle", c: "#eab308" },
-  { k: "Logística", i: "truck", c: "#8b5cf6" }, { k: "Ticketing y pagos", i: "card", c: "#6366f1" }, { k: "Administración", i: "file", c: "#94a3b8" },
-  { k: "Imprevistos", i: "alert", c: "#ef4444" }, { k: "Otros", i: "dots", c: "#838aa0" },
-];
-export const CAJA_CAT = "Caja de las barras";
-export const gcatInfo = (k) => k === CAJA_CAT ? { k, i: "cash", c: "#ffb400" } : (GCATS.find(c => c.k === k) || { k, i: "dots", c: "#838aa0" });
+export { GCATS, CAJA_CAT, gcatInfo } from "./categorias";
+export { importe } from "./fiscal";
 const ESTADOS = [{ k: "previsto", t: "Previsto", i: "edit", c: "#838aa0", ink: "#fff" }, { k: "confirmado", t: "Confirmado", i: "hand", c: "#3b82f6", ink: "#fff" }, { k: "pagado", t: "Pagado", i: "check", c: "var(--green)", ink: "#04241b" }];
 const HIJOS = [{ k: "Transporte", i: "truck", c: "#8b5cf6" }, { k: "Alojamiento", i: "home", c: "#f97316" }, { k: "Dietas", i: "bottle", c: "#ff5a3c" }, { k: "Hospitalidad (rider)", t: "Rider", i: "sparkle", c: "#eab308" }, { k: "Otros", i: "dots", c: "#838aa0" }];
-// Importe que cuenta: el real si ya se sabe; si no, el previsto
-export const importe = (g) => (g.real != null ? g.real : g.previsto != null ? g.previsto : 0);
 const isEntrada = (g) => g && g.tipo === "entrada";
 const numTxt = (v) => (v == null ? "" : String(v).replace(".", ","));
 const cleanNum = (t, max = 12) => t.replace(/[^\d.,]/g, "").slice(0, max);
 
 // Totales de gastos de un evento (lo usan Gastos y el resumen de socios)
-export function totalesGastos(ev, gastos, gastosCaja) {
+// auto = líneas automáticas (comisiones e IVA a Hacienda) calculadas en fiscal.js
+export function totalesGastos(ev, gastos, gastosCaja, auto = []) {
   const caja = (gastosCaja || []).filter(g => g.eventId === ev.id && !g.voided && !isEntrada(g)).map(g => ({ ...g, categoria: CAJA_CAT }));
   const cajaTotal = r2(caja.reduce((t, g) => t + g.importe, 0));
   const previsto = r2(gastos.reduce((t, g) => t + (g.previsto || 0), 0));
   const real = r2(gastos.reduce((t, g) => t + (g.real || 0), 0) + cajaTotal);
-  const total = r2(gastos.reduce((t, g) => t + importe(g), 0) + cajaTotal);
+  const autoTotal = r2((auto || []).reduce((t, a) => t + a.importe, 0));
+  const total = r2(gastos.reduce((t, g) => t + importe(g), 0) + cajaTotal + autoTotal);
   const pendiente = r2(gastos.filter(g => g.estado !== "pagado").reduce((t, g) => t + importe(g), 0));
   const porCat = {};
   gastos.forEach(g => { const k = g.categoria; porCat[k] = porCat[k] || { previsto: 0, real: 0, total: 0, n: 0 }; porCat[k].previsto += g.previsto || 0; porCat[k].real += g.real || 0; porCat[k].total += importe(g); porCat[k].n++; });
   if (caja.length) porCat[CAJA_CAT] = { previsto: 0, real: cajaTotal, total: cajaTotal, n: caja.length };
+  (auto || []).forEach(a => { const c = porCat[a.categoria] = porCat[a.categoria] || { previsto: 0, real: 0, total: 0, n: 0, auto: true }; c.total = r2(c.total + a.importe); c.n++; });
   const pagadoSocio = {};
   gastos.filter(g => g.pagadoPor).forEach(g => { pagadoSocio[g.pagadoPor] = r2((pagadoSocio[g.pagadoPor] || 0) + importe(g)); });
-  return { caja, cajaTotal, previsto, real, total, pendiente, porCat, pagadoSocio };
+  return { caja, cajaTotal, previsto, real, total, pendiente, porCat, pagadoSocio, auto: auto || [], autoTotal };
 }
 
 
-export function Gastos({ ev, events, gastos, gastosCaja, socios, socioById, ingresosTotal, busy, onSave, onDelete, onCopiar }) {
+export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTotal, busy, onSave, onDelete, onCopiar, onAjustes }) {
   const isMobile = useIsMobile();
   const [form, setForm] = useState(null);      // { tipo, gasto, padre }
   const [filtro, setFiltro] = useState(null);  // categoría
   const [copiar, setCopiar] = useState(false);
-  const G = useMemo(() => totalesGastos(ev, gastos, gastosCaja), [ev, gastos, gastosCaja]);
   const top = gastos.filter(g => !g.padreId);
   const hijosDe = (id) => gastos.filter(g => g.padreId === id);
   const totalArtista = (a) => r2(importe(a) + hijosDe(a.id).reduce((t, h) => t + importe(h), 0));
   const beneficio = r2(ingresosTotal - G.total);
   const cats = Object.entries(G.porCat).sort((a, b) => b[1].total - a[1].total);
-  const maxCat = Math.max(1, ...cats.map(([, v]) => Math.max(v.total, v.previsto)));
+  const maxCat = Math.max(1, ...cats.map(([, v]) => Math.max(Math.abs(v.total), v.previsto)));
+  const ivaOn = !!F?.iva?.activo;
   const otrosEventos = events.filter(e => e.id !== ev.id);
   const adelantos = Object.entries(G.pagadoSocio).filter(([, v]) => v > 0);
   const maxRes = Math.max(1, ingresosTotal, G.total);
 
   // Lista agrupada por categoría (el filtro deja solo una)
-  const grupos = cats.filter(([k]) => !filtro || k === filtro).map(([k, v]) => ({ k, v, items: k === CAJA_CAT ? [] : top.filter(g => g.categoria === k) }));
+  const grupos = cats.filter(([k]) => !filtro || k === filtro).map(([k, v]) => ({ k, v, items: esAuto(k) ? [] : top.filter(g => g.categoria === k) }));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -66,7 +62,7 @@ export function Gastos({ ev, events, gastos, gastosCaja, socios, socioById, ingr
           <div>
             <div style={C.label}>Beneficio estimado · {ev.name}</div>
             <div style={{ fontSize: isMobile ? 38 : 50, fontWeight: 900, letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4, color: beneficio >= 0 ? "var(--green)" : "var(--red)" }}>{money(beneficio)}</div>
-            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Cada gasto cuenta por su importe real; si aún no lo tiene, por el previsto.</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{ivaOn ? "Sin IVA: ya descuenta el IVA a pagar a Hacienda." : "Cada gasto cuenta por su importe real; si aún no lo tiene, por el previsto."}</div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <Barra t="Ingresos" v={ingresosTotal} max={maxRes} c="var(--green)" i="wallet" />
@@ -79,6 +75,14 @@ export function Gastos({ ev, events, gastos, gastosCaja, socios, socioById, ingr
           <Mini l="Pendiente de pagar" v={money(G.pendiente)} c={G.pendiente ? "var(--amber)" : undefined} />
           {G.cajaTotal > 0 && <Mini l="Sacado de caja (TPV)" v={money(G.cajaTotal)} />}
         </div>
+        {(ivaOn || F?.comisionTotal > 0) && (
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,minmax(0,1fr))", gap: 8, marginTop: 8 }}>
+            {F.comisionTotal > 0 && <Mini l="Comisiones" v={money(F.comisionTotal)} c="#fb7185" />}
+            {ivaOn && <Mini l={F.iva.neto >= 0 ? "IVA a Hacienda" : "IVA a devolver"} v={money(Math.abs(F.iva.neto))} sub="estimado" />}
+            {ivaOn && <Mini l="Con factura" v={money(F.iva.conFactura)} sub={`${F.iva.nConFactura} ${F.iva.nConFactura === 1 ? "gasto" : "gastos"} · IVA ${money(F.iva.soportado)}`} />}
+            {ivaOn && <Mini l="Sin factura" v={money(F.iva.sinFactura)} sub={`${F.iva.nSinFactura} ${F.iva.nSinFactura === 1 ? "gasto" : "gastos"}`} c={F.iva.sinFactura > 0 ? "var(--amber)" : undefined} />}
+          </div>
+        )}
       </section>
 
       {/* ===== Añadir ===== */}
@@ -102,7 +106,7 @@ export function Gastos({ ev, events, gastos, gastosCaja, socios, socioById, ingr
                 <b style={{ fontSize: 14.5, flexShrink: 0, color: pasa ? "var(--red)" : "var(--text)" }}>{money(v.total)}</b>
               </span>
               <span style={{ display: "block", position: "relative", height: 8, borderRadius: 4, background: "var(--surface2)" }}>
-                <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${v.total / maxCat * 100}%`, borderRadius: 4, background: pasa ? "var(--red)" : ci.c }} />
+                <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.abs(v.total) / maxCat * 100}%`, borderRadius: 4, background: pasa ? "var(--red)" : ci.c }} />
                 {v.previsto > 0 && <span style={{ position: "absolute", top: -3, bottom: -3, width: 2, left: `calc(${Math.min(100, v.previsto / maxCat * 100)}% - 1px)`, background: "#fff", borderRadius: 1 }} />}
               </span>
             </span>
@@ -129,9 +133,10 @@ export function Gastos({ ev, events, gastos, gastosCaja, socios, socioById, ingr
                 <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block" }}>{g.concepto || "Gasto de caja"}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>{ev.puntos.find(p => p.id === g.puntoId)?.name || "Barra"} · registrado en el TPV</span></span>
                 <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}><b style={{ fontSize: 15.5 }}>{money(g.importe)}</b><Badge><Icon n="lock" s={11} w={2.2} />Desde el TPV</Badge></span>
               </div>))}
+            {(k === COMIS_CAT || k === IVA_CAT) && G.auto.filter(a => a.categoria === k).map((a, ix) => <Auto key={ix} a={a} onAjustes={onAjustes} />)}
             {items.map(g => g.tipo === "artista"
-              ? <Artista key={g.id} a={g} hijos={hijosDe(g.id)} total={totalArtista(g)} socioById={socioById} onEdit={(x, padre) => setForm(padre ? { tipo: "normal", gasto: x, padre } : { tipo: "artista", gasto: x })} onAdd={() => setForm({ tipo: "normal", gasto: { categoria: "Artistas" }, padre: g })} />
-              : <Fila key={g.id} g={g} socioById={socioById} onClick={() => setForm({ tipo: g.tipo, gasto: g })} />)}
+              ? <Artista key={g.id} a={g} ivaOn={ivaOn} hijos={hijosDe(g.id)} total={totalArtista(g)} socioById={socioById} onEdit={(x, padre) => setForm(padre ? { tipo: "normal", gasto: x, padre } : { tipo: "artista", gasto: x })} onAdd={() => setForm({ tipo: "normal", gasto: { categoria: "Artistas" }, padre: g })} />
+              : <Fila key={g.id} g={g} ivaOn={ivaOn} socioById={socioById} onClick={() => setForm({ tipo: g.tipo, gasto: g })} />)}
           </div>); })}
       </section>
 
@@ -151,7 +156,7 @@ export function Gastos({ ev, events, gastos, gastosCaja, socios, socioById, ingr
         </Sheet>
       )}
 
-      {form && <GastoForm {...form} socios={socios.filter(s => s.activo || s.id === form.gasto?.pagadoPor)} usadas={gastos.map(g => g.categoria)} hijos={form.gasto?.id ? hijosDe(form.gasto.id).length : 0} busy={busy}
+      {form && <GastoForm {...form} socios={socios.filter(s => s.activo || s.id === form.gasto?.pagadoPor)} usadas={gastos.map(g => g.categoria)} ivaOn={ivaOn} hijos={form.gasto?.id ? hijosDe(form.gasto.id).length : 0} busy={busy}
         onClose={() => setForm(null)}
         onSave={async (x) => { const ok = await onSave(x); if (ok) setForm(null); }}
         onDelete={async (x) => { const ok = await onDelete(x); if (ok) setForm(null); }} />}
@@ -188,7 +193,28 @@ function Importe({ g }) {
     </span>
   );
 }
-function Fila({ g, socioById, onClick }) {
+// Línea automática (comisiones o IVA): solo lectura, se cambia en Ajustes
+function Auto({ a, onAjustes }) {
+  const ci = gcatInfo(a.categoria), d = a.detalle || {};
+  const sub = a.categoria === COMIS_CAT
+    ? [d.pct ? `${String(d.pct).replace(".", ",")} % de ${money(d.base)}` : null, d.fijo && d.unidades ? `${money(d.fijo)} × ${d.unidades} entradas` : null].filter(Boolean).join(" + ")
+    : `IVA de ventas ${money(d.repercutido)} − IVA de gastos con factura ${money(d.soportado)}`;
+  return (
+    <button onClick={onAjustes} style={C.listBtn}>
+      <Tile n={ci.i} c={ci.c} s={34} />
+      <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block" }}>{a.concepto}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>{sub}</span></span>
+      <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}><b style={{ fontSize: 15.5, color: a.importe < 0 ? "var(--green)" : "var(--text)" }}>{money(a.importe)}</b><Badge><Icon n="gear" s={11} w={2.2} />Automático</Badge></span>
+    </button>
+  );
+}
+const FacturaBadge = ({ g, ivaOn }) => {
+  const x = ivaGasto(g);
+  return <span style={{ display: "inline-flex", gap: 4 }}>
+    {x.factura ? <Badge c="var(--green)"><Icon n="file" s={11} w={2.2} />Factura</Badge> : <Badge c="var(--amber)">Sin factura</Badge>}
+    {ivaOn && x.pct > 0 && <Badge>IVA {x.pct} %</Badge>}
+  </span>;
+};
+function Fila({ g, socioById, onClick, ivaOn }) {
   const ci = gcatInfo(g.categoria), s = g.pagadoPor ? socioById(g.pagadoPor) : null;
   const meta = g.tipo === "personal"
     ? `${g.personas ?? 0} × ${money(g.precioHora || 0)}/h × ${String(g.horas ?? 0).replace(".", ",")} h`
@@ -200,6 +226,7 @@ function Fila({ g, socioById, onClick }) {
         <b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.concepto || g.categoria}</b>
         <span style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
           {meta && <span>{meta}</span>}
+          <FacturaBadge g={g} ivaOn={ivaOn} />
           {s && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#60a5fa", fontWeight: 800 }}><Avatar nombre={s.nombre} c={s.color} s={16} />pagó {s.nombre}</span>}
         </span>
       </span>
@@ -207,10 +234,10 @@ function Fila({ g, socioById, onClick }) {
     </button>
   );
 }
-function Artista({ a, hijos, total, socioById, onEdit, onAdd }) {
+function Artista({ a, hijos, total, socioById, onEdit, onAdd, ivaOn }) {
   return (
     <div style={{ borderTop: "1px solid var(--line)", padding: "4px 0 8px" }}>
-      <Fila g={a} socioById={socioById} onClick={() => onEdit(a)} />
+      <Fila g={a} ivaOn={ivaOn} socioById={socioById} onClick={() => onEdit(a)} />
       <div style={{ marginLeft: 46, borderLeft: "2px solid var(--line)", paddingLeft: 10 }}>
         {hijos.map(h => { const hi = HIJOS.find(x => x.k === h.concepto) || HIJOS[4]; return (
           <button key={h.id} onClick={() => onEdit(h, a)} style={{ ...C.listBtn, borderTop: "none", padding: "7px 2px" }}>
@@ -228,31 +255,35 @@ function Artista({ a, hijos, total, socioById, onEdit, onAdd }) {
 }
 
 /* ---------- Formulario de gasto (normal · personal · artista · extra de un artista) ---------- */
-function GastoForm({ tipo, gasto, padre, socios, usadas, hijos, busy, onClose, onSave, onDelete }) {
+const catPorDefecto = () => { const v = catsGasto(true); return (v.find(c => c.k === "Producción técnica") || v[0] || { k: "Otros" }).k; };
+function GastoForm({ tipo, gasto, padre, socios, usadas, hijos, busy, ivaOn, onClose, onSave, onDelete }) {
   const isMobile = useIsMobile();
   const nuevo = !gasto.id;
   const esHijo = !!padre;
   const [f, setF] = useState(() => ({
     id: gasto.id, tipo, padreId: padre?.id || null,
-    categoria: gasto.categoria || (tipo === "personal" ? "Personal" : tipo === "artista" || esHijo ? "Artistas" : "Producción técnica"),
+    categoria: gasto.categoria || (tipo === "personal" ? "Personal" : tipo === "artista" || esHijo ? "Artistas" : catPorDefecto()),
     concepto: gasto.concepto || (esHijo ? "Transporte" : ""), proveedor: gasto.proveedor || "",
     previsto: numTxt(gasto.previsto), real: numTxt(gasto.real),
     personas: gasto.personas != null ? String(gasto.personas) : "", precioHora: numTxt(gasto.precioHora), horas: numTxt(gasto.horas),
     estado: gasto.estado || "previsto", pagadoPor: gasto.pagadoPor || null, fecha: gasto.fecha || "", nota: gasto.nota || "",
   }));
+  // IVA y factura: si no se han tocado, siguen lo habitual de la categoría
+  const [fx, setFx] = useState(() => { const x = ivaGasto({ ...gasto, tipo, categoria: gasto.categoria || (tipo === "personal" ? "Personal" : tipo === "artista" || esHijo ? "Artistas" : catPorDefecto()) }); return { iva: x.pct, factura: x.factura, tocado: gasto.iva != null || gasto.factura != null }; });
   const [otra, setOtra] = useState(false);
   const [otraCat, setOtraCat] = useState("");
   const [confirmDel, setConfirmDel] = useState(false);
-  const set = (p) => setF(x => ({ ...x, ...p }));
+  const set = (p) => { setF(x => ({ ...x, ...p })); if (p.categoria && !fx.tocado) { const c = gcatInfo(p.categoria); setFx(v => ({ ...v, iva: c.iva ?? 21, factura: c.factura !== false })); } };
   const calcPersonal = r2((parseInt(f.personas, 10) || 0) * parseImporte(f.precioHora) * parseImporte(f.horas));
   const previstoNum = tipo === "personal" ? calcPersonal : (f.previsto === "" ? null : parseImporte(f.previsto));
   const realNum = f.real === "" ? null : parseImporte(f.real);
   const catFinal = otra ? otraCat.trim() : f.categoria;
   const valido = (tipo === "personal" ? (calcPersonal > 0 || realNum != null) : (previstoNum != null || realNum != null)) && (tipo !== "artista" || f.concepto.trim()) && !!catFinal;
-  const extra = Array.from(new Set([...usadas, f.categoria])).filter(c => c && c !== CAJA_CAT && !GCATS.some(x => x.k === c));
-  const items = [...GCATS.map(c => ({ k: c.k, i: c.i, c: c.c })), ...extra.map(k => ({ k, i: "dots", c: "#838aa0" })), { k: "__otra", t: "Nueva…", i: "plus", c: "var(--muted)" }];
+  const visibles = catsGasto(true);
+  const extra = Array.from(new Set([...usadas, f.categoria])).filter(c => c && !esAuto(c) && !visibles.some(x => x.k === c));
+  const items = [...visibles.map(c => ({ k: c.k, i: c.i, c: c.c })), ...extra.map(k => { const c = gcatInfo(k); return { k, i: c.i, c: c.c }; }), { k: "__otra", t: "Nueva…", i: "plus", c: "var(--muted)" }];
   const titulo = tipo === "artista" ? (nuevo ? "Nuevo artista" : "Editar artista") : tipo === "personal" ? (nuevo ? "Nuevo puesto de personal" : "Editar personal") : esHijo ? `Gasto de ${padre.concepto || "artista"}` : (nuevo ? "Nuevo gasto" : "Editar gasto");
-  const guardar = () => { if (!valido || busy) return; onSave({ ...f, categoria: esHijo || tipo === "artista" ? "Artistas" : catFinal, previsto: previstoNum, real: realNum, personas: tipo === "personal" ? f.personas : null, precioHora: tipo === "personal" ? parseImporte(f.precioHora) : null, horas: tipo === "personal" ? parseImporte(f.horas) : null }); };
+  const guardar = () => { if (!valido || busy) return; onSave({ ...f, categoria: esHijo || tipo === "artista" ? "Artistas" : catFinal, previsto: previstoNum, real: realNum, personas: tipo === "personal" ? f.personas : null, precioHora: tipo === "personal" ? parseImporte(f.precioHora) : null, horas: tipo === "personal" ? parseImporte(f.horas) : null, iva: fx.iva, factura: fx.factura }); };
   const cuenta = realNum != null ? realNum : previstoNum || 0;
   return (
     <Sheet title={titulo} onClose={onClose}
@@ -296,7 +327,19 @@ function GastoForm({ tipo, gasto, padre, socios, usadas, hijos, busy, onClose, o
         {tipo !== "personal" && <Field l={tipo === "artista" ? "Caché previsto" : "Previsto"} mb={0}><MoneyInput value={f.previsto} onChange={(v) => set({ previsto: v })} /></Field>}
         <Field l={tipo === "personal" ? "Coste real (si ya lo sabes)" : "Real"} mb={0}><MoneyInput value={f.real} onChange={(v) => set({ real: v })} /></Field>
       </div>
-      <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 16 }}>Para el beneficio cuenta el real; mientras no lo haya, el previsto.</div>
+      <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 16 }}>Importe que pagas, con el IVA incluido si lo lleva. Para el beneficio cuenta el real; mientras no lo haya, el previsto.</div>
+
+      <div style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 14, padding: 12, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+          <Field l="¿Tiene factura?" mb={0}><Seg full valor={fx.factura ? "si" : "no"} onChange={(k) => setFx(v => ({ ...v, factura: k === "si", tocado: true }))} opciones={[{ k: "si", t: "Con factura", i: "file", c: "var(--green)", ink: "#04241b" }, { k: "no", t: "Sin factura", i: "x", c: "var(--amber)", ink: "#1a1205" }]} /></Field>
+          <Field l="IVA del importe" mb={0}><Seg full valor={String(fx.iva)} onChange={(k) => setFx(v => ({ ...v, iva: Number(k), tocado: true }))} opciones={TIPOS_IVA.map(t => ({ k: String(t), t: t ? `${t} %` : "Sin IVA" }))} /></Field>
+        </div>
+        {cuenta > 0 && fx.iva > 0 && <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginTop: 10, fontSize: 13 }}>
+          <span style={{ color: "var(--muted)" }}>Base <b style={{ color: "var(--text)" }}>{money(r2(cuenta - ivaDe(cuenta, fx.iva)))}</b> + IVA <b style={{ color: "var(--text)" }}>{money(ivaDe(cuenta, fx.iva))}</b></span>
+          {ivaOn && <span style={{ fontWeight: 800, color: fx.factura ? "var(--green)" : "var(--amber)" }}>{fx.factura ? `Recuperas ${money(ivaDe(cuenta, fx.iva))} de IVA` : "Sin factura no se recupera el IVA"}</span>}
+        </div>}
+        {!ivaOn && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8 }}>Queda apuntado. El IVA solo se descuenta del beneficio si activas «Calcular IVA» en Ajustes.</div>}
+      </div>
 
       <Field l="Estado"><Seg full valor={f.estado} onChange={(k) => set({ estado: k })} opciones={ESTADOS.map(e => ({ k: e.k, t: e.t, i: e.i, c: e.c, ink: e.ink }))} /></Field>
       <Field l="¿Quién lo paga?">

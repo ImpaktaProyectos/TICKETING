@@ -12,7 +12,7 @@ const mesTxt = (k) => `${MESES[Number(k.slice(5, 7)) - 1]} ${k.slice(2, 4)}`;
 const compact = (v) => { const a = Math.abs(v); return (v < 0 ? "−" : "") + (a >= 1000 ? (Math.round(a / 100) / 10).toString().replace(".", ",") + "k" : Math.round(a).toString()); };
 const pct = (a, b) => (b ? Math.round((a - b) / Math.abs(b) * 100) : null);
 
-export function Dashboard({ ev, events, sales, gastosCaja, onSelectEvent, refreshKey }) {
+export function Dashboard({ ev, events, sales, gastosCaja, ajustes, onSelectEvent, refreshKey }) {
   const isMobile = useIsMobile();
   const [modo, setModo] = useState("evento");       // evento | todos
   const [periodo, setPeriodo] = useState("anio");   // anio | pasado | 12m | todo
@@ -22,9 +22,9 @@ export function Dashboard({ ev, events, sales, gastosCaja, onSelectEvent, refres
 
   const resumenes = useMemo(() => {
     if (!cuenta) return [];
-    return events.map(e => resumenEvento(e, sales, gastosCaja, cuenta.ingresos.filter(i => i.eventoId === e.id), cuenta.gastos.filter(g => g.eventoId === e.id), cuenta.fuentes))
+    return events.map(e => resumenEvento(e, sales, gastosCaja, cuenta.ingresos.filter(i => i.eventoId === e.id), cuenta.gastos.filter(g => g.eventoId === e.id), cuenta.fuentes, ajustes))
       .sort((a, b) => String(b.ev.date || "").localeCompare(String(a.ev.date || "")));
-  }, [cuenta, events, sales, gastosCaja]);
+  }, [cuenta, events, sales, gastosCaja, ajustes]);
 
   if (error) return <div style={{ ...C.panel, color: "var(--amber)", fontWeight: 700 }}><Icon n="alert" s={16} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />No se han podido cargar los datos del dashboard. Revisa la conexión.</div>;
   if (!cuenta) return <div style={{ color: "var(--muted)", padding: 30, textAlign: "center" }}>Calculando…</div>;
@@ -83,7 +83,7 @@ function VistaEvento({ R, anterior, isMobile }) {
             <div key={k} style={{ padding: "6px 0", borderTop: "1px solid var(--line)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13.5, marginBottom: 4 }}><span style={{ display: "flex", alignItems: "center", gap: 8 }}><Tile n={gcatInfo(k).i} c={gcatInfo(k).c} s={24} />{k}</span><b>{money(v.total)}</b></div>
               <div style={{ position: "relative", height: 8, borderRadius: 4, background: "var(--surface2)" }}>
-                <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${v.total / maxCat * 100}%`, borderRadius: 4, background: v.previsto && v.total > v.previsto + 0.005 ? "var(--red)" : "var(--accent)" }} />
+                <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.max(0, v.total) / maxCat * 100}%`, borderRadius: 4, background: v.previsto && v.total > v.previsto + 0.005 ? "var(--red)" : "var(--accent)" }} />
                 {v.previsto > 0 && <div style={{ position: "absolute", top: -3, bottom: -3, width: 2, left: `calc(${v.previsto / maxCat * 100}% - 1px)`, background: "#fff", opacity: .85 }} />}
               </div>
             </div>

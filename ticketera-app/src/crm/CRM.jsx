@@ -1,14 +1,16 @@
 // ===================== TIXFAST · MODO CRM (fase 1: ingresos y socios) =====================
 // Separado del TPV: se carga solo al abrirlo y solo escribe en tablas ticket_crm_*.
 // Lo vendido en las barras se LEE de las ventas que ya tiene la app (nunca se copia ni se modifica).
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as crm from "./crmdb";
 import { money, r2, hoy, fechaCorta, parseImporte, isInvite, useIsMobile, Dot, C, Icon, Avatar, Head, Tile } from "./ui";
 import { Gastos, totalesGastos } from "./Gastos";
 import { Liquidacion, calcularLiquidacion } from "./Liquidacion";
-import { GRUPOS, CATS, catInfo, fuenteAuto } from "./modelo";
+import { GRUPOS, catInfo, fuenteAuto, setCategorias, TICKETERA_CAT } from "./categorias";
+import { fiscalEvento } from "./fiscal";
 import { Dashboard } from "./Dashboard";
-import { Ingresos, IngresoForm } from "./Ingresos";
+import { Ingresos, IngresoForm, esExterno } from "./Ingresos";
+import { Ajustes, ImportarCSV } from "./Ajustes";
 
 const COLORES = ["#ff5a3c", "#a855f7", "#3b82f6", "#22d3a6", "#ffb400", "#ec4899", "#14b8a6", "#f97316"];
 
@@ -19,10 +21,15 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [editIng, setEditIng] = useState(null); // ingreso en edición (o {} para nuevo)
+  const [ajSeccion, setAjSeccion] = useState("conexiones");
+  const [volverA, setVolverA] = useState("dashboard");
+  const [importar, setImportar] = useState(false);
+  const [sincronizando, setSincronizando] = useState(false);
+  const autoSync = useRef(new Set());
 
   const cargar = async () => {
     setError(null);
-    try { setData(await crm.loadCRM(ev.id)); }
+    try { const d = await crm.loadCRM(ev.id); setCategorias(d.ajustes?.categorias); setData(d); }
     catch (e) { setError(navigator.onLine ? "No se han podido cargar los datos del CRM." : "El CRM necesita conexión a internet."); }
   };
   useEffect(() => { setData(null); if (ev?.id) cargar(); }, [ev?.id]);
@@ -30,9 +37,30 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
     if (busy) return false;
     setBusy(true);
     try { await fn(); if (okMsg) flash(okMsg); await cargar(); return true; }
-    catch (e) { flash(navigator.onLine ? "No se ha podido guardar" : "Sin conexión: no se ha guardado", "warn"); return false; }
+    catch (e) { flash(e?.mostrar ? e.message : navigator.onLine ? "No se ha podido guardar" : "Sin conexión: no se ha guardado", "warn"); return false; }
     finally { setBusy(false); }
   };
+  const aviso = (msg) => { const e = new Error(msg); e.mostrar = true; return e; };
+  const abrirAjustes = (sec) => { if (tab !== "ajustes") setVolverA(tab); setAjSeccion(sec || "conexiones"); setTab("ajustes"); };
+
+  // ---- Ticketera: sincronizar ventas (el servidor habla con Fourvenues) ----
+  const sincronizar = async (eventoId = ev.id, silencioso = false) => {
+    if (sincronizando) return false;
+    setSincronizando(true);
+    try {
+      const r = await crm.ticketera("sincronizar", { evento_id: eventoId, categoria: TICKETERA_CAT });
+      if (!silencioso) flash(`Fourvenues: ${r.entradas} entradas · ${money(r.total)}`);
+      await cargar(); return true;
+    } catch (e) { if (!silencioso) flash(e.message || "No se ha podido sincronizar", "warn"); await cargar(); return false; }
+    finally { setSincronizando(false); }
+  };
+  const vinculo = (data?.vinculos || []).find(v => v.eventoId === ev.id) || null;
+  // Al abrir un evento vinculado, se actualiza solo si hace más de 10 minutos (una vez por sesión)
+  useEffect(() => {
+    if (!data || !vinculo || !data.conexion || autoSync.current.has(ev.id)) return;
+    autoSync.current.add(ev.id);
+    if (!vinculo.ultimaSync || Date.now() - new Date(vinculo.ultimaSync).getTime() > 10 * 60000) sincronizar(ev.id, true);
+  }, [data, ev.id]);
 
   // ---- Barras del TPV (solo lectura, en directo) ----
   const barras = useMemo(() => {
@@ -55,14 +83,18 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
     barras.forEach(b => { porGrupo[b.fuente === "otros" ? "otros" : b.fuente] += b.total; });
     ingresos.forEach(i => { const g = catInfo(i.categoria).g; porGrupo[g] = (porGrupo[g] || 0) + i.importe; });
     const tpv = r2(barras.reduce((t, b) => t + b.total, 0));
-    const manual = r2(ingresos.reduce((t, i) => t + i.importe, 0));
+    const ticketera = r2(ingresos.filter(esExterno).reduce((t, i) => t + i.importe, 0));
+    const manual = r2(ingresos.filter(i => !esExterno(i)).reduce((t, i) => t + i.importe, 0));
     const pendiente = r2(ingresos.filter(i => i.estado === "pendiente").reduce((t, i) => t + i.importe, 0));
     const enSocios = {};
     ingresos.filter(i => i.cobradoPor && !i.entregado && i.estado === "cobrado").forEach(i => { enSocios[i.cobradoPor] = r2((enSocios[i.cobradoPor] || 0) + i.importe); });
     Object.keys(porGrupo).forEach(k => { porGrupo[k] = r2(porGrupo[k]); });
-    return { porGrupo, tpv, manual, pendiente, total: r2(tpv + manual), enSocios };
-  }, [barras, ingresos]);
-  const G = useMemo(() => totalesGastos(ev, data?.gastos || [], gastosCaja), [ev, data?.gastos, gastosCaja]);
+    return { porGrupo, tpv, ticketera, manual, pendiente, total: r2(tpv + ticketera + manual), enSocios };
+  }, [barras, ingresos, data?.ajustes]);
+  // Comisiones e IVA (según Ajustes) → entran como gastos automáticos
+  const fiscal = (ajustes) => fiscalEvento({ ev, sales, ingresos, gastos: data?.gastos || [], fuentes: data?.fuentes, ajustes });
+  const F = useMemo(() => fiscal(data?.ajustes), [ev, sales, ingresos, data?.gastos, data?.fuentes, data?.ajustes]);
+  const G = useMemo(() => totalesGastos(ev, data?.gastos || [], gastosCaja, F.auto), [ev, data?.gastos, gastosCaja, F]);
   const L = useMemo(() => calcularLiquidacion({ ev, tpv: T.tpv, ingresos, G, participacion: data?.participacion || [], socios }), [ev, T.tpv, ingresos, G, data?.participacion, socios]);
 
   const wrap = { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--text)" };
@@ -75,10 +107,13 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
           <span style={C.crmPill}>CRM</span>
           {!isMobile && <span style={{ color: "rgba(255,255,255,.85)", fontWeight: 700, fontSize: 13 }}>Organización del evento</span>}
         </div>
-        <select value={ev.id} onChange={e => onSelectEvent(e.target.value)} style={{ ...C.headSelect, maxWidth: isMobile ? 150 : 280 }} aria-label="Evento">
+        <select value={ev.id} onChange={e => onSelectEvent(e.target.value)} style={{ ...C.headSelect, maxWidth: isMobile ? 130 : 280 }} aria-label="Evento">
           {events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
         </select>
-        <button onClick={onExit} style={C.backBtn}>{isMobile ? "← TPV" : "← Volver al TPV"}</button>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <button onClick={() => (tab === "ajustes" ? setTab(volverA) : abrirAjustes())} aria-label="Ajustes" title="Ajustes" style={{ ...C.backBtn, padding: isMobile ? "9px 10px" : "9px 12px", display: "inline-flex", alignItems: "center", gap: 6, background: tab === "ajustes" ? "#1a1205" : "rgba(255,255,255,.95)", color: tab === "ajustes" ? "#fff" : "#1a1205" }}><Icon n="gear" s={18} w={2} />{!isMobile && "Ajustes"}</button>
+          <button onClick={onExit} style={C.backBtn}>{isMobile ? "← TPV" : "← Volver al TPV"}</button>
+        </div>
       </header>
 
       <nav style={{ ...C.tabs, padding: isMobile ? "0 12px" : "0 22px" }}>
@@ -92,16 +127,18 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
           {error && <div style={{ ...C.panel, borderColor: "var(--amber)", color: "var(--amber)", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}><span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon n="alert" s={18} />{error}</span><button onClick={cargar} style={C.ghost}>Reintentar</button></div>}
           {!data && !error && <div style={{ color: "var(--muted)", padding: 30, textAlign: "center" }}>Cargando…</div>}
           {data && tab === "dashboard" && (
-            <Dashboard ev={ev} events={events} sales={sales} gastosCaja={gastosCaja} onSelectEvent={onSelectEvent} refreshKey={data} />
+            <Dashboard ev={ev} events={events} sales={sales} gastosCaja={gastosCaja} ajustes={data.ajustes} onSelectEvent={onSelectEvent} refreshKey={data} />
           )}
           {data && tab === "ingresos" && (
-            <Ingresos ev={ev} T={T} barras={barras} ingresos={ingresos} socios={socios} socioById={socioById} isMobile={isMobile}
+            <Ingresos ev={ev} T={T} F={F} barras={barras} ingresos={ingresos} socios={socios} socioById={socioById} isMobile={isMobile}
+              conexion={data.conexion} vinculo={vinculo} sincronizando={sincronizando}
+              onSync={() => sincronizar(ev.id)} onImportar={() => setImportar(true)} onAjustes={() => abrirAjustes("conexiones")}
               onNuevo={() => setEditIng({})} onEditar={(i) => setEditIng(i)}
               onFuente={(pid, f) => run(() => crm.setFuentePunto(pid, f), "Tipo de ingreso actualizado")}
               onEntregar={(socioId) => run(() => crm.setEntregado(ingresos.filter(i => i.cobradoPor === socioId && !i.entregado && i.estado === "cobrado").map(i => i.id), true), "Marcado como entregado")} />
           )}
           {data && tab === "gastos" && (
-            <Gastos ev={ev} events={events} gastos={data.gastos} gastosCaja={gastosCaja} socios={socios} socioById={socioById} ingresosTotal={T.total} isMobile={isMobile} busy={busy}
+            <Gastos ev={ev} events={events} gastos={data.gastos} G={G} F={F} onAjustes={() => abrirAjustes("fiscal")} socios={socios} socioById={socioById} ingresosTotal={T.total} isMobile={isMobile} busy={busy}
               onSave={(x) => run(() => crm.saveGasto({ ...x, eventoId: ev.id }), x.id ? "Gasto actualizado" : "Gasto añadido")}
               onDelete={(x) => run(() => crm.deleteGasto(x.id), "Gasto borrado")}
               onCopiar={(desde) => run(async () => { const nn = await crm.copiarPresupuesto(desde.id, ev.id); if (!nn) throw new Error("vacío"); }, `Presupuesto de ${desde.name} copiado`)} />
@@ -113,6 +150,25 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
               onReabrir={() => run(() => crm.reabrirLiquidacion(ev.id), "Liquidación reabierta")}
               onMarcarPagado={(socioId, v) => run(() => crm.actualizarLiquidacion(ev.id, { ...data.liquidacion.datos, filas: data.liquidacion.datos.filas.map(f => f.socioId === socioId ? { ...f, pagado: v } : f) }), v ? "Marcado como hecho" : "Desmarcado")} />
           )}
+          {data && tab === "ajustes" && (
+            <Ajustes ev={ev} events={events} ajustes={data.ajustes || {}} conexion={data.conexion} vinculos={data.vinculos || []} busy={busy || sincronizando}
+              seccion={ajSeccion} setSeccion={setAjSeccion} preview={fiscal} onVolver={() => setTab(volverA)}
+              onGuardarAjustes={(datos) => run(() => crm.saveAjustes(datos), "Ajustes guardados")}
+              onRenombrar={(ambito, viejo, nuevo) => run(() => crm.renombrarCategoria(ambito, viejo, nuevo))}
+              onGuardarClave={async (entorno, clave) => {
+                const ok = await run(async () => { try { await crm.guardarConexion(entorno, clave); } catch (e) { throw aviso("No se ha podido guardar la clave. Revisa que esté completa."); } });
+                if (!ok) return false;
+                try { await crm.ticketera("probar"); flash("Conectado con Fourvenues"); } catch (e) { flash(e.message, "warn"); }
+                await cargar(); return true;
+              }}
+              onProbar={() => run(async () => { try { await crm.ticketera("probar"); } catch (e) { throw aviso(e.message); } }, "La conexión funciona")}
+              onDesconectar={() => run(() => crm.borrarConexion(), "Fourvenues desconectado")}
+              onCargarEventos={async () => (await crm.ticketera("eventos")).eventos}
+              onVincular={async (eventoId, extId, extNombre) => { const ok = await run(() => crm.vincular(eventoId, extId, extNombre), "Evento vinculado"); if (ok) sincronizar(eventoId); return ok; }}
+              onDesvincular={(eventoId) => run(() => crm.desvincular(eventoId), "Vínculo quitado")}
+              onSync={(eventoId) => sincronizar(eventoId)}
+              onImportar={() => setImportar(true)} />
+          )}
           {data && tab === "socios" && (
             <Socios ev={ev} data={data} T={T} G={G} isMobile={isMobile} busy={busy}
               onGuardarSocio={(s) => run(() => crm.saveSocio(s), s.id ? "Socio actualizado" : "Socio añadido")}
@@ -122,6 +178,8 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
         </div>
       </main>
 
+      {importar && <ImportarCSV ev={ev} busy={busy} onClose={() => setImportar(false)}
+        onImportar={async (ticketera, grupos) => { const ok = await run(() => crm.importarCSV(ev.id, ticketera, TICKETERA_CAT, grupos), `Importadas las ventas de ${ticketera}`); if (ok) setImportar(false); }} />}
       {editIng && <IngresoForm ev={ev} ingreso={editIng} socios={socios.filter(s => s.activo || s.id === editIng.cobradoPor)} usadas={ingresos.map(i => i.categoria)} busy={busy}
         onClose={() => setEditIng(null)}
         onSave={async (x) => { const ok = await run(() => crm.saveIngreso({ ...x, eventoId: ev.id }), x.id ? "Ingreso actualizado" : "Ingreso añadido"); if (ok) setEditIng(null); }}

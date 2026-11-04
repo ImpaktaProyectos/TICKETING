@@ -42,6 +42,8 @@ export function calcularLiquidacion({ ev, tpv, ingresos, G, participacion, socio
   return {
     evento: ev.name, fecha: ev.date || "", calculadoEn: new Date().toISOString(),
     ingresosCobrados, pendienteCobro, gastosTotal, gastosPendientes: r2(G.pendiente || 0), beneficio,
+    comisiones: r2((G.auto || []).filter(a => a.categoria === "Comisiones").reduce((t, a) => t + a.importe, 0)),
+    ivaHacienda: r2((G.auto || []).filter(a => a.categoria === "IVA a Hacienda").reduce((t, a) => t + a.importe, 0)),
     ingEmpresa, gEmpresa, cajaEmpresa, sumPct, pctOk, filas, cuadra: Math.abs(sumResultado - cajaEmpresa) < 0.011,
   };
 }
@@ -99,6 +101,8 @@ export function Liquidacion({ L, guardada, busy, onCerrar, onReabrir, onMarcarPa
           <span style={C.tag}><Icon n="wallet" s={14} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />Ingresos cobrados {money(V.ingresosCobrados)}</span>
           <span style={C.tag}><Icon n="receipt" s={14} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />Gastos {money(V.gastosTotal)}</span>
           <span style={C.tag}><Icon n="building" s={14} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />Dinero de la empresa {money(V.cajaEmpresa)}</span>
+          {V.comisiones > 0 && <span style={C.tag}><Icon n="percent" s={14} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />Incluye comisiones {money(V.comisiones)}</span>}
+          {V.ivaHacienda ? <span style={C.tag}><Icon n="bank" s={14} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />{V.ivaHacienda > 0 ? "Reserva IVA a Hacienda" : "IVA a devolver"} {money(Math.abs(V.ivaHacienda))}</span> : null}
         </div>
         {V.beneficio < 0 && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 8 }}>El evento pierde dinero: la misma cuenta dice cuánto pone cada socio.</div>}
       </div>
