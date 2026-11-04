@@ -27,7 +27,7 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.11.04a";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.04b";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -37,7 +37,7 @@ function useIsMobile(bp = 720) {
 }
 
 /* ---------------------- Estado inicial (se hidrata desde Supabase) ---------------------- */
-const emptyState = () => ({ events: [], currentEventId: null, currentPuntoId: null, sales: [], closures: [], adminPin: "1234", supervisorPin: "0000", online: typeof navigator !== "undefined" ? navigator.onLine : true });
+const emptyState = () => ({ events: [], currentEventId: null, currentPuntoId: null, sales: [], closures: [], gastos: [], adminPin: "1234", supervisorPin: "0000", online: typeof navigator !== "undefined" ? navigator.onLine : true });
 const EMPTY_EV = { id: null, name: "", date: "", venue: "", template: "festival", paper: 80, footer: "", logo: "", showEventName: true, showDate: true, showTime: true, showPrice: true, anularPin: false, closed: false, startsAt: "", advanced: false, changeHelp: true, style: {}, pin_admin: "1234", pin_supervisor: "0000", puntos: [{ id: null, name: "", archivado: false, products: [] }] };
 
 /* ---------------------- Reducer ---------------------- */
@@ -67,7 +67,10 @@ function reducer(state, a) {
       return { ...state, events, currentPuntoId: np };
     }
     case "UPDATE_PUNTO": return { ...state, events: mapEv(e => mapPunto(e, p => ({ ...p, ...a.patch }))) };
-    case "CLOSE_PUNTO_SALES": return { ...state, sales: state.sales.map(s => (s.eventId === a.eventId && s.puntoId === a.puntoId && !s.closureId) ? { ...s, closureId: a.closureId } : s) };
+    case "CLOSE_PUNTO_SALES": return { ...state, sales: state.sales.map(s => (s.eventId === a.eventId && s.puntoId === a.puntoId && !s.closureId) ? { ...s, closureId: a.closureId } : s), gastos: (state.gastos || []).map(g => (g.eventId === a.eventId && g.puntoId === a.puntoId && !g.closureId) ? { ...g, closureId: a.closureId } : g) };
+    case "ADD_GASTO": return { ...state, gastos: [...(state.gastos || []), a.gasto] };
+    case "VOID_GASTO": return { ...state, gastos: (state.gastos || []).map(g => g.id === a.id ? { ...g, voided: true } : g) };
+    case "HYDRATE_GASTOS": return { ...state, gastos: a.gastos };
     case "SET_PUNTO": return { ...state, currentPuntoId: a.id };
     case "ADD_PRODUCT": return { ...state, events: mapEv(e => mapPunto(e, p => ({ ...p, products: [...p.products, a.product] }))) };
     case "REORDER_PRODUCTS": return { ...state, events: mapEv(e => mapPunto(e, p => { const byId = new Map(p.products.map(x => [x.id, x])); const next = a.ids.map((id, i) => byId.has(id) ? { ...byId.get(id), orden: i } : null).filter(Boolean); p.products.forEach(x => { if (!a.ids.includes(x.id)) next.push(x); }); return { ...p, products: next }; })) };
@@ -239,12 +242,21 @@ function ZTicket({ ev, z }) {
       {z.lines.map((l, i) => <div key={i} style={row}><span>{l.name} ×{l.qty}</span><span>{money(l.total)}</span></div>)}
       <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
       <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 900, fontSize: 16, color: "#000" }}><span>TOTAL</span><span>{money(z.revenue)}</span></div>
+      {z.gastos > 0 && (<>
+        <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
+        <div style={{ textAlign: "center", fontWeight: 900, fontSize: 13 }}>GASTOS DE CAJA</div>
+        {(z.gastosList || []).map((g, i) => <div key={i} style={{ ...row, fontSize: 11 }}><span style={{ minWidth: 0, overflowWrap: "anywhere", paddingRight: "2mm" }}>{g.concepto || "Gasto"}</span><span>-{money(g.importe)}</span></div>)}
+        <div style={{ ...row, marginTop: "1mm" }}><span>Total gastos</span><span>-{money(z.gastos)}</span></div>
+        {!z.advanced && <div style={{ ...row, fontSize: 14, borderTop: "2px solid #000", marginTop: "1mm", paddingTop: "1mm" }}><span>= A CUADRAR</span><span>{money(round2(z.revenue - z.gastos))}</span></div>}
+        {!z.advanced && <div style={{ textAlign: "center", fontSize: 10.5, fontWeight: 700 }}>(efectivo + datáfono)</div>}
+      </>)}
       {z.advanced && (<>
         <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
         <div style={{ textAlign: "center", fontWeight: 900, fontSize: 13 }}>ARQUEO DE CAJA</div>
         <div style={{ ...row, marginTop: "1mm" }}><span>Fondo inicial</span><span>{money(z.fondo || 0)}</span></div>
         <div style={row}><span>+ Ventas efectivo</span><span>{money(z.efectivo || 0)}</span></div>
-        <div style={{ ...row, fontSize: 14, borderTop: "2px solid #000", marginTop: "1mm", paddingTop: "1mm" }}><span>= DEBE HABER</span><span>{money(z.esperado != null ? z.esperado : (z.fondo || 0) + (z.efectivo || 0))}</span></div>
+        {z.gastos > 0 && <div style={row}><span>- Gastos de caja</span><span>{money(z.gastos)}</span></div>}
+        <div style={{ ...row, fontSize: 14, borderTop: "2px solid #000", marginTop: "1mm", paddingTop: "1mm" }}><span>= DEBE HABER</span><span>{money(z.esperado != null ? z.esperado : (z.fondo || 0) + (z.efectivo || 0) - (z.gastos || 0))}</span></div>
         {z.contado != null && (<>
           <div style={{ ...row, marginTop: "1mm" }}><span>Contado</span><span>{money(z.contado)}</span></div>
           <div style={{ ...row, fontSize: 15, fontWeight: 900 }}><span>{z.descuadre === 0 ? "CUADRA ✓" : z.descuadre > 0 ? "SOBRA" : "FALTA"}</span><span>{z.descuadre === 0 ? money(0) : money(Math.abs(z.descuadre))}</span></div>
@@ -290,6 +302,8 @@ export default function App() {
   const activePuntos = ev.puntos.filter(p => !p.archivado);
   const punto = ev.puntos.find(p => p.id === state.currentPuntoId && !p.archivado) || activePuntos[0] || ev.puntos[0];
   const evSales = useMemo(() => state.sales.filter(s => s.eventId === ev.id), [state.sales, ev.id]);
+  const evGastos = useMemo(() => (state.gastos || []).filter(g => g.eventId === ev.id), [state.gastos, ev.id]);
+  const turnoGastos = useMemo(() => evGastos.filter(g => g.puntoId === punto.id && !g.voided && !g.closureId), [evGastos, punto.id]);
   const livePuntoSales = useMemo(() => evSales.filter(s => s.puntoId === punto.id && !s.voided && !s.closureId), [evSales, punto.id]);
   const totals = useMemo(() => {
     const perProduct = {}; let revenue = 0;
@@ -313,6 +327,13 @@ export default function App() {
     return { events: evs, sales };
   };
 
+  // Gastos: los del servidor + los registrados aquí que aún no han subido (y anulaciones pendientes)
+  const mergeGastos = (serverGastos) => {
+    const ids = new Set(serverGastos.map(g => g.id));
+    const voids = db.pendingGastoVoids();
+    return serverGastos.concat(db.pendingGastos().filter(g => !ids.has(g.id))).map(g => voids.has(g.id) ? { ...g, voided: true } : g);
+  };
+
   const SNAP = db.scopedKey("ticketera_snapshot");
   const hydrate = async () => {
     let data;
@@ -321,7 +342,7 @@ export default function App() {
       if (!navigator.onLine) throw new Error("offline");
       data = await Promise.race([db.loadAll(), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 5000))]);
       if (!data.events.length) { await db.ensureDefaultEvent(); data = await db.loadAll(); }
-      try { localStorage.setItem(SNAP, JSON.stringify({ events: data.events, closures: data.closures, sales: data.sales.slice(-4000) })); } catch {}
+      try { localStorage.setItem(SNAP, JSON.stringify({ events: data.events, closures: data.closures, gastos: data.gastos || [], sales: data.sales.slice(-4000) })); } catch {}
     } catch (e) {
       // Sin conexión al arrancar: usamos la última copia guardada para poder vender igual
       const snap = (() => { try { return JSON.parse(localStorage.getItem(SNAP) || "null"); } catch { return null; } })();
@@ -342,7 +363,7 @@ export default function App() {
     } catch {}
     const first = merged.events.find(e => e.id === stateRef.current.currentEventId) || merged.events[0];
     baseDispatch({ type: "HYDRATE", payload: {
-      events: merged.events, sales: merged.sales, closures: data.closures || [],
+      events: merged.events, sales: merged.sales, closures: data.closures || [], gastos: mergeGastos(data.gastos || []),
       currentEventId: stateRef.current.currentEventId || first.id,
       currentPuntoId: stateRef.current.currentPuntoId || (first.puntos.find(p => !p.archivado) || first.puntos[0])?.id,
     } });
@@ -361,9 +382,10 @@ export default function App() {
       if (busy) { timer = setTimeout(refresh, 2500); return; }
       busy = true;
       try {
-        const server = await db.loadSales(ev.id);
+        const [server, gs] = await Promise.all([db.loadSales(ev.id), db.loadGastos(ev.id).catch(() => null)]);
         const { sales } = mergePending([], server);
         baseDispatch({ type: "HYDRATE_SALES", sales: stateRef.current.sales.filter(s => s.eventId !== ev.id).concat(sales) });
+        if (gs) baseDispatch({ type: "HYDRATE_GASTOS", gastos: (stateRef.current.gastos || []).filter(g => g.eventId !== ev.id).concat(mergeGastos(gs)) });
       } catch {} finally { busy = false; }
     };
     // Agrupa avisos: como mucho una recarga cada 2,5 s aunque vendan varias barras a la vez
@@ -406,7 +428,8 @@ export default function App() {
       const v = ok.filter(x => x.puntoId === p.id), turno = v.filter(x => !x.closureId);
       return { id: p.id, nombre: p.name, tickets: v.length, facturacion: sum(v), efectivo: sum(v.filter(x => x.pago === "efectivo")), tarjeta: sum(v.filter(x => x.pago === "tarjeta")), anulaciones: es.filter(x => x.puntoId === p.id && x.voided).length, fondo: p.fondo ?? null, turno: { tickets: turno.length, facturacion: sum(turno) } };
     });
-    const datos = { app: APP_VERSION, evento: e.name, total: { tickets: ok.length, facturacion: sum(ok), efectivo: sum(ok.filter(x => x.pago === "efectivo")), tarjeta: sum(ok.filter(x => x.pago === "tarjeta")) }, puntos, pendientes_en_equipo: db.pendingCount() };
+    const gs = (st.gastos || []).filter(g => g.eventId === e.id && !g.voided);
+    const datos = { app: APP_VERSION, evento: e.name, total: { tickets: ok.length, facturacion: sum(ok), efectivo: sum(ok.filter(x => x.pago === "efectivo")), tarjeta: sum(ok.filter(x => x.pago === "tarjeta")), gastos: round2(gs.reduce((t, g) => t + g.importe, 0)) }, gastos: gs.map(g => ({ barra: e.puntos.find(p => p.id === g.puntoId)?.name || "", concepto: g.concepto, importe: g.importe, hora: new Date(g.ts).toISOString() })), puntos, pendientes_en_equipo: db.pendingCount() };
     const sig = JSON.stringify([e.id, datos.total, puntos.map(p => [p.tickets, p.facturacion, p.fondo, p.anulaciones])]);
     if (!manual && sig === backupSig.current) return;   // nada nuevo desde la última copia
     backupSig.current = sig;
@@ -551,21 +574,50 @@ export default function App() {
   };
   const voidOne = async (sale, by) => { baseDispatch({ type: "VOID_ONE", saleId: sale.id, by }); const r = await db.anularVenta(sale.clientUuid || sale.id, by); if (r.offline) setPending(db.pendingCount()); };
 
+  // ===== Gastos / retiradas de caja =====
+  // Dinero que sale del cajón durante la noche. La facturación NO cambia; el cierre lo descuenta
+  // de lo que debe haber (efectivo + datáfono) para que las cuentas cuadren.
+  const [showGasto, setShowGasto] = useState(false);
+  const [askGastoVoid, setAskGastoVoid] = useState(null);
+  const registrarGasto = async (importe, concepto) => {
+    if (!ev.id || !punto?.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return false; }
+    const imp = round2(Number(importe) || 0);
+    if (!(imp > 0) || imp >= 1000000) { flash("Escribe el importe del gasto", "warn"); return false; }
+    const id = uid();
+    const por = role === "cajero" ? punto.name : role === "admin" ? "Admin" : "Supervisor";
+    const g = { id, eventId: ev.id, puntoId: punto.id, importe: imp, concepto: String(concepto || "").trim().slice(0, 120), por, ts: Date.now(), voided: false, closureId: null, synced: false };
+    baseDispatch({ type: "ADD_GASTO", gasto: g });
+    flash(`💸 Gasto registrado · ${money(imp)}${g.concepto ? " · " + g.concepto : ""}`);
+    if (navigator.vibrate) navigator.vibrate(30);
+    const r = await db.registrarGasto({ id, eventoId: ev.id, puntoId: punto.id, importe: imp, concepto: g.concepto, por });
+    if (r.offline) setPending(db.pendingCount());
+    return true;
+  };
+  const anularGasto = async (g) => {
+    baseDispatch({ type: "VOID_GASTO", id: g.id });
+    flash(`Gasto anulado · ${money(g.importe)}`, "warn");
+    const por = role === "cajero" ? punto.name : role === "admin" ? "Admin" : "Supervisor";
+    const r = await db.anularGasto(g.id, ev.id, por);
+    if (r.offline) setPending(db.pendingCount());
+  };
+
   const cierreZ = async (puntoObj, contado = null) => {
     const allOpen = evSales.filter(s => s.puntoId === puntoObj.id && !s.voided && !s.closureId);
     const sales = allOpen.filter(s => !isInvite(s));
     const invs = invitaciones(allOpen);
     const voids = evSales.filter(s => s.puntoId === puntoObj.id && s.voided && !s.closureId).length;
-    if (allOpen.length === 0 && voids === 0) { flash("Sin ventas en el turno actual", "warn"); return; }
+    const gTurno = (stateRef.current.gastos || []).filter(g => g.eventId === ev.id && g.puntoId === puntoObj.id && !g.voided && !g.closureId);
+    const gastos = round2(gTurno.reduce((t, g) => t + g.importe, 0));
+    if (allOpen.length === 0 && voids === 0 && gTurno.length === 0) { flash("Sin ventas en el turno actual", "warn"); return; }
     const map = {};
     sales.forEach(s => { map[s.productId] = map[s.productId] || { name: s.name, qty: 0, total: 0 }; map[s.productId].qty++; map[s.productId].total += s.price; });
     const revenue = round2(sales.reduce((t, s) => t + s.price, 0));
     const efectivo = round2(sales.filter(s => s.pago === "efectivo").reduce((t, s) => t + s.price, 0));
     const tarjeta = round2(sales.filter(s => s.pago === "tarjeta").reduce((t, s) => t + s.price, 0));
     const fondo = round2(puntoObj.fondo || 0);
-    const esperado = round2(fondo + efectivo);                       // lo que debe haber en el cajón
+    const esperado = round2(fondo + efectivo - gastos);              // lo que debe haber en el cajón (ya restados los gastos)
     const descuadre = contado == null ? null : round2(contado - esperado);
-    const z = { puntoName: puntoObj.name, lines: Object.values(map).map(l => ({ ...l, total: round2(l.total) })), revenue, efectivo, tarjeta, fondo, esperado, contado, descuadre, advanced: !!ev.advanced, count: sales.length, voids, invites: invs.n, invitesValue: invs.valor, ts: Date.now() };
+    const z = { puntoName: puntoObj.name, lines: Object.values(map).map(l => ({ ...l, total: round2(l.total) })), revenue, efectivo, tarjeta, fondo, esperado, contado, descuadre, gastos, gastosList: gTurno.map(g => ({ concepto: g.concepto, importe: g.importe })), advanced: !!ev.advanced, count: sales.length, voids, invites: invs.n, invitesValue: invs.valor, ts: Date.now() };
     const closureId = uid();
     // Cierra el turno EN LOCAL (funciona sin wifi) y encola el cierre para el servidor
     baseDispatch({ type: "ADD_CLOSURE", closure: { id: closureId, eventId: ev.id, puntoId: puntoObj.id, ...z } });
@@ -590,7 +642,7 @@ export default function App() {
       // Si un nombre muy largo lo haría más alto, se reduce un poco para que no se parta en dos.
       try {
         const LIMIT = 68 * 96 / 25.4;
-        document.querySelectorAll("#thermal-print-area .ticket-page").forEach(pg => {
+        document.querySelectorAll("#thermal-print-area .ticket-page:not(.z-page)").forEach(pg => {
           const inner = pg.firstElementChild; if (!inner) return;
           inner.style.zoom = "";
           const h = inner.getBoundingClientRect().height;
@@ -701,7 +753,7 @@ export default function App() {
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn} aria-label="Menú"><Ic n="menu" /></button>
           </header>
           <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => setShowGasto(true)} gastoTotal={round2(turnoGastos.reduce((t, g) => t + g.importe, 0))} />
           </div>
         </div>
       ) : (
@@ -714,7 +766,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.topBtn}><Ic n="lock" s={16} />Salir</button></div>
           </header>
           <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => setShowGasto(true)} gastoTotal={round2(turnoGastos.reduce((t, g) => t + g.importe, 0))} />
           </div>
         </div>
       ))}
@@ -735,11 +787,11 @@ export default function App() {
                 <button onClick={() => setAskRevenue(true)} style={{ ...S.iconBtn, color: "var(--accent)" }} aria-label="Consultar facturación"><Ic n="euro" /></button>
               </div>
             </div>
-            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
+            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => setShowGasto(true)} gastoTotal={round2(turnoGastos.reduce((t, g) => t + g.importe, 0))} />}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
             {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
             {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
-            {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
+            {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
           </div>
           <nav style={S.bottomNav}>
             {navItems.map(n => <button key={n.id} onClick={() => setView(n.id)} style={{ ...S.bTab, ...(safeView === n.id ? S.bTabActive : {}) }}>
@@ -780,11 +832,11 @@ export default function App() {
               </div>
             </header>
             <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} />}
+              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => setShowGasto(true)} gastoTotal={round2(turnoGastos.reduce((t, g) => t + g.importe, 0))} />}
               {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
               {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
               {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
-            {safeView === "reports" && <Reports ev={ev} evSales={evSales} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
+            {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
             </div>
           </main>
         </div>
@@ -832,6 +884,11 @@ export default function App() {
         <FondoGate puntoName={punto.name} onSave={saveFondo} onBack={exitToLogin} pending={!online} />
       )}
 
+      {/* ===== Gasto de caja ===== */}
+      {showGasto && <GastoModal puntoName={punto.name} gastos={turnoGastos} onSave={registrarGasto} onClose={() => setShowGasto(false)}
+        onVoid={(g) => { if (role === "cajero") setAskGastoVoid(g); else anularGasto(g); }} />}
+      {askGastoVoid && <PinModal correct={ev.pin_supervisor} onClose={() => setAskGastoVoid(null)} onOk={() => { const g = askGastoVoid; setAskGastoVoid(null); anularGasto(g); }} label="PIN de supervisor para anular el gasto" />}
+
       {/* ===== Cobro avanzado ===== */}
       {payFlow && (
         <PayFlow
@@ -878,7 +935,7 @@ export default function App() {
       {/* ===== Zona de impresión oculta (fuera de pantalla; en impresión se coloca en 0,0) ===== */}
       {createPortal(<div id="thermal-print-area" aria-hidden style={{ position: "absolute", left: -9999, top: 0 }}>
         {printJob?.kind === "ticket" && <div className="ticket-page"><ThermalTicket ev={ev} product={printJob.product} time={printJob.time} num={printJob.num} qty={printJob.qty} folio={printJob.folio} /></div>}
-        {printJob?.kind === "z" && <div className="ticket-page"><ZTicket ev={ev} z={printJob.z} /></div>}
+        {printJob?.kind === "z" && <div className="ticket-page z-page"><ZTicket ev={ev} z={printJob.z} /></div>}
         {printJob?.kind === "multi" && printJob.tickets.map((t, i) => (
           <div key={i} className="ticket-page">
             <ThermalTicket ev={ev} product={t.product} time={printJob.time} num={t.num} folio={t.folio} />
@@ -897,6 +954,11 @@ export default function App() {
             <div style={{ fontSize: 44, fontWeight: 800, color: "var(--green)", margin: "12px 0" }}>{money(eventRevenue)}</div>
             <div style={{ textAlign: "left", borderTop: "1px solid var(--line)", paddingTop: 12, marginBottom: 14 }}>
               {ev.puntos.map(p => { const r = evSales.filter(s => s.puntoId === p.id && !s.voided).reduce((t, s) => t + s.price, 0); return <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "4px 0" }}><span style={{ color: "var(--muted)" }}>{p.name}</span><b>{money(r)}</b></div>; })}
+              {(() => { const gt = round2(evGastos.filter(g => !g.voided).reduce((t, g) => t + g.importe, 0)); return gt > 0 ? (<>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "8px 0 4px", marginTop: 6, borderTop: "1px solid var(--line)" }}><span style={{ color: "var(--amber)" }}>💸 Gastos de caja</span><b style={{ color: "var(--amber)" }}>-{money(gt)}</b></div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "4px 0" }}><span>A cuadrar (efectivo + datáfono)</span><b>{money(round2(eventRevenue - gt))}</b></div>
+                {ev.advanced && <div style={{ fontSize: 11.5, color: "var(--muted)" }}>Sin contar el fondo inicial de los cajones.</div>}
+              </>) : null; })()}
             </div>
             <button style={S.btnGhost} onClick={() => setShowRevenue(false)}>Cerrar</button>
           </div>
@@ -1219,6 +1281,70 @@ function FondoGate({ puntoName, onSave, onBack, pending }) {
 }
 
 /* ---------------------- Cobro avanzado (efectivo / tarjeta + cambio) ---------------------- */
+/* ---------------------- Gasto / retirada de caja ----------------------
+   Dinero que sale del cajón durante la noche (pagar un proveedor, hielo, retirar efectivo…).
+   NO cambia la facturación. El cierre Z y los informes lo restan de lo que debe haber. */
+const GASTO_CONCEPTOS = ["Proveedor", "Hielo", "Compras", "Personal", "Retirada de efectivo", "Cambio / monedas"];
+function GastoModal({ puntoName, gastos, onSave, onVoid, onClose }) {
+  const isMobile = useIsMobile();
+  const [val, setVal] = useState("");
+  const [concepto, setConcepto] = useState("");
+  const [confirmId, setConfirmId] = useState(null);
+  const imp = parseFloat((val || "0").replace(",", ".")) || 0;
+  const total = round2(gastos.reduce((t, g) => t + g.importe, 0));
+  const press = (d) => setVal(v => {
+    if (d === "." && (v.includes(".") || !v)) return v || "0.";
+    const nv = (v + d);
+    if (/\.\d{3}$/.test(nv) || nv.replace(".", "").length > 7) return v;
+    return nv;
+  });
+  const save = async () => { if (!(imp > 0)) return; const ok = await onSave(imp, concepto); if (ok) { setVal(""); setConcepto(""); } };
+  const hora = (ts) => new Date(ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+  return (
+    <div style={S.payWrap} onClick={onClose}>
+      <div className={isMobile ? "sheet-anim" : ""} style={{ ...S.payCard, maxWidth: 480, ...(isMobile ? { borderRadius: "22px 22px 0 0", maxHeight: "94dvh" } : {}) }} onClick={e => e.stopPropagation()}>
+        <div style={{ textAlign: "center", marginBottom: 12 }}>
+          <div style={{ fontSize: 32, lineHeight: 1 }}>💸</div>
+          <div style={{ fontWeight: 900, fontSize: 19, marginTop: 6 }}>Registrar gasto de caja</div>
+          <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 2 }}>{puntoName} · dinero que sale del cajón. No cambia lo facturado: se descuenta en el cierre.</div>
+        </div>
+        <div style={{ background: "var(--surface2)", border: "2px solid " + (imp > 0 ? "var(--amber)" : "var(--line)"), borderRadius: 16, padding: "12px 14px", textAlign: "center", marginBottom: 12 }}>
+          <div style={S.miniLabel}>Importe</div>
+          <div style={{ fontSize: 40, fontWeight: 900, color: imp > 0 ? "var(--amber)" : "var(--muted)", lineHeight: 1.15 }}>{imp > 0 ? "-" + money(imp) : money(0)}</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 12 }}>
+          {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0"].map(d => <button key={d} onClick={() => press(d)} style={{ ...S.pinBtn, padding: "14px 0" }}>{d === "." ? "," : d}</button>)}
+          <button onClick={() => setVal(v => v.slice(0, -1))} style={{ ...S.pinBtn, padding: "14px 0", fontSize: 18 }} aria-label="Borrar">⌫</button>
+        </div>
+        <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Concepto</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {GASTO_CONCEPTOS.map(c => <button key={c} onClick={() => setConcepto(concepto === c ? "" : c)} style={{ ...S.qtyChip, padding: "8px 12px", fontSize: 13, ...(concepto === c ? { background: "var(--amber)", color: "#1a1205", borderColor: "var(--amber)" } : {}) }}>{c}</button>)}
+        </div>
+        <input value={concepto} maxLength={120} onChange={e => setConcepto(e.target.value)} placeholder="O escribe el concepto (opcional)" style={{ ...S.input, marginBottom: 12 }} />
+        <button onClick={save} disabled={!(imp > 0)} style={{ ...S.btnPrimary, width: "100%", padding: "16px", fontSize: 16, background: imp > 0 ? "var(--amber)" : "var(--line)", color: imp > 0 ? "#1a1205" : "var(--muted)" }}>{imp > 0 ? `Registrar gasto de ${money(imp)}` : "Escribe el importe"}</button>
+        <button onClick={onClose} style={{ ...S.btnGhost, width: "100%", marginTop: 8, padding: "13px" }}>Cerrar</button>
+
+        <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+            <b style={{ fontSize: 14 }}>Gastos de este turno</b>
+            <b style={{ color: total ? "var(--amber)" : "var(--muted)" }}>{total ? "-" + money(total) : "Ninguno"}</b>
+          </div>
+          {gastos.slice().reverse().map(g => (
+            <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
+              <span style={{ color: "var(--muted)", flexShrink: 0 }}>{hora(g.ts)}</span>
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.concepto || "Gasto"}{!g.synced && <span style={{ color: "var(--amber)" }}> · ⏳</span>}</span>
+              <b style={{ flexShrink: 0 }}>-{money(g.importe)}</b>
+              {confirmId === g.id
+                ? <span style={{ display: "flex", gap: 4, flexShrink: 0 }}><button onClick={() => { setConfirmId(null); onVoid(g); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Anular</button><button onClick={() => setConfirmId(null)} style={S.smallBtn}>✗</button></span>
+                : <button onClick={() => setConfirmId(g.id)} style={{ ...S.smallBtn, flexShrink: 0 }}>Anular</button>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PayFlow({ total, lines = [], changeHelp = true, onDone, onCancel, onDisableHelp }) {
   const isMobile = useIsMobile();
   const [mode, setMode] = useState(null);        // null | efectivo
@@ -1344,7 +1470,7 @@ function CheckCard({ state, title, value, note, children }) {
 /* ============================================================
    POS
    ============================================================ */
-function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onInvite, onComboInvite, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, onToggleAdvanced }) {
+function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onInvite, onComboInvite, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, onToggleAdvanced, onGasto, gastoTotal = 0 }) {
   const isMobile = useIsMobile();
   const combos = punto.combos || [];
   const [qty, setQty] = useState(1);
@@ -1455,9 +1581,10 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
               <span style={{ color: "var(--muted)", fontSize: 13, marginRight: 4, flexShrink: 0 }}>Cant.:</span>
               {[1, 2, 3, 4, 5, 7, 10].map(q => <button key={q} onClick={() => setQty(q)} style={{ ...S.qtyChip, flexShrink: 0, ...(qty === q ? S.qtyActive : {}) }}>×{q}</button>)}
             </div>
-            <div style={{ display: "flex", gap: 8, width: isMobile ? "100%" : "auto" }}>
+            <div style={isMobile ? { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8, width: "100%" } : { display: "flex", gap: 8 }}>
               <button onClick={() => { setArranging(false); setInviting(v => !v); }} style={{ ...S.inviteBtn, ...(inviting ? S.inviteBtnOn : {}), flex: isMobile ? 1 : "none" }}>🎁 {inviting ? "Cancelar" : isMobile ? "Invit." : "Invitación"}</button>
               <button onClick={startGroup} style={{ ...S.groupBtn, flex: isMobile ? 1 : "none" }}>🧾 Unir</button>
+              {onGasto && <button onClick={() => { setArranging(false); setInviting(false); onGasto(); }} style={{ ...S.gastoBtn, flex: isMobile ? 1 : "none" }} title="Registrar dinero que sale de la caja">💸 Gasto{gastoTotal > 0 && !isMobile ? <span style={S.gastoBadge}>-{money(gastoTotal)}</span> : null}</button>}
               <button onClick={onReprint} disabled={!canReprint} style={{ ...S.btnGhost, flex: isMobile ? 1 : "none", opacity: canReprint ? 1 : .4 }}>🖨️ {isMobile ? "Reimp." : "Reimprimir"}</button>
               <button onClick={onVoid} style={{ ...S.voidBtn, flex: isMobile ? 1 : "none" }}>↩︎ Anular</button>
             </div>
@@ -2013,7 +2140,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
 /* ============================================================
    HISTÓRICO — resumen de TODOS los eventos de la cuenta (solo administrador)
    ============================================================ */
-function resumenEvento(ev, allSales, closures) {
+function resumenEvento(ev, allSales, closures, allGastos = []) {
   const ss = allSales.filter(s => s.eventId === ev.id);
   const ventas = ss.filter(s => !s.voided && !isInvite(s));
   const anuladas = ss.filter(s => s.voided);
@@ -2028,9 +2155,10 @@ function resumenEvento(ev, allSales, closures) {
   const hk = Object.keys(horas).map(Number); const pico = hk.length ? hk.reduce((a, b) => horas[b] > horas[a] ? b : a) : null;
   const barras = ev.puntos.map(p => { const v = ventas.filter(s => s.puntoId === p.id); return { id: p.id, name: p.name, tickets: v.length, revenue: round2(v.reduce((t, s) => t + s.price, 0)) }; }).filter(b => b.tickets > 0);
   const cz = (closures || []).filter(c => c.eventId === ev.id);
-  const desc = cz.filter(c => c.contado != null).map(c => round2(c.contado - (Number(c.fondo || 0) + Number(c.efectivo || 0))));
+  const desc = cz.filter(c => c.contado != null).map(c => round2(c.contado - (Number(c.fondo || 0) + Number(c.efectivo || 0) - Number(c.gastos || 0))));
+  const gastos = round2((allGastos || []).filter(g => g.eventId === ev.id && !g.voided).reduce((t, g) => t + g.importe, 0));
   return {
-    ev, revenue, tickets: ventas.length, medio: ventas.length ? round2(revenue / ventas.length) : 0, efectivo, tarjeta,
+    ev, revenue, gastos, neto: round2(revenue - gastos), tickets: ventas.length, medio: ventas.length ? round2(revenue / ventas.length) : 0, efectivo, tarjeta,
     inv, liq, anul: anuladas.length, anulImporte: round2(anuladas.filter(s => !isInvite(s)).reduce((t, s) => t + s.price, 0)),
     top, horas, pico, barras, cierres: cz.length, descuadre: desc.length ? round2(desc.reduce((t, x) => t + x, 0)) : null,
   };
@@ -2050,15 +2178,15 @@ function Historico({ state, onOpenEvent, flash }) {
     return true;
   };
   const todos = state.events.slice().sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))
-    .map(e => resumenEvento(e, state.sales, state.closures));
+    .map(e => resumenEvento(e, state.sales, state.closures, state.gastos));
   // comparación con el evento anterior (por fecha) de toda la cuenta
   todos.forEach((r, i) => { const prev = todos.slice(i + 1).find(x => x.tickets > 0); r.prev = prev || null; r.delta = prev && prev.revenue > 0 ? Math.round((r.revenue - prev.revenue) / prev.revenue * 100) : null; });
   const lista = todos.filter(r => dentro(r.ev.date));
   const T = lista.reduce((t, r) => ({
-    revenue: t.revenue + r.revenue, tickets: t.tickets + r.tickets, efectivo: t.efectivo + r.efectivo, tarjeta: t.tarjeta + r.tarjeta,
+    revenue: t.revenue + r.revenue, gastos: t.gastos + r.gastos, tickets: t.tickets + r.tickets, efectivo: t.efectivo + r.efectivo, tarjeta: t.tarjeta + r.tarjeta,
     invN: t.invN + r.inv.n, invV: t.invV + r.inv.valor, pagar: t.pagar + r.liq.pagar, comision: t.comision + r.liq.comision,
     anul: t.anul + r.anul, anulImp: t.anulImp + r.anulImporte, desc: t.desc + (r.descuadre || 0), hayDesc: t.hayDesc || r.descuadre != null,
-  }), { revenue: 0, tickets: 0, efectivo: 0, tarjeta: 0, invN: 0, invV: 0, pagar: 0, comision: 0, anul: 0, anulImp: 0, desc: 0, hayDesc: false });
+  }), { revenue: 0, gastos: 0, tickets: 0, efectivo: 0, tarjeta: 0, invN: 0, invV: 0, pagar: 0, comision: 0, anul: 0, anulImp: 0, desc: 0, hayDesc: false });
   const conVentas = lista.filter(r => r.tickets > 0);
   const media = conVentas.length ? round2(T.revenue / conVentas.length) : 0;
   const maxRev = Math.max(1, ...lista.map(r => r.revenue));
@@ -2066,14 +2194,14 @@ function Historico({ state, onOpenEvent, flash }) {
   const estrella = Object.entries(prodAll).sort((a, b) => b[1] - a[1])[0];
 
   const csvPeriodo = () => {
-    const rows = [["Evento", "Fecha", "Recinto", "Facturación", "Tickets", "Ticket medio", "Efectivo", "Tarjeta", "Invitaciones", "Valor invitaciones", "Pagar proveedores", "Comisión", "Anulaciones", "Descuadre caja", "vs anterior %"]];
-    lista.forEach(r => rows.push([r.ev.name, r.ev.date, r.ev.venue || "", r.revenue.toFixed(2), r.tickets, r.medio.toFixed(2), r.efectivo.toFixed(2), r.tarjeta.toFixed(2), r.inv.n, r.inv.valor.toFixed(2), r.liq.pagar.toFixed(2), r.liq.comision.toFixed(2), r.anul, r.descuadre != null ? r.descuadre.toFixed(2) : "", r.delta != null ? r.delta : ""]));
-    rows.push(["TOTAL", "", "", round2(T.revenue).toFixed(2), T.tickets, "", round2(T.efectivo).toFixed(2), round2(T.tarjeta).toFixed(2), T.invN, round2(T.invV).toFixed(2), round2(T.pagar).toFixed(2), round2(T.comision).toFixed(2), T.anul, T.hayDesc ? round2(T.desc).toFixed(2) : "", ""]);
+    const rows = [["Evento", "Fecha", "Recinto", "Facturación", "Gastos caja", "A cuadrar", "Tickets", "Ticket medio", "Efectivo", "Tarjeta", "Invitaciones", "Valor invitaciones", "Pagar proveedores", "Comisión", "Anulaciones", "Descuadre caja", "vs anterior %"]];
+    lista.forEach(r => rows.push([r.ev.name, r.ev.date, r.ev.venue || "", r.revenue.toFixed(2), r.gastos.toFixed(2), r.neto.toFixed(2), r.tickets, r.medio.toFixed(2), r.efectivo.toFixed(2), r.tarjeta.toFixed(2), r.inv.n, r.inv.valor.toFixed(2), r.liq.pagar.toFixed(2), r.liq.comision.toFixed(2), r.anul, r.descuadre != null ? r.descuadre.toFixed(2) : "", r.delta != null ? r.delta : ""]));
+    rows.push(["TOTAL", "", "", round2(T.revenue).toFixed(2), round2(T.gastos).toFixed(2), round2(T.revenue - T.gastos).toFixed(2), T.tickets, "", round2(T.efectivo).toFixed(2), round2(T.tarjeta).toFixed(2), T.invN, round2(T.invV).toFixed(2), round2(T.pagar).toFixed(2), round2(T.comision).toFixed(2), T.anul, T.hayDesc ? round2(T.desc).toFixed(2) : "", ""]);
     const csv = rows.map(r => r.map(csvCell).join(";")).join("\n");
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" })); a.download = `TIXFAST_historico_${periodo}.csv`; a.click(); flash("CSV del histórico descargado");
   };
   const csvEvento = (r) => {
-    const rows = [["Evento", r.ev.name], ["Fecha", r.ev.date], ["Facturación", r.revenue.toFixed(2)], ["Tickets", r.tickets], ["Ticket medio", r.medio.toFixed(2)], [], ["Barra", "Tickets", "Facturación"]];
+    const rows = [["Evento", r.ev.name], ["Fecha", r.ev.date], ["Facturación", r.revenue.toFixed(2)], ["Gastos de caja", r.gastos.toFixed(2)], ["A cuadrar (efectivo + datáfono)", r.neto.toFixed(2)], ["Tickets", r.tickets], ["Ticket medio", r.medio.toFixed(2)], [], ["Barra", "Tickets", "Facturación"]];
     r.barras.forEach(b => rows.push([b.name, b.tickets, b.revenue.toFixed(2)]));
     rows.push([]); rows.push(["Producto", "Unidades", "Total"]); r.top.forEach(p => rows.push([p.name, p.uds, p.total.toFixed(2)]));
     if (r.inv.n) { rows.push([]); rows.push(["Invitaciones", r.inv.n, r.inv.valor.toFixed(2)]); r.inv.list.forEach(g => rows.push(["  " + g.name, g.uds, g.valor.toFixed(2)])); }
@@ -2096,6 +2224,7 @@ function Historico({ state, onOpenEvent, flash }) {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginBottom: 14 }}>
           <Kpi l="Facturación" v={money(r.revenue)} c="var(--green)" sub={r.delta != null ? `${r.delta >= 0 ? "+" : ""}${r.delta}% vs ${r.prev.ev.name}` : null} />
+          {r.gastos > 0 && <Kpi l="💸 Gastos de caja" v={"-" + money(r.gastos)} c="var(--amber)" sub={`A cuadrar ${money(r.neto)}`} />}
           <Kpi l="Tickets" v={r.tickets} sub={`Ticket medio ${money(r.medio)}`} />
           {(r.efectivo > 0 || r.tarjeta > 0) && <Kpi l="Efectivo / Tarjeta" v={`${money(r.efectivo)}`} sub={`Tarjeta ${money(r.tarjeta)}`} />}
           <Kpi l="Invitaciones" v={r.inv.n} c="#c084fc" sub={money(r.inv.valor)} />
@@ -2135,6 +2264,7 @@ function Historico({ state, onOpenEvent, flash }) {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginBottom: 16 }}>
         <Kpi l="Facturación total" v={money(round2(T.revenue))} c="var(--green)" sub={`${lista.length} eventos · media ${money(media)}`} />
+        {T.gastos > 0 && <Kpi l="💸 Gastos de caja" v={"-" + money(round2(T.gastos))} c="var(--amber)" sub={`A cuadrar ${money(round2(T.revenue - T.gastos))}`} />}
         <Kpi l="Tickets vendidos" v={T.tickets} sub={T.tickets ? `Ticket medio ${money(round2(T.revenue / T.tickets))}` : null} />
         {(T.efectivo > 0 || T.tarjeta > 0) && <Kpi l="Efectivo / Tarjeta" v={money(round2(T.efectivo))} sub={`Tarjeta ${money(round2(T.tarjeta))}`} />}
         <Kpi l="Invitaciones" v={T.invN} c="#c084fc" sub={money(round2(T.invV))} />
@@ -2173,7 +2303,7 @@ function Historico({ state, onOpenEvent, flash }) {
   );
 }
 
-function Reports({ ev, evSales, role, onVoid, onCierreZ, flash, onBackup, lastBackup, onImported }) {
+function Reports({ ev, evSales, evGastos = [], onVoidGasto, role, onVoid, onCierreZ, flash, onBackup, lastBackup, onImported }) {
   const [backups, setBackups] = useState(null);
   const [showBackups, setShowBackups] = useState(false);
   const fileRef = useRef(null);
@@ -2215,6 +2345,10 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash, onBackup, lastBa
 
   const liq = liquidacion(ev, evSales);
   const inv = invitaciones(evSales);
+  const gastosOk = evGastos.filter(g => !g.voided);
+  const gTotal = round2(gastosOk.reduce((t, g) => t + g.importe, 0));
+  const gTurnoDe = (pid) => round2(gastosOk.filter(g => g.puntoId === pid && !g.closureId).reduce((t, g) => t + g.importe, 0));
+  const [confirmGasto, setConfirmGasto] = useState(null);
   const exportCSV = () => {
     const rows = [["Punto de venta", "Producto", "Precio", "Unidades", "Total"]];
     byPunto.forEach(b => { b.punto.products.forEach(p => { const q = b.perProduct[p.id] || 0; rows.push([b.punto.name, p.name, p.price.toFixed(2), q, (q * p.price).toFixed(2)]); }); rows.push([b.punto.name, "— SUBTOTAL —", "", b.count, b.revenue.toFixed(2)]); rows.push([b.punto.name, "Anulaciones", "", b.voids, ""]); rows.push([]); });
@@ -2223,6 +2357,12 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash, onBackup, lastBa
       const efe = round2(evSales.filter(s => !s.voided && s.pago === "efectivo").reduce((t, s) => t + s.price, 0));
       const tar = round2(evSales.filter(s => !s.voided && s.pago === "tarjeta").reduce((t, s) => t + s.price, 0));
       rows.push([]); rows.push(["ARQUEO", "Efectivo (en caja)", "", "", efe.toFixed(2)]); rows.push(["ARQUEO", "Tarjeta", "", "", tar.toFixed(2)]);
+    }
+    if (gastosOk.length) {
+      rows.push([]); rows.push(["GASTOS DE CAJA", "Concepto", "Hora", "Barra", "Importe"]);
+      gastosOk.forEach(g => rows.push(["GASTOS DE CAJA", g.concepto || "Gasto", new Date(g.ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }), ev.puntos.find(p => p.id === g.puntoId)?.name || "", g.importe.toFixed(2)]));
+      rows.push(["TOTAL GASTOS", "", "", "", gTotal.toFixed(2)]);
+      rows.push(["A CUADRAR (efectivo + datáfono)", "", "", "", round2(grandRevenue - gTotal).toFixed(2)]);
     }
     if (inv.n) {
       rows.push([]); rows.push(["INVITACIONES", "Producto", "", "Unidades", "Valor"]);
@@ -2250,6 +2390,8 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash, onBackup, lastBa
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px,1fr))", gap: 14, marginBottom: 24 }}>
         <BigStat label="Tickets · evento" value={grandCount} c="var(--accent)" />
         <BigStat label="Facturación total" value={money(grandRevenue)} c="var(--green)" />
+        {gTotal > 0 && <BigStat label="💸 Gastos de caja" value={"-" + money(gTotal)} c="var(--amber)" />}
+        {gTotal > 0 && <BigStat label="A cuadrar (efect. + datáfono)" value={money(round2(grandRevenue - gTotal))} c="var(--text)" />}
         <BigStat label="Anulaciones" value={totalVoids} c="var(--amber)" />
         <BigStat label="Puntos de venta" value={ev.puntos.length} c="#3b82f6" />
         {ev.advanced && <BigStat label="💶 Efectivo (en caja)" value={money(round2(evSales.filter(s => !s.voided && s.pago === "efectivo").reduce((t, s) => t + s.price, 0)))} c="var(--green)" />}
@@ -2314,18 +2456,50 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash, onBackup, lastBa
               <div style={{ fontWeight: 700, fontSize: 14 }}>📍 {b.punto.name}</div>
               <div style={{ fontSize: 22, fontWeight: 800, color: "var(--green)", marginTop: 4 }}>{money(b.revenue)}</div>
               <div style={{ fontSize: 12, color: "var(--muted)" }}>{b.count} tickets · {b.voids} anul.</div>
+              {gTurnoDe(b.punto.id) > 0 && <div style={{ fontSize: 12, color: "var(--amber)", marginTop: 4, fontWeight: 700 }}>💸 Gastos del turno: -{money(gTurnoDe(b.punto.id))}</div>}
               {ev.advanced && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>💰 Fondo: <b style={{ color: b.punto.fondo != null ? "var(--green)" : "var(--amber)" }}>{b.punto.fondo != null ? money(b.punto.fondo) : "sin declarar"}</b>{b.punto.fondo != null && db.pendingFondo(b.punto.id) != null && <span style={{ color: "var(--amber)" }}> · ⏳ subiendo…</span>}</div>}
               {(role === "admin" || role === "supervisor") && <button onClick={() => {
                 if (!ev.advanced) { onCierreZ(b.punto); return; }
                 const abiertas = evSales.filter(s => s.puntoId === b.punto.id && !s.voided && !s.closureId);
                 const efe = round2(abiertas.filter(s => s.pago === "efectivo").reduce((t, s) => t + s.price, 0));
                 const fondo = round2(b.punto.fondo || 0);
-                setCountZ({ punto: b.punto, fondo, efectivo: efe, esperado: round2(fondo + efe), valor: "" });
+                const gas = gTurnoDe(b.punto.id);
+                setCountZ({ punto: b.punto, fondo, efectivo: efe, gastos: gas, esperado: round2(fondo + efe - gas), valor: "" });
               }} style={{ ...S.smallBtn, marginTop: 8, width: "100%", color: "var(--accent)", borderColor: "var(--accent)" }}>Cierre Z 🧾</button>}
             </div>
           ))}
         </div>
       </div>
+
+      {/* Gastos / retiradas de caja (no cambian la facturación; se restan de lo que debe haber) */}
+      {evGastos.length > 0 && (
+        <div style={{ ...S.panel, marginBottom: 16 }}>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}>💸 Gastos de caja</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>Dinero que ha salido de las cajas. La facturación no cambia; las cuentas de la noche lo descuentan.</div>
+          <div style={{ background: "var(--surface2)", borderRadius: 14, padding: 14, marginBottom: 12, fontSize: 14, maxWidth: 460 }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Facturado</span><b>{money(grandRevenue)}</b></div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}><span style={{ color: "var(--amber)" }}>− Gastos de caja</span><b style={{ color: "var(--amber)" }}>{money(gTotal)}</b></div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)", fontSize: 16 }}><span>A cuadrar (efectivo + datáfono)</span><b style={{ color: "var(--green)" }}>{money(round2(grandRevenue - gTotal))}</b></div>
+            {ev.advanced && (() => { const efe = round2(evSales.filter(s => !s.voided && s.pago === "efectivo").reduce((t, s) => t + s.price, 0)); const tar = round2(evSales.filter(s => !s.voided && s.pago === "tarjeta").reduce((t, s) => t + s.price, 0)); return (
+              <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 8 }}>Efectivo {money(efe)} − gastos {money(gTotal)} = <b style={{ color: "var(--text)" }}>{money(round2(efe - gTotal))}</b> en cajones (más el fondo) · Datáfono {money(tar)}</div>
+            ); })()}
+          </div>
+          {evGastos.slice().reverse().map(g => {
+            const pn = ev.puntos.find(p => p.id === g.puntoId)?.name || "—";
+            return (
+              <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5, opacity: g.voided ? .45 : 1 }}>
+                <span style={{ color: "var(--muted)", flexShrink: 0 }}>{new Date(g.ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</span>
+                <span style={{ flex: 1, minWidth: 0 }}><b>{g.concepto || "Gasto"}</b> <span style={{ color: "var(--muted)" }}>· 📍 {pn}{g.por && g.por !== pn ? ` · ${g.por}` : ""}{g.closureId ? " · cerrado en Z" : ""}{!g.synced ? " · ⏳" : ""}</span></span>
+                <b style={{ flexShrink: 0, textDecoration: g.voided ? "line-through" : "none", color: g.voided ? "var(--muted)" : "var(--amber)" }}>-{money(g.importe)}</b>
+                {g.voided ? <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0 }}>Anulado</span>
+                  : (role === "admin" || role === "supervisor") && !g.closureId && onVoidGasto ? (confirmGasto === g.id
+                    ? <span style={{ display: "flex", gap: 6, flexShrink: 0 }}><button onClick={() => { onVoidGasto(g); setConfirmGasto(null); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Sí</button><button onClick={() => setConfirmGasto(null)} style={S.smallBtn}>✗</button></span>
+                    : <button onClick={() => setConfirmGasto(g.id)} style={{ ...S.smallBtn, flexShrink: 0 }}>Anular</button>) : null}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Invitaciones (solo control: no suman a la facturación) */}
       {inv.n > 0 && (
@@ -2446,6 +2620,7 @@ function Reports({ ev, evSales, role, onVoid, onCierreZ, flash, onBackup, lastBa
             <div style={{ background: "var(--surface2)", borderRadius: 14, padding: 14, marginBottom: 12, fontSize: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Fondo inicial</span><b>{money(countZ.fondo)}</b></div>
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}><span style={{ color: "var(--muted)" }}>+ Ventas en efectivo</span><b>{money(countZ.efectivo)}</b></div>
+              {countZ.gastos > 0 && <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}><span style={{ color: "var(--amber)" }}>− Gastos de caja</span><b style={{ color: "var(--amber)" }}>{money(countZ.gastos)}</b></div>}
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)", fontSize: 16 }}><span>Debe haber</span><b style={{ color: "var(--green)" }}>{money(countZ.esperado)}</b></div>
             </div>
             <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>¿Cuánto has contado? (puedes dejarlo vacío)</div>
@@ -2652,6 +2827,8 @@ const S = {
   prodRowDrag: { borderColor: "var(--accent)", boxShadow: "0 12px 30px rgba(0,0,0,.45), 0 0 0 1px var(--accent)", background: "var(--surface2)" },
   grip: { display: "grid", placeItems: "center", width: 30, height: 40, margin: "-4px -4px -4px -2px", borderRadius: 8, touchAction: "none", userSelect: "none", WebkitUserSelect: "none", flexShrink: 0 },
   arrowBtn: { width: 28, height: 20, borderRadius: 6, background: "var(--surface2)", border: "1px solid var(--line)", color: "var(--text)", display: "grid", placeItems: "center", padding: 0 },
+  gastoBtn: { background: "rgba(255,180,0,.12)", color: "var(--amber)", border: "2px solid rgba(255,180,0,.55)", borderRadius: 12, padding: "8px 14px", fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, whiteSpace: "nowrap" },
+  gastoBadge: { background: "var(--amber)", color: "#1a1205", borderRadius: 20, padding: "1px 8px", fontSize: 12, fontWeight: 900 },
   inviteBtn: { background: "rgba(168,85,247,.14)", color: "#d8b4fe", border: "2px solid rgba(168,85,247,.55)", borderRadius: 12, padding: "8px 16px", fontWeight: 800 },
   inviteBtnOn: { background: "#a855f7", color: "#fff", borderColor: "#e9d5ff", boxShadow: "0 0 0 4px rgba(168,85,247,.35), 0 0 24px rgba(168,85,247,.6)" },
   inviteBanner: { display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", marginBottom: 14, borderRadius: 16, background: "linear-gradient(135deg,#7e22ce,#a855f7)", color: "#fff", border: "2px solid #e9d5ff", boxShadow: "0 10px 30px rgba(168,85,247,.45)" },

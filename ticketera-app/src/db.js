@@ -14,7 +14,8 @@ const evFromDb = (e) => ({
   puntos: (e.ticket_puntos || []).map(puntoFromDb),
 });
 const saleFromDb = (s) => ({ id: s.id, clientUuid: s.client_uuid, code: s.codigo, num: s.numero, eventId: s.evento_id, puntoId: s.punto_id, productId: s.producto_id, name: s.nombre, price: Number(s.precio), ts: new Date(s.creado_en).getTime(), voided: s.anulada, closureId: s.closure_id, operario: s.operario, pago: s.metodo_pago, invite: /^invitacion/.test(s.metodo_pago || ""), inviteValue: /^invitacion/.test(s.metodo_pago || "") ? (Number(String(s.metodo_pago).split(":")[1]) || 0) : 0, entregado: s.entregado != null ? Number(s.entregado) : null, cambio: s.cambio != null ? Number(s.cambio) : null, synced: true });
-const closureFromDb = (c) => ({ id: c.id, eventId: c.evento_id, puntoId: c.punto_id, count: c.tickets, revenue: Number(c.facturacion), voids: c.anulaciones, lines: c.detalle || [], efectivo: Number(c.efectivo || 0), tarjeta: Number(c.tarjeta || 0), fondo: Number(c.fondo || 0), contado: c.contado != null ? Number(c.contado) : null, ts: new Date(c.creado_en).getTime() });
+const gastoFromDb = (g) => ({ id: g.id, eventId: g.evento_id, puntoId: g.punto_id, importe: Number(g.importe), concepto: g.concepto || "", por: g.registrado_por || "", ts: new Date(g.creado_en).getTime(), voided: !!g.anulado, closureId: g.closure_id, synced: true });
+const closureFromDb = (c) => ({ id: c.id, eventId: c.evento_id, puntoId: c.punto_id, count: c.tickets, revenue: Number(c.facturacion), voids: c.anulaciones, lines: c.detalle || [], efectivo: Number(c.efectivo || 0), tarjeta: Number(c.tarjeta || 0), fondo: Number(c.fondo || 0), contado: c.contado != null ? Number(c.contado) : null, gastos: Number(c.gastos || 0), ts: new Date(c.creado_en).getTime() });
 
 const evToDb = (e) => ({ id: e.id, nombre: e.name, fecha: e.date, recinto: e.venue, plantilla: e.template, papel: e.paper, pie: e.footer, logo_url: e.logo, mostrar_evento: e.showEventName, mostrar_fecha: e.showDate, mostrar_hora: e.showTime, mostrar_precio: e.showPrice, anular_pin: e.anularPin, cerrada: !!e.closed, inicio: e.startsAt || null, venta_avanzada: !!e.advanced, ayuda_cambio: e.changeHelp !== false, ticket_style: e.style || {}, pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor });
 const evPatchToDb = (patch) => {
@@ -44,17 +45,27 @@ export async function loadAll() {
     .order("fecha", { ascending: true });
   if (error) throw error;
   const eventIds = (eventos || []).map(e => e.id);
-  let sales = [], closures = [];
+  let sales = [], closures = [], gastos = [];
   if (eventIds.length) {
-    const [v, c] = await Promise.all([
+    const [v, c, g] = await Promise.all([
       fetchAll(() => supabase.from("ticket_ventas").select("*").in("evento_id", eventIds).order("creado_en", { ascending: true }).order("id", { ascending: true })),
       fetchAll(() => supabase.from("ticket_cierres").select("*").in("evento_id", eventIds).order("creado_en", { ascending: true }).order("id", { ascending: true })),
+      fetchAll(() => supabase.from("ticket_gastos").select("*").in("evento_id", eventIds).order("creado_en", { ascending: true }).order("id", { ascending: true })).catch(() => []),
     ]);
     sales = v.map(saleFromDb);
     closures = c.map(closureFromDb);
+    gastos = g.map(gastoFromDb);
   }
   const events = (eventos || []).map(evFromDb);
-  return { events, sales, closures };
+  return { events, sales, closures, gastos };
+}
+export async function loadGastos(eventId) {
+  const rows = await fetchAll(() => supabase.from("ticket_gastos").select("*").eq("evento_id", eventId).order("creado_en", { ascending: true }).order("id", { ascending: true }));
+  return rows.map(gastoFromDb);
+}
+export async function loadClosures(eventId) {
+  const rows = await fetchAll(() => supabase.from("ticket_cierres").select("*").eq("evento_id", eventId).order("creado_en", { ascending: true }).order("id", { ascending: true }));
+  return rows.map(closureFromDb);
 }
 export async function loadSales(eventId) {
   const rows = await fetchAll(() => supabase.from("ticket_ventas").select("*").eq("evento_id", eventId).order("creado_en", { ascending: true }).order("id", { ascending: true }));
@@ -144,6 +155,9 @@ export const pendingCount = () => loadQ().length;
 
 // Identificadores de ventas y anulaciones aún sin subir (para no "perderlas" de la pantalla)
 export function pendingSaleUuids() { const s = new Set(); loadQ().forEach(it => { if (it.op === "vender") (it.args?.p_client_uuids || []).forEach(u => s.add(u)); }); return s; }
+// Gastos de caja aún sin subir (registrados en este equipo) y anulaciones de gasto pendientes
+export function pendingGastos() { return loadQ().filter(it => it.op === "gasto").map(it => ({ id: it.id, eventId: it.evento, puntoId: it.punto, importe: Number(it.importe), concepto: it.concepto || "", por: it.por || "", ts: new Date(it.fecha).getTime(), voided: false, closureId: null, synced: false })); }
+export function pendingGastoVoids() { const s = new Set(); loadQ().forEach(it => { if (it.op === "anularGasto") s.add(it.id); }); return s; }
 export function pendingVoidUuids() { const s = new Set(); loadQ().forEach(it => { if (it.op === "anularVenta") s.add(it.clientUuid); }); return s; }
 
 const isDuplicate = (err) => err && (err.code === "23505" || /duplicate key/i.test(err.message || ""));
@@ -160,6 +174,14 @@ async function runItem(it) {
     const { error } = await supabase.from("ticket_backups").insert({ id: it.id, evento_id: it.evento, dispositivo: it.dispositivo, tomado_en: it.tomado_en, datos: it.datos });
     if (error && !isDuplicate(error)) throw error;          // ya subida = correcta
     try { localStorage.setItem(scopedKey("ticketera_last_backup"), it.tomado_en); } catch {}
+  }
+  else if (it.op === "gasto") {
+    const { error } = await supabase.from("ticket_gastos").insert({ id: it.id, evento_id: it.evento, punto_id: it.punto, importe: it.importe, concepto: it.concepto || "", registrado_por: it.por || null, creado_en: it.fecha });
+    if (error && !isDuplicate(error)) throw error;          // ya subido = correcto
+  }
+  else if (it.op === "anularGasto") {
+    const { error } = await supabase.from("ticket_gastos").update({ anulado: true }).eq("id", it.id);
+    if (error) throw error;
   }
   else if (it.op === "setFondo") {
     const { error } = await supabase.from("ticket_puntos").update({ fondo: it.fondo, fondo_en: it.fecha, fondo_por: it.por }).eq("id", it.punto);
@@ -229,6 +251,13 @@ export function vender({ eventoId, puntoId, producto, qty, operario, folios, cli
 export function anularUltima(eventoId, puntoId, por) { return doOrQueue({ op: "anularUltima", evento: eventoId, punto: puntoId, por }); }
 export function anularVenta(clientUuid, por) { return doOrQueue({ op: "anularVenta", clientUuid, por }); }
 
+// Gasto / retirada de caja: dinero que SALE del cajón. No cambia la facturación; se descuenta en el arqueo.
+// Offline-safe: se guarda primero en el equipo y sube solo (el id lo pone la app: nunca se duplica).
+export function registrarGasto({ id, eventoId, puntoId, importe, concepto, por }) {
+  return doOrQueue({ op: "gasto", id, evento: eventoId, punto: puntoId, importe, concepto, por, fecha: new Date().toISOString() });
+}
+export function anularGasto(id, eventoId, por) { return doOrQueue({ op: "anularGasto", id, evento: eventoId, por }); }
+
 export async function cerrarZ(eventoId, puntoId, por, contado = null) {
   if (navigator.onLine) {
     try { await flushFondoDePunto(puntoId); }
@@ -285,7 +314,7 @@ export async function loadBackups(eventId, limit = 48) {
 export function exportPending() {
   return JSON.stringify({ app: "ticketera", version: 1, dispositivo: deviceName(), exportado: new Date().toISOString(), cola: loadQ() }, null, 1);
 }
-const OPS_OK = new Set(["vender", "anularUltima", "anularVenta", "cerrarZ", "backup", "setFondo"]);
+const OPS_OK = new Set(["vender", "anularUltima", "anularVenta", "cerrarZ", "backup", "setFondo", "gasto", "anularGasto"]);
 export function importPending(text) {
   if (typeof text !== "string" || text.length > 5 * 1024 * 1024) throw new Error("Archivo demasiado grande");
   const obj = JSON.parse(text);
@@ -307,6 +336,7 @@ export function importPending(text) {
 export async function resetStats(eventId) {
   const a = await supabase.from("ticket_ventas").delete().eq("evento_id", eventId);
   if (a.error) throw a.error;
+  await supabase.from("ticket_gastos").delete().eq("evento_id", eventId);
   const b = await supabase.from("ticket_cierres").delete().eq("evento_id", eventId);
   if (b.error) throw b.error;
   await supabase.from("ticket_backups").delete().eq("evento_id", eventId);
@@ -327,6 +357,7 @@ export function subscribeEvento(eventoId, onChange) {
   const ch = supabase.channel("ev-" + eventoId)
     .on("postgres_changes", { event: "*", schema: "public", table: "ticket_ventas", filter: `evento_id=eq.${eventoId}` }, onChange)
     .on("postgres_changes", { event: "*", schema: "public", table: "ticket_cierres", filter: `evento_id=eq.${eventoId}` }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_gastos", filter: `evento_id=eq.${eventoId}` }, onChange)
     .subscribe();
   return () => supabase.removeChannel(ch);
 }
