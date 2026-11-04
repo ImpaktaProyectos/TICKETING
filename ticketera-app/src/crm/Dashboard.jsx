@@ -2,9 +2,9 @@
 // Cuánto ha dejado cada evento y la evolución por meses y años, con los datos de toda la cuenta.
 import React, { useEffect, useMemo, useState } from "react";
 import * as crm from "./crmdb";
-import { money, r2, fechaCorta, useIsMobile, C } from "./ui";
+import { money, r2, fechaCorta, useIsMobile, C, Icon, Tile } from "./ui";
 import { GRUPOS, resumenEvento } from "./modelo";
-import { gcatIco } from "./Gastos";
+import { gcatInfo } from "./Gastos";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const mesDe = (iso) => (iso && /^\d{4}-\d{2}/.test(iso) ? iso.slice(0, 7) : null);
@@ -26,7 +26,7 @@ export function Dashboard({ ev, events, sales, gastosCaja, onSelectEvent, refres
       .sort((a, b) => String(b.ev.date || "").localeCompare(String(a.ev.date || "")));
   }, [cuenta, events, sales, gastosCaja]);
 
-  if (error) return <div style={{ ...C.panel, color: "var(--amber)", fontWeight: 700 }}>⚠️ No se han podido cargar los datos del dashboard. Revisa la conexión.</div>;
+  if (error) return <div style={{ ...C.panel, color: "var(--amber)", fontWeight: 700 }}><Icon n="alert" s={16} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />No se han podido cargar los datos del dashboard. Revisa la conexión.</div>;
   if (!cuenta) return <div style={{ color: "var(--muted)", padding: 30, textAlign: "center" }}>Calculando…</div>;
 
   const R = resumenes.find(r => r.ev.id === ev.id);
@@ -36,8 +36,8 @@ export function Dashboard({ ev, events, sales, gastosCaja, onSelectEvent, refres
   return (
     <div>
       <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
-        <button onClick={() => setModo("evento")} style={{ ...C.seg, padding: "10px 16px", fontSize: 14, ...(modo === "evento" ? C.segOn : {}) }}>🎉 {ev.name}</button>
-        <button onClick={() => setModo("todos")} style={{ ...C.seg, padding: "10px 16px", fontSize: 14, ...(modo === "todos" ? C.segOn : {}) }}>📅 Todos los eventos</button>
+        <button onClick={() => setModo("evento")} style={{ ...C.seg, padding: "10px 16px", fontSize: 14, ...(modo === "evento" ? C.segOn : {}) }}><Icon n="calendar" s={16} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />{ev.name}</button>
+        <button onClick={() => setModo("todos")} style={{ ...C.seg, padding: "10px 16px", fontSize: 14, ...(modo === "todos" ? C.segOn : {}) }}><Icon n="chart" s={16} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />Todos los eventos</button>
       </div>
       {modo === "evento" && R && <VistaEvento R={R} anterior={anterior} isMobile={isMobile} />}
       {modo === "todos" && <VistaTodos resumenes={resumenes} periodo={periodo} setPeriodo={setPeriodo} isMobile={isMobile} onAbrir={(id) => { onSelectEvent(id); setModo("evento"); }} />}
@@ -66,22 +66,22 @@ function VistaEvento({ R, anterior, isMobile }) {
 
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
         <div style={C.panel}>
-          <div style={{ fontWeight: 900, marginBottom: 10 }}>💶 De dónde viene el dinero</div>
+          <div style={{ fontWeight: 900, display: "flex", alignItems: "center", marginBottom: 10 }}><Icon n="wallet" s={17} c="var(--accent)" style={{ verticalAlign: "-3px", marginRight: 6 }} />De dónde viene el dinero</div>
           {grupos.length === 0 ? <div style={C.empty}>Sin ingresos todavía.</div> : (<>
             <div style={{ display: "flex", height: 18, borderRadius: 9, overflow: "hidden", marginBottom: 12, background: "var(--surface2)" }}>
               {grupos.map(g => <div key={g.k} title={`${g.t}: ${money(g.v)}`} style={{ width: `${g.v / R.ingresos * 100}%`, background: g.c }} />)}
             </div>
-            {grupos.map(g => <div key={g.k} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0", borderTop: "1px solid var(--line)", fontSize: 14 }}><span style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: g.c }} />{g.ico} {g.t}</span><span><b>{money(g.v)}</b> <span style={{ color: "var(--muted)", fontSize: 12 }}>{Math.round(g.v / R.ingresos * 100)} %</span></span></div>)}
+            {grupos.map(g => <div key={g.k} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0", borderTop: "1px solid var(--line)", fontSize: 14 }}><span style={{ display: "flex", alignItems: "center", gap: 8 }}><Tile n={g.i} c={g.c} s={26} />{g.t}</span><span><b>{money(g.v)}</b> <span style={{ color: "var(--muted)", fontSize: 12 }}>{Math.round(g.v / R.ingresos * 100)} %</span></span></div>)}
           </>)}
         </div>
         <div style={C.panel}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
-            <div style={{ fontWeight: 900 }}>🧾 En qué se va</div>
+            <div style={{ fontWeight: 900, display: "flex", alignItems: "center", gap: 8 }}><Icon n="receipt" s={17} c="var(--accent)" />En qué se va</div>
             <div style={{ fontSize: 11, color: "var(--muted)" }}>▏ marca = previsto</div>
           </div>
           {cats.length === 0 ? <div style={C.empty}>Sin gastos todavía.</div> : cats.map(([k, v]) => (
             <div key={k} style={{ padding: "6px 0", borderTop: "1px solid var(--line)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13.5, marginBottom: 4 }}><span>{gcatIco(k)} {k}</span><b>{money(v.total)}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13.5, marginBottom: 4 }}><span style={{ display: "flex", alignItems: "center", gap: 8 }}><Tile n={gcatInfo(k).i} c={gcatInfo(k).c} s={24} />{k}</span><b>{money(v.total)}</b></div>
               <div style={{ position: "relative", height: 8, borderRadius: 4, background: "var(--surface2)" }}>
                 <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${v.total / maxCat * 100}%`, borderRadius: 4, background: v.previsto && v.total > v.previsto + 0.005 ? "var(--red)" : "var(--accent)" }} />
                 {v.previsto > 0 && <div style={{ position: "absolute", top: -3, bottom: -3, width: 2, left: `calc(${v.previsto / maxCat * 100}% - 1px)`, background: "#fff", opacity: .85 }} />}
@@ -93,7 +93,7 @@ function VistaEvento({ R, anterior, isMobile }) {
 
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr", gap: 12 }}>
         <div style={C.panel}>
-          <div style={{ fontWeight: 900, marginBottom: 10 }}>🕐 Ventas del TPV por hora {pico != null && <span style={{ color: "var(--muted)", fontWeight: 600, fontSize: 12.5 }}>· pico a las {String(pico).padStart(2, "0")}:00</span>}</div>
+          <div style={{ fontWeight: 900, marginBottom: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}><Icon n="clock" s={17} c="var(--accent)" />Ventas del TPV por hora {pico != null && <span style={{ color: "var(--muted)", fontWeight: 600, fontSize: 12.5 }}>· pico a las {String(pico).padStart(2, "0")}:00</span>}</div>
           {horas.length === 0 ? <div style={C.empty}>Sin ventas en el TPV.</div> : (
             <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 120 }}>
               {horas.map(h => <div key={h} style={{ flex: 1, textAlign: "center", minWidth: 0 }} title={`${h}:00 · ${R.horas[h]} tickets`}>
@@ -105,7 +105,7 @@ function VistaEvento({ R, anterior, isMobile }) {
           )}
         </div>
         <div style={C.panel}>
-          <div style={{ fontWeight: 900, marginBottom: 10 }}>🎯 Presupuesto</div>
+          <div style={{ fontWeight: 900, display: "flex", alignItems: "center", marginBottom: 10 }}><Icon n="scale" s={17} c="var(--accent)" style={{ verticalAlign: "-3px", marginRight: 6 }} />Presupuesto</div>
           <Fila l="Previsto" v={money(R.G.previsto)} />
           <Fila l="Gastado real" v={money(R.G.real)} />
           <Fila l="Pendiente de pagar" v={money(R.G.pendiente)} c={R.G.pendiente ? "var(--amber)" : undefined} />
@@ -163,18 +163,18 @@ function VistaTodos({ resumenes, periodo, setPeriodo, isMobile, onAbrir }) {
 
       <div style={{ ...C.panel, marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
-          <div style={{ fontWeight: 900 }}>📈 Por mes</div>
+          <div style={{ fontWeight: 900, display: "flex", alignItems: "center" }}><Icon n="trend" s={17} c="var(--accent)" style={{ verticalAlign: "-3px", marginRight: 6 }} />Por mes</div>
           <div style={{ display: "flex", gap: 12, fontSize: 11.5, color: "var(--muted)" }}><Ley c="var(--accent)" t="Ingresos" /><Ley c="#5b6275" t="Gastos" /><Ley c="var(--green)" t="Beneficio" linea /></div>
         </div>
         {meses.length === 0 ? <div style={C.empty}>No hay eventos con fecha en este periodo.</div> : <GraficoMeses meses={meses} porMes={porMes} isMobile={isMobile} />}
       </div>
 
       <div style={C.panel}>
-        <div style={{ fontWeight: 900, marginBottom: 6 }}>🏆 Ranking de eventos <span style={{ color: "var(--muted)", fontWeight: 600, fontSize: 12.5 }}>· toca uno para verlo</span></div>
+        <div style={{ fontWeight: 900, marginBottom: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}><Icon n="award" s={17} c="var(--accent)" />Ranking de eventos <span style={{ color: "var(--muted)", fontWeight: 600, fontSize: 12.5 }}>· toca uno para verlo</span></div>
         {ranking.length === 0 && <div style={C.empty}>Aún no hay eventos con ingresos o gastos en este periodo.</div>}
         {ranking.map((r, i) => (
           <button key={r.ev.id} onClick={() => onAbrir(r.ev.id)} style={{ ...C.ingRow, flexWrap: isMobile ? "wrap" : "nowrap" }}>
-            <span style={{ width: 28, fontWeight: 900, color: "var(--muted)", flexShrink: 0 }}>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}</span>
+            <span style={{ width: 28, fontWeight: 900, color: "var(--muted)", flexShrink: 0 }}>{i < 3 ? <span style={{ width: 24, height: 24, borderRadius: 8, display: "inline-grid", placeItems: "center", background: ["#ffb400", "#cbd5e1", "#d97706"][i], color: "#1a1206", fontSize: 13 }}>{i + 1}</span> : i + 1}</span>
             <span style={{ flex: 1, minWidth: 140, textAlign: "left" }}><b style={{ display: "block" }}>{r.ev.name}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>{r.ev.date ? fechaCorta(r.ev.date) + " " + r.ev.date.slice(0, 4) : "Sin fecha"}</span></span>
             <span style={{ display: "flex", gap: isMobile ? 10 : 18, fontSize: 13, textAlign: "right", flexShrink: 0 }}>
               <span><span style={{ display: "block", color: "var(--muted)", fontSize: 11 }}>Ingresos</span>{money(r.ingresos)}</span>

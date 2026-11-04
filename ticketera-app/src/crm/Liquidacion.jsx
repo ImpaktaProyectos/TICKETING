@@ -2,7 +2,7 @@
 // A recibir = beneficio × % del socio − dinero del evento que tiene + lo que pagó de su bolsillo.
 // La suma de lo que se paga a los socios = dinero de la empresa (se comprueba siempre).
 import React, { useState } from "react";
-import { money, r2, useIsMobile, Dot, C } from "./ui";
+import { money, r2, useIsMobile, Dot, C, Icon, Tile } from "./ui";
 
 const pctTxt = (v) => String(r2(v)).replace(".", ",") + " %";
 
@@ -79,26 +79,26 @@ export function Liquidacion({ L, guardada, busy, onCerrar, onReabrir, onMarcarPa
     <div>
       {cerrada && (
         <div style={{ ...C.panel, borderColor: "var(--green)", background: "rgba(34,211,166,.08)", marginBottom: 14, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 28 }}>🔒</span>
+          <Tile n="lock" c="var(--green)" s={42} />
           <span style={{ flex: "1 1 220px" }}>
             <b style={{ display: "block" }}>Liquidación cerrada el {new Date(guardada.cerradaEn).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</b>
             <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Las cifras están congeladas. {pagados}/{(V.filas || []).length} pagos hechos.</span>
           </span>
           {confirmReabrir
-            ? <span style={{ display: "flex", gap: 6 }}><button disabled={busy} onClick={() => { setConfirmReabrir(false); onReabrir(); }} style={{ ...C.small, color: "var(--amber)", borderColor: "var(--amber)" }}>✓ Sí, reabrir</button><button onClick={() => setConfirmReabrir(false)} style={C.small}>✗</button></span>
+            ? <span style={{ display: "flex", gap: 6 }}><button disabled={busy} onClick={() => { setConfirmReabrir(false); onReabrir(); }} style={{ ...C.small, color: "var(--amber)", borderColor: "var(--amber)" }}><Icon n="check" s={16} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />Sí, reabrir</button><button onClick={() => setConfirmReabrir(false)} style={C.small} aria-label="Cancelar"><Icon n="x" s={14} /></button></span>
             : <button onClick={() => setConfirmReabrir(true)} style={C.small}>↺ Reabrir</button>}
         </div>
       )}
-      {cambios && <div style={{ ...C.panel, borderColor: "var(--amber)", color: "var(--amber)", fontWeight: 700, marginBottom: 14 }}>⚠️ Desde el cierre han cambiado ingresos, gastos o socios: ahora el beneficio sería {money(L.beneficio)}. Reabre la liquidación si quieres recalcularla.</div>}
+      {cambios && <div style={{ ...C.panel, borderColor: "var(--amber)", color: "var(--amber)", fontWeight: 700, marginBottom: 14 }}><Icon n="alert" s={16} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />Desde el cierre han cambiado ingresos, gastos o socios: ahora el beneficio sería {money(L.beneficio)}. Reabre la liquidación si quieres recalcularla.</div>}
 
       {/* Beneficio a repartir */}
       <div style={{ ...C.hero, padding: isMobile ? 16 : 22, marginBottom: 14 }}>
         <div style={C.label}>Beneficio a repartir · {V.evento}</div>
         <div style={{ fontSize: isMobile ? 38 : 46, fontWeight: 900, letterSpacing: "-.02em", lineHeight: 1.05, margin: "4px 0 8px", color: V.beneficio >= 0 ? "var(--green)" : "var(--red)" }}>{money(V.beneficio)}</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <span style={C.tag}>💶 Ingresos cobrados {money(V.ingresosCobrados)}</span>
-          <span style={C.tag}>🧾 Gastos {money(V.gastosTotal)}</span>
-          <span style={C.tag}>🏢 Dinero de la empresa {money(V.cajaEmpresa)}</span>
+          <span style={C.tag}><Icon n="wallet" s={14} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />Ingresos cobrados {money(V.ingresosCobrados)}</span>
+          <span style={C.tag}><Icon n="receipt" s={14} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />Gastos {money(V.gastosTotal)}</span>
+          <span style={C.tag}><Icon n="building" s={14} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />Dinero de la empresa {money(V.cajaEmpresa)}</span>
         </div>
         {V.beneficio < 0 && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 8 }}>El evento pierde dinero: la misma cuenta dice cuánto pone cada socio.</div>}
       </div>
@@ -129,8 +129,8 @@ export function Liquidacion({ L, guardada, busy, onCerrar, onReabrir, onMarcarPa
               <div style={{ fontSize: 30, fontWeight: 900, color: recibe ? "var(--green)" : "var(--amber)" }}>{money(Math.abs(f.resultado))}</div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <a href={waLink(V, f)} target="_blank" rel="noopener noreferrer" style={{ ...C.ghost, flex: 1, textAlign: "center", textDecoration: "none", background: "rgba(37,211,102,.14)", borderColor: "rgba(37,211,102,.55)", color: "#4ade80", fontWeight: 900 }}>📲 WhatsApp</a>
-              {cerrada && <button disabled={busy} onClick={() => onMarcarPagado(f.socioId, !f.pagado)} style={{ ...C.ghost, flex: 1, fontWeight: 900, ...(f.pagado ? { background: "var(--green)", color: "#04241b", borderColor: "var(--green)" } : {}) }}>{f.pagado ? "✓ Hecho" : recibe ? "Marcar pagado" : "Marcar recibido"}</button>}
+              <a href={waLink(V, f)} target="_blank" rel="noopener noreferrer" style={{ ...C.ghost, flex: 1, textAlign: "center", textDecoration: "none", background: "rgba(37,211,102,.14)", borderColor: "rgba(37,211,102,.55)", color: "#4ade80", fontWeight: 900 }}><Icon n="whatsapp" s={16} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />WhatsApp</a>
+              {cerrada && <button disabled={busy} onClick={() => onMarcarPagado(f.socioId, !f.pagado)} style={{ ...C.ghost, flex: 1, fontWeight: 900, ...(f.pagado ? { background: "var(--green)", color: "#04241b", borderColor: "var(--green)" } : {}) }}>{f.pagado ? <><Icon n="check" s={15} w={2.6} style={{ verticalAlign: "-3px", marginRight: 6 }} />Hecho</> : recibe ? "Marcar pagado" : "Marcar recibido"}</button>}
             </div>
             {!f.telefono && <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6, textAlign: "center" }}>Sin teléfono: WhatsApp te dejará elegir el contacto.</div>}
           </div>); })}
@@ -139,7 +139,7 @@ export function Liquidacion({ L, guardada, busy, onCerrar, onReabrir, onMarcarPa
       {/* Comprobación */}
       {(V.filas || []).length > 0 && (
         <div style={{ ...C.panel, marginBottom: 14, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 24 }}>{V.cuadra ? "✅" : "⚠️"}</span>
+          <Tile n={V.cuadra ? "check" : "alert"} c={V.cuadra ? "var(--green)" : "var(--amber)"} s={38} />
           <span style={{ flex: "1 1 240px", fontSize: 13.5 }}>
             <b>{V.cuadra ? "La cuenta cuadra." : "La cuenta no cuadra."}</b> Lo que se paga a los socios ({money(r2((V.filas || []).reduce((t, f) => t + f.resultado, 0)))}) es el dinero de la empresa: {money(V.ingEmpresa)} cobrados − {money(V.gEmpresa)} de gastos = {money(V.cajaEmpresa)}.
           </span>
@@ -147,11 +147,11 @@ export function Liquidacion({ L, guardada, busy, onCerrar, onReabrir, onMarcarPa
       )}
 
       {!cerrada && L.filas.length > 0 && (
-        <button disabled={!puedeCerrar || busy} onClick={() => onCerrar(L)} style={{ ...C.primary, width: "100%", padding: 18, fontSize: 17, opacity: puedeCerrar && !busy ? 1 : .45 }}>🔒 Cerrar liquidación y congelar cifras</button>
+        <button disabled={!puedeCerrar || busy} onClick={() => onCerrar(L)} style={{ ...C.primary, width: "100%", padding: 18, fontSize: 17, opacity: puedeCerrar && !busy ? 1 : .45 }}><Icon n="lock" s={18} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />Cerrar liquidación y congelar cifras</button>
       )}
     </div>
   );
 }
 
 const Linea = ({ l, v, c }) => <div style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "5px 0", fontSize: 14 }}><span style={{ color: "var(--muted)" }}>{l}</span><b style={{ color: c || "var(--text)" }}>{v}</b></div>;
-const Aviso = ({ children, tipo }) => <div style={{ ...C.panel, padding: "10px 14px", borderColor: tipo === "info" ? "var(--line)" : "rgba(255,180,0,.55)", color: tipo === "info" ? "var(--muted)" : "var(--amber)", fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>{tipo === "info" ? "ℹ️" : "⚠️"} {children}</div>;
+const Aviso = ({ children, tipo }) => <div style={{ ...C.panel, padding: "10px 14px", borderColor: tipo === "info" ? "var(--line)" : "rgba(255,180,0,.55)", color: tipo === "info" ? "var(--muted)" : "var(--amber)", fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><Icon n={tipo === "info" ? "file" : "alert"} s={17} />{children}</div>;

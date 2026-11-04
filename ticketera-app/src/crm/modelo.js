@@ -3,22 +3,23 @@ import { r2, isInvite } from "./ui";
 import { totalesGastos } from "./Gastos";
 
 export const GRUPOS = [
-  { k: "barra", t: "Barras", ico: "🍹", c: "#ff5a3c" },
-  { k: "entradas", t: "Entradas", ico: "🎟️", c: "#a855f7" },
-  { k: "merch", t: "Merchandising", ico: "👕", c: "#3b82f6" },
-  { k: "patrocinio", t: "Patrocinios", ico: "🤝", c: "#22d3a6" },
-  { k: "otros", t: "Otros", ico: "✨", c: "#ffb400" },
+  { k: "barra", t: "Barras", i: "glass", c: "#ff5a3c" },
+  { k: "entradas", t: "Entradas", i: "ticket", c: "#a855f7" },
+  { k: "merch", t: "Merchandising", i: "shirt", c: "#3b82f6" },
+  { k: "patrocinio", t: "Patrocinios", i: "award", c: "#22d3a6" },
+  { k: "otros", t: "Otros", i: "sparkle", c: "#ffb400" },
 ];
+export const grupoInfo = (k) => GRUPOS.find(g => g.k === k) || GRUPOS[4];
 export const CATS = [
-  { k: "Entradas anticipadas", g: "entradas", ico: "🎟️" },
-  { k: "Ticketera online", g: "entradas", ico: "🌐" },
-  { k: "Merchandising", g: "merch", ico: "👕" },
-  { k: "Patrocinio", g: "patrocinio", ico: "🤝" },
-  { k: "Subvención", g: "otros", ico: "🏛️" },
-  { k: "Guardarropa", g: "otros", ico: "🧥" },
-  { k: "Otros", g: "otros", ico: "✨" },
-];
-export const catInfo = (k) => CATS.find(c => c.k === k) || { k, g: "otros", ico: "✨" };
+  { k: "Entradas anticipadas", g: "entradas", i: "ticket" },
+  { k: "Ticketera online", g: "entradas", i: "globe" },
+  { k: "Merchandising", g: "merch", i: "shirt" },
+  { k: "Patrocinio", g: "patrocinio", i: "award" },
+  { k: "Subvención", g: "otros", i: "building" },
+  { k: "Guardarropa", g: "otros", i: "hanger" },
+  { k: "Otros", g: "otros", i: "sparkle" },
+].map(c => ({ ...c, c: GRUPOS.find(g => g.k === c.g).c }));
+export const catInfo = (k) => CATS.find(c => c.k === k) || { k, g: "otros", i: "sparkle", c: "#ffb400" };
 export const fuenteAuto = (p) => /taquill|entrada|ticket/i.test(p.name) ? "entradas" : /merch|camiset/i.test(p.name) ? "merch" : "barra";
 
 // Resumen de un evento con los datos de la cuenta (ventas del TPV + ingresos y gastos del CRM)
