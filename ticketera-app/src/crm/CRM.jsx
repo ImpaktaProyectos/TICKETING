@@ -3,18 +3,8 @@
 // Lo vendido en las barras se LEE de las ventas que ya tiene la app (nunca se copia ni se modifica).
 import React, { useEffect, useMemo, useState } from "react";
 import * as crm from "./crmdb";
-
-const money = (v) => new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(v || 0);
-const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
-const hoy = () => new Date().toISOString().slice(0, 10);
-const fechaCorta = (iso) => { try { return new Date(iso + "T12:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "short" }); } catch { return iso; } };
-const parseImporte = (t) => { const v = parseFloat(String(t || "").replace(/\s/g, "").replace(",", ".")); return Number.isFinite(v) ? r2(v) : 0; };
-const isInvite = (s) => !!(s && (s.invite || /^invitacion/.test(s.pago || "")));
-function useIsMobile(bp = 720) {
-  const [m, setM] = useState(typeof window !== "undefined" ? window.innerWidth < bp : false);
-  useEffect(() => { const h = () => setM(window.innerWidth < bp); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, [bp]);
-  return m;
-}
+import { money, r2, hoy, fechaCorta, parseImporte, isInvite, useIsMobile, Dot, C } from "./ui";
+import { Gastos, totalesGastos } from "./Gastos";
 
 // Grupos de ingreso (las tarjetas de arriba) y categorías por defecto
 const GRUPOS = [
@@ -39,7 +29,7 @@ const FUENTES_PUNTO = [["barra", "🍹 Barra"], ["entradas", "🎟️ Entradas"]
 const COLORES = ["#ff5a3c", "#a855f7", "#3b82f6", "#22d3a6", "#ffb400", "#ec4899", "#14b8a6", "#f97316"];
 const fuenteAuto = (p) => /taquill|entrada|ticket/i.test(p.name) ? "entradas" : /merch|camiset/i.test(p.name) ? "merch" : "barra";
 
-export default function CRM({ events, sales, ev, onSelectEvent, onExit, flash }) {
+export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent, onExit, flash }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState("ingresos");
   const [data, setData] = useState(null);      // { socios, participacion, ingresos, fuentes }
@@ -89,6 +79,7 @@ export default function CRM({ events, sales, ev, onSelectEvent, onExit, flash })
     Object.keys(porGrupo).forEach(k => { porGrupo[k] = r2(porGrupo[k]); });
     return { porGrupo, tpv, manual, pendiente, total: r2(tpv + manual), enSocios };
   }, [barras, ingresos]);
+  const G = useMemo(() => totalesGastos(ev, data?.gastos || [], gastosCaja), [ev, data?.gastos, gastosCaja]);
 
   const wrap = { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--text)" };
   return (
@@ -107,7 +98,7 @@ export default function CRM({ events, sales, ev, onSelectEvent, onExit, flash })
       </header>
 
       <nav style={{ ...C.tabs, padding: isMobile ? "0 12px" : "0 22px" }}>
-        {[["ingresos", "💶 Ingresos"], ["socios", "🤝 Socios"]].map(([k, l]) =>
+        {[["ingresos", "💶 Ingresos"], ["gastos", "🧾 Gastos"], ["socios", "🤝 Socios"]].map(([k, l]) =>
           <button key={k} onClick={() => setTab(k)} style={{ ...C.tab, ...(tab === k ? C.tabOn : {}) }}>{l}</button>)}
       </nav>
 
@@ -121,8 +112,14 @@ export default function CRM({ events, sales, ev, onSelectEvent, onExit, flash })
               onFuente={(pid, f) => run(() => crm.setFuentePunto(pid, f), "Tipo de ingreso actualizado")}
               onEntregar={(socioId) => run(() => crm.setEntregado(ingresos.filter(i => i.cobradoPor === socioId && !i.entregado && i.estado === "cobrado").map(i => i.id), true), "Marcado como entregado")} />
           )}
+          {data && tab === "gastos" && (
+            <Gastos ev={ev} events={events} gastos={data.gastos} gastosCaja={gastosCaja} socios={socios} socioById={socioById} ingresosTotal={T.total} isMobile={isMobile} busy={busy}
+              onSave={(x) => run(() => crm.saveGasto({ ...x, eventoId: ev.id }), x.id ? "Gasto actualizado" : "Gasto añadido")}
+              onDelete={(x) => run(() => crm.deleteGasto(x.id), "Gasto borrado")}
+              onCopiar={(desde) => run(async () => { const nn = await crm.copiarPresupuesto(desde.id, ev.id); if (!nn) throw new Error("vacío"); }, `Presupuesto de ${desde.name} copiado`)} />
+          )}
           {data && tab === "socios" && (
-            <Socios ev={ev} data={data} T={T} isMobile={isMobile} busy={busy}
+            <Socios ev={ev} data={data} T={T} G={G} isMobile={isMobile} busy={busy}
               onGuardarSocio={(s) => run(() => crm.saveSocio(s), s.id ? "Socio actualizado" : "Socio añadido")}
               onActivo={(s, a) => run(() => crm.setSocioActivo(s.id, a), a ? "Socio reactivado" : "Socio quitado")}
               onReparto={(lista) => run(() => crm.saveParticipacion(ev.id, lista), "Reparto guardado")} />
@@ -318,7 +315,7 @@ function IngresoForm({ ev, ingreso, socios, usadas, busy, onClose, onSave, onDel
 }
 
 /* ===================== SOCIOS ===================== */
-function Socios({ ev, data, T, isMobile, busy, onGuardarSocio, onActivo, onReparto }) {
+function Socios({ ev, data, T, G, isMobile, busy, onGuardarSocio, onActivo, onReparto }) {
   const activos = data.socios.filter(s => s.activo);
   const inactivos = data.socios.filter(s => !s.activo);
   const inicial = () => Object.fromEntries(data.participacion.map(p => [p.socioId, String(p.porcentaje).replace(".", ",")]));
@@ -346,12 +343,13 @@ function Socios({ ev, data, T, isMobile, busy, onGuardarSocio, onActivo, onRepar
         </div>
         <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>Marca quién participa en este evento y con qué porcentaje. Puede cambiar de un evento a otro.</div>
         {activos.length === 0 && <div style={C.empty}>Primero añade los socios aquí abajo.</div>}
-        {activos.map(s => { const on = rep[s.id] != null; const tiene = T.enSocios[s.id] || 0; return (
+        {activos.map(s => { const on = rep[s.id] != null; const tiene = T.enSocios[s.id] || 0; const pago = (G?.pagadoSocio || {})[s.id] || 0; return (
           <div key={s.id} style={{ ...C.row, opacity: on ? 1 : .6 }}>
             <button onClick={() => toggle(s.id)} style={{ ...C.check, ...(on ? C.checkOn : {}) }} aria-label={on ? "Quitar del evento" : "Añadir al evento"}>{on ? "✓" : ""}</button>
             <span style={{ flex: 1, minWidth: 0 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800 }}><Dot c={s.color} />{s.nombre}</span>
               {tiene > 0 && <span style={{ display: "block", fontSize: 12, color: "var(--amber)", fontWeight: 700, marginTop: 2 }}>Tiene {money(tiene)} del evento</span>}
+              {pago > 0 && <span style={{ display: "block", fontSize: 12, color: "#60a5fa", fontWeight: 700, marginTop: 2 }}>Ha adelantado {money(pago)} de su bolsillo</span>}
             </span>
             {on && <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
               <input inputMode="decimal" value={rep[s.id]} onChange={e => setRep(r => ({ ...r, [s.id]: e.target.value.replace(/[^\d.,]/g, "").slice(0, 7) }))} style={{ ...C.input, width: 82, textAlign: "right", fontWeight: 900, fontSize: 16, padding: "8px 10px" }} aria-label={`Porcentaje de ${s.nombre}`} />
@@ -406,37 +404,3 @@ function Socios({ ev, data, T, isMobile, busy, onGuardarSocio, onActivo, onRepar
   );
 }
 
-const Dot = ({ c }) => <span style={{ width: 10, height: 10, borderRadius: "50%", background: c || "var(--muted)", display: "inline-block", flexShrink: 0 }} />;
-
-/* ===================== ESTILOS DEL CRM ===================== */
-const C = {
-  head: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "linear-gradient(90deg,#ff5a3c,#ff7a3c)", color: "#fff", flexShrink: 0, paddingTop: "max(10px, env(safe-area-inset-top))" },
-  crmPill: { background: "#fff", color: "#ff5a3c", fontWeight: 900, letterSpacing: 2, fontSize: 13, borderRadius: 8, padding: "4px 10px" },
-  headSelect: { flex: 1, minWidth: 0, background: "rgba(0,0,0,.18)", color: "#fff", border: "1px solid rgba(255,255,255,.35)", borderRadius: 10, padding: "9px 10px", fontWeight: 800, outline: "none" },
-  backBtn: { flexShrink: 0, background: "#fff", color: "#1a1205", border: "none", borderRadius: 10, padding: "9px 14px", fontWeight: 900, fontSize: 14, cursor: "pointer" },
-  tabs: { display: "flex", gap: 4, background: "var(--surface)", borderBottom: "1px solid var(--line)", flexShrink: 0, overflowX: "auto" },
-  tab: { background: "transparent", border: "none", borderBottom: "3px solid transparent", color: "var(--muted)", padding: "13px 14px 11px", fontWeight: 800, fontSize: 15, cursor: "pointer", whiteSpace: "nowrap" },
-  tabOn: { color: "var(--text)", borderBottomColor: "var(--accent)" },
-  hero: { background: "radial-gradient(120% 140% at 0% 0%, rgba(255,90,60,.22), transparent 60%), var(--surface)", border: "1px solid var(--line)", borderRadius: 18 },
-  label: { fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: 800, marginBottom: 6 },
-  tag: { display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 700, border: "1px solid var(--line)", borderRadius: 20, padding: "4px 10px", background: "var(--surface2)" },
-  card: { background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: 14, minWidth: 0 },
-  panel: { background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 16 },
-  row: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 0", borderTop: "1px solid var(--line)" },
-  ingRow: { display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "11px 8px", borderTop: "1px solid var(--line)", background: "transparent", border: "none", borderTopStyle: "solid", borderTopWidth: 1, borderTopColor: "var(--line)", color: "var(--text)", cursor: "pointer", borderRadius: 0 },
-  live: { fontSize: 11, color: "var(--green)", fontWeight: 800, marginLeft: 6 },
-  seg: { display: "inline-flex", alignItems: "center", gap: 6, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 20, padding: "7px 12px", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" },
-  segOn: { background: "var(--accent)", borderColor: "var(--accent)", color: "#fff" },
-  primary: { background: "var(--accent)", color: "#fff", border: "none", borderRadius: 12, padding: "12px 18px", fontWeight: 900, fontSize: 15, cursor: "pointer" },
-  ghost: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 12, padding: "11px 16px", fontWeight: 700, cursor: "pointer" },
-  small: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" },
-  input: { width: "100%", boxSizing: "border-box", background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "11px 13px", fontSize: 15, outline: "none" },
-  empty: { textAlign: "center", padding: "22px 12px", color: "var(--muted)", border: "2px dashed var(--line)", borderRadius: 14, fontSize: 13.5 },
-  modalWrap: { position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,.72)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center" },
-  modal: { width: "100%", maxWidth: 520, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 22, padding: 20, paddingBottom: "calc(20px + env(safe-area-inset-bottom))", maxHeight: "92dvh", overflow: "auto", boxSizing: "border-box", alignSelf: "center", margin: "0 auto" },
-  toggleRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, fontSize: 14, fontWeight: 700 },
-  switch: { width: 44, height: 24, borderRadius: 20, border: "none", position: "relative", cursor: "pointer", flexShrink: 0, padding: 0 },
-  knob: { position: "absolute", top: 2, left: 0, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "transform .15s" },
-  check: { width: 28, height: 28, borderRadius: 8, border: "2px solid var(--line)", background: "var(--surface2)", color: "#fff", fontWeight: 900, flexShrink: 0, cursor: "pointer" },
-  checkOn: { background: "var(--accent)", borderColor: "var(--accent)" },
-};

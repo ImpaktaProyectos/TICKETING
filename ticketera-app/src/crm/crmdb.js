@@ -14,18 +14,27 @@ const ingresoFrom = (i) => ({
   origen: i.origen, nota: i.nota || "", creadoEn: i.creado_en,
 });
 
+const gastoFrom = (g) => ({
+  id: g.id, eventoId: g.evento_id, tipo: g.tipo || "normal", padreId: g.padre_id || null, categoria: g.categoria, concepto: g.concepto || "",
+  proveedor: g.proveedor || "", previsto: g.previsto != null ? n(g.previsto) : null, real: g.real != null ? n(g.real) : null,
+  personas: g.personas != null ? Number(g.personas) : null, precioHora: g.precio_hora != null ? n(g.precio_hora) : null, horas: g.horas != null ? n(g.horas) : null,
+  estado: g.estado || "previsto", pagadoPor: g.pagado_por || null, fecha: g.fecha || null, nota: g.nota || "", creadoEn: g.creado_en,
+});
+
 export async function loadCRM(eventoId) {
-  const [s, es, ing, fp] = await Promise.all([
+  const [s, es, ing, fp, gs] = await Promise.all([
     supabase.from("ticket_crm_socios").select("*").order("creado_en", { ascending: true }),
     supabase.from("ticket_crm_evento_socios").select("*").eq("evento_id", eventoId),
     supabase.from("ticket_crm_ingresos").select("*").eq("evento_id", eventoId).order("fecha", { ascending: false }).order("creado_en", { ascending: false }),
     supabase.from("ticket_crm_fuentes_punto").select("*"),
+    supabase.from("ticket_crm_gastos").select("*").eq("evento_id", eventoId).order("creado_en", { ascending: true }),
   ]);
   return {
     socios: ok(s).map(socioFrom),
     participacion: ok(es).map(partFrom),
     ingresos: ok(ing).map(ingresoFrom),
     fuentes: Object.fromEntries(ok(fp).map(x => [x.punto_id, x.fuente])),
+    gastos: ok(gs).map(gastoFrom),
   };
 }
 
@@ -79,4 +88,42 @@ export async function setEntregado(ids, entregado) {
 /* ---------- Tipo de ingreso de cada barra del TPV ---------- */
 export async function setFuentePunto(puntoId, fuente) {
   ok(await supabase.from("ticket_crm_fuentes_punto").upsert({ punto_id: puntoId, fuente }, { onConflict: "punto_id" }));
+}
+
+/* ---------- Gastos ---------- */
+const optNum = (v, dec = 2) => (v === "" || v == null || !Number.isFinite(Number(v)) ? null : Math.round(Number(v) * 10 ** dec) / 10 ** dec);
+const gastoTo = (x) => ({
+  evento_id: x.eventoId,
+  tipo: ["normal", "personal", "artista"].includes(x.tipo) ? x.tipo : "normal",
+  padre_id: x.padreId || null,
+  categoria: String(x.categoria || "Otros").trim().slice(0, 60) || "Otros",
+  concepto: String(x.concepto || "").trim().slice(0, 160),
+  proveedor: String(x.proveedor || "").trim().slice(0, 120) || null,
+  previsto: optNum(x.previsto), real: optNum(x.real),
+  personas: x.personas === "" || x.personas == null ? null : Math.max(0, Math.round(Number(x.personas)) || 0),
+  precio_hora: optNum(x.precioHora), horas: optNum(x.horas),
+  estado: ["previsto", "confirmado", "pagado"].includes(x.estado) ? x.estado : "previsto",
+  pagado_por: x.pagadoPor || null,
+  fecha: x.fecha || null,
+  nota: String(x.nota || "").trim().slice(0, 500) || null,
+  actualizado_en: new Date().toISOString(),
+});
+export async function saveGasto(x) {
+  if (x.id) return gastoFrom(ok(await supabase.from("ticket_crm_gastos").update(gastoTo(x)).eq("id", x.id).select().single()));
+  return gastoFrom(ok(await supabase.from("ticket_crm_gastos").insert(gastoTo(x)).select().single()));
+}
+export async function deleteGasto(id) { ok(await supabase.from("ticket_crm_gastos").delete().eq("id", id)); }
+
+// Copia el presupuesto de otro evento: solo lo previsto (sin importes reales, pagos ni fechas)
+export async function copiarPresupuesto(desdeEventoId, haciaEventoId) {
+  const src = ok(await supabase.from("ticket_crm_gastos").select("*").eq("evento_id", desdeEventoId).order("creado_en", { ascending: true }));
+  if (!src.length) return 0;
+  const base = (g) => ({ evento_id: haciaEventoId, tipo: g.tipo, categoria: g.categoria, concepto: g.concepto, proveedor: g.proveedor,
+    previsto: g.previsto != null ? g.previsto : g.real, personas: g.personas, precio_hora: g.precio_hora, horas: g.horas, estado: "previsto", nota: g.nota });
+  const padres = src.filter(g => !g.padre_id);
+  const nuevos = ok(await supabase.from("ticket_crm_gastos").insert(padres.map(base)).select("id"));
+  const mapa = Object.fromEntries(padres.map((g, i) => [g.id, nuevos[i]?.id]));
+  const hijos = src.filter(g => g.padre_id && mapa[g.padre_id]);
+  if (hijos.length) ok(await supabase.from("ticket_crm_gastos").insert(hijos.map(g => ({ ...base(g), padre_id: mapa[g.padre_id] }))));
+  return src.length;
 }
