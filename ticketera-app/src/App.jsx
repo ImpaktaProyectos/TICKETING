@@ -30,7 +30,7 @@ const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.04d";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.04e";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -2939,16 +2939,16 @@ const S = {
   barTag: { display: "inline-flex", alignItems: "center", gap: 5, color: "var(--accent)", background: "rgba(255,90,60,.1)", borderRadius: 20, padding: "3px 9px 3px 7px", fontWeight: 700, fontSize: 12 },
   topBtn: { display: "inline-flex", alignItems: "center", gap: 8, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 11, padding: "10px 16px", fontWeight: 700, fontSize: 14 },
   bTabIco: { display: "grid", placeItems: "center", width: 46, height: 28, borderRadius: 14, transition: "background .15s" },
-  bTabIcoActive: { background: "rgba(255,90,60,.14)" },
+  bTabIcoActive: { background: "#fff", color: "var(--accent)", boxShadow: "0 2px 8px rgba(0,0,0,.18)" },
   gateIco: { width: 52, height: 52, borderRadius: 16, display: "grid", placeItems: "center", background: "var(--bg)", border: "1px solid var(--line)", color: "var(--text)" },
   gateIcoMain: { background: "rgba(255,90,60,.12)", borderColor: "rgba(255,90,60,.35)", color: "var(--accent)" },
   sideMobile: { width: "100%", boxSizing: "border-box", background: "var(--surface)", borderBottom: "1px solid var(--line)", padding: 12, display: "flex", flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   mTop: { display: "flex", alignItems: "center", gap: 11, padding: "calc(10px + env(safe-area-inset-top)) 12px 10px 14px", borderBottom: "1px solid var(--line)", background: "rgba(20,22,29,.92)", backdropFilter: "saturate(1.4) blur(12px)", WebkitBackdropFilter: "saturate(1.4) blur(12px)", position: "sticky", top: 0, zIndex: 20 },
   mTitle: { flex: 1, minWidth: 0 },
   iconBtn: { width: 42, height: 42, flexShrink: 0, borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 18, display: "grid", placeItems: "center", padding: 0 },
-  bottomNav: { display: "flex", borderTop: "1px solid var(--line)", background: "var(--surface)", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0 },
-  bTab: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "8px 4px 8px", background: "transparent", border: "none", color: "var(--muted)", fontSize: 11, fontWeight: 700 },
-  bTabActive: { color: "var(--text)" },
+  bottomNav: { display: "flex", borderTop: "1px solid rgba(255,255,255,.18)", background: "var(--accent)", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0, boxShadow: "0 -6px 20px rgba(255,90,60,.25)" },
+  bTab: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "8px 4px 8px", background: "transparent", border: "none", color: "rgba(255,255,255,.85)", fontSize: 11, fontWeight: 700 },
+  bTabActive: { color: "#fff", fontWeight: 900 },
   sheetWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", zIndex: 60, display: "flex", alignItems: "flex-end", backdropFilter: "blur(3px)" },
   sheet: { width: "100%", background: "var(--surface)", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, paddingBottom: "calc(20px + env(safe-area-inset-bottom))", maxHeight: "86dvh", overflow: "auto", borderTop: "1px solid var(--line)" },
   grab: { width: 40, height: 4, borderRadius: 4, background: "var(--line)", margin: "0 auto 14px" },
