@@ -27,7 +27,10 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const APP_VERSION = "2026.11.04b";   // súbela al publicar cambios para verificar la actualización
+// Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
+const isEntrada = (g) => g && g.tipo === "entrada";
+const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
+const APP_VERSION = "2026.11.04c";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -242,26 +245,32 @@ function ZTicket({ ev, z }) {
       {z.lines.map((l, i) => <div key={i} style={row}><span>{l.name} ×{l.qty}</span><span>{money(l.total)}</span></div>)}
       <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
       <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 900, fontSize: 16, color: "#000" }}><span>TOTAL</span><span>{money(z.revenue)}</span></div>
-      {z.gastos > 0 && (<>
+      {(z.gastosList || []).length > 0 && (<>
         <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
         <div style={{ textAlign: "center", fontWeight: 900, fontSize: 13 }}>GASTOS DE CAJA</div>
-        {(z.gastosList || []).map((g, i) => <div key={i} style={{ ...row, fontSize: 11 }}><span style={{ minWidth: 0, overflowWrap: "anywhere", paddingRight: "2mm" }}>{g.concepto || "Gasto"}</span><span>-{money(g.importe)}</span></div>)}
+        {z.gastosList.map((g, i) => <div key={i} style={{ ...row, fontSize: 11 }}><span style={{ minWidth: 0, overflowWrap: "anywhere", paddingRight: "2mm" }}>{g.concepto || "Gasto"}</span><span>-{money(g.importe)}</span></div>)}
         <div style={{ ...row, marginTop: "1mm" }}><span>Total gastos</span><span>-{money(z.gastos)}</span></div>
-        {!z.advanced && <div style={{ ...row, fontSize: 14, borderTop: "2px solid #000", marginTop: "1mm", paddingTop: "1mm" }}><span>= A CUADRAR</span><span>{money(round2(z.revenue - z.gastos))}</span></div>}
-        {!z.advanced && <div style={{ textAlign: "center", fontSize: 10.5, fontWeight: 700 }}>(efectivo + datáfono)</div>}
       </>)}
-      {z.advanced && (<>
+      {(z.entradasList || []).length > 0 && (<>
+        <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
+        <div style={{ textAlign: "center", fontWeight: 900, fontSize: 13 }}>CAMBIO AÑADIDO</div>
+        {z.entradasList.map((g, i) => <div key={i} style={{ ...row, fontSize: 11 }}><span style={{ minWidth: 0, overflowWrap: "anywhere", paddingRight: "2mm" }}>{g.concepto || "Cambio"}</span><span>+{money(g.importe)}</span></div>)}
+        <div style={{ ...row, marginTop: "1mm" }}><span>Total añadido</span><span>+{money(z.entradas)}</span></div>
+      </>)}
+      {(z.showArqueo || z.advanced) && (<>
         <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
         <div style={{ textAlign: "center", fontWeight: 900, fontSize: 13 }}>ARQUEO DE CAJA</div>
         <div style={{ ...row, marginTop: "1mm" }}><span>Fondo inicial</span><span>{money(z.fondo || 0)}</span></div>
-        <div style={row}><span>+ Ventas efectivo</span><span>{money(z.efectivo || 0)}</span></div>
+        <div style={row}><span>{z.advanced ? "+ Ventas efectivo" : "+ Facturado"}</span><span>{money(z.advanced ? (z.efectivo || 0) : (z.revenue || 0))}</span></div>
+        {z.entradas > 0 && <div style={row}><span>+ Cambio añadido</span><span>{money(z.entradas)}</span></div>}
         {z.gastos > 0 && <div style={row}><span>- Gastos de caja</span><span>{money(z.gastos)}</span></div>}
         <div style={{ ...row, fontSize: 14, borderTop: "2px solid #000", marginTop: "1mm", paddingTop: "1mm" }}><span>= DEBE HABER</span><span>{money(z.esperado != null ? z.esperado : (z.fondo || 0) + (z.efectivo || 0) - (z.gastos || 0))}</span></div>
+        <div style={{ textAlign: "center", fontSize: 10.5, fontWeight: 700 }}>{z.advanced ? "(en el cajón)" : "(cajón + datáfono)"}</div>
         {z.contado != null && (<>
           <div style={{ ...row, marginTop: "1mm" }}><span>Contado</span><span>{money(z.contado)}</span></div>
           <div style={{ ...row, fontSize: 15, fontWeight: 900 }}><span>{z.descuadre === 0 ? "CUADRA ✓" : z.descuadre > 0 ? "SOBRA" : "FALTA"}</span><span>{z.descuadre === 0 ? money(0) : money(Math.abs(z.descuadre))}</span></div>
         </>)}
-        <div style={{ ...row, marginTop: "1.5mm" }}><span>Tarjeta (no en cajón)</span><span>{money(z.tarjeta || 0)}</span></div>
+        {z.advanced && <div style={{ ...row, marginTop: "1.5mm" }}><span>Tarjeta (no en cajón)</span><span>{money(z.tarjeta || 0)}</span></div>}
       </>)}
       <div style={{ ...row, marginTop: "1mm" }}><span>Tickets</span><span>{z.count}</span></div>
       <div style={row}><span>Anulaciones</span><span>{z.voids}</span></div>
@@ -303,7 +312,7 @@ export default function App() {
   const punto = ev.puntos.find(p => p.id === state.currentPuntoId && !p.archivado) || activePuntos[0] || ev.puntos[0];
   const evSales = useMemo(() => state.sales.filter(s => s.eventId === ev.id), [state.sales, ev.id]);
   const evGastos = useMemo(() => (state.gastos || []).filter(g => g.eventId === ev.id), [state.gastos, ev.id]);
-  const turnoGastos = useMemo(() => evGastos.filter(g => g.puntoId === punto.id && !g.voided && !g.closureId), [evGastos, punto.id]);
+  const turnoMovs = useMemo(() => evGastos.filter(g => g.puntoId === punto.id && !g.voided && !g.closureId), [evGastos, punto.id]);
   const livePuntoSales = useMemo(() => evSales.filter(s => s.puntoId === punto.id && !s.voided && !s.closureId), [evSales, punto.id]);
   const totals = useMemo(() => {
     const perProduct = {}; let revenue = 0;
@@ -429,7 +438,8 @@ export default function App() {
       return { id: p.id, nombre: p.name, tickets: v.length, facturacion: sum(v), efectivo: sum(v.filter(x => x.pago === "efectivo")), tarjeta: sum(v.filter(x => x.pago === "tarjeta")), anulaciones: es.filter(x => x.puntoId === p.id && x.voided).length, fondo: p.fondo ?? null, turno: { tickets: turno.length, facturacion: sum(turno) } };
     });
     const gs = (st.gastos || []).filter(g => g.eventId === e.id && !g.voided);
-    const datos = { app: APP_VERSION, evento: e.name, total: { tickets: ok.length, facturacion: sum(ok), efectivo: sum(ok.filter(x => x.pago === "efectivo")), tarjeta: sum(ok.filter(x => x.pago === "tarjeta")), gastos: round2(gs.reduce((t, g) => t + g.importe, 0)) }, gastos: gs.map(g => ({ barra: e.puntos.find(p => p.id === g.puntoId)?.name || "", concepto: g.concepto, importe: g.importe, hora: new Date(g.ts).toISOString() })), puntos, pendientes_en_equipo: db.pendingCount() };
+    const gsG = gs.filter(g => !isEntrada(g));
+    const datos = { app: APP_VERSION, evento: e.name, total: { tickets: ok.length, facturacion: sum(ok), efectivo: sum(ok.filter(x => x.pago === "efectivo")), tarjeta: sum(ok.filter(x => x.pago === "tarjeta")), gastos: sumMov(gs, "gasto"), cambio_anadido: sumMov(gs, "entrada") }, gastos: gs.map(g => ({ tipo: isEntrada(g) ? "entrada" : "gasto", barra: e.puntos.find(p => p.id === g.puntoId)?.name || "", concepto: g.concepto, importe: g.importe, hora: new Date(g.ts).toISOString() })), puntos, pendientes_en_equipo: db.pendingCount() };
     const sig = JSON.stringify([e.id, datos.total, puntos.map(p => [p.tickets, p.facturacion, p.fondo, p.anulaciones])]);
     if (!manual && sig === backupSig.current) return;   // nada nuevo desde la última copia
     backupSig.current = sig;
@@ -579,23 +589,23 @@ export default function App() {
   // de lo que debe haber (efectivo + datáfono) para que las cuentas cuadren.
   const [showGasto, setShowGasto] = useState(false);
   const [askGastoVoid, setAskGastoVoid] = useState(null);
-  const registrarGasto = async (importe, concepto) => {
+  const registrarGasto = async (importe, concepto, tipo = "gasto") => {
     if (!ev.id || !punto?.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return false; }
     const imp = round2(Number(importe) || 0);
     if (!(imp > 0) || imp >= 1000000) { flash("Escribe el importe del gasto", "warn"); return false; }
     const id = uid();
     const por = role === "cajero" ? punto.name : role === "admin" ? "Admin" : "Supervisor";
-    const g = { id, eventId: ev.id, puntoId: punto.id, importe: imp, concepto: String(concepto || "").trim().slice(0, 120), por, ts: Date.now(), voided: false, closureId: null, synced: false };
+    const g = { id, tipo: tipo === "entrada" ? "entrada" : "gasto", eventId: ev.id, puntoId: punto.id, importe: imp, concepto: String(concepto || "").trim().slice(0, 120), por, ts: Date.now(), voided: false, closureId: null, synced: false };
     baseDispatch({ type: "ADD_GASTO", gasto: g });
-    flash(`💸 Gasto registrado · ${money(imp)}${g.concepto ? " · " + g.concepto : ""}`);
+    flash(`${g.tipo === "entrada" ? "➕ Cambio añadido" : "💸 Gasto registrado"} · ${money(imp)}${g.concepto ? " · " + g.concepto : ""}`);
     if (navigator.vibrate) navigator.vibrate(30);
-    const r = await db.registrarGasto({ id, eventoId: ev.id, puntoId: punto.id, importe: imp, concepto: g.concepto, por });
+    const r = await db.registrarGasto({ id, tipo: g.tipo, eventoId: ev.id, puntoId: punto.id, importe: imp, concepto: g.concepto, por });
     if (r.offline) setPending(db.pendingCount());
     return true;
   };
   const anularGasto = async (g) => {
     baseDispatch({ type: "VOID_GASTO", id: g.id });
-    flash(`Gasto anulado · ${money(g.importe)}`, "warn");
+    flash(`${isEntrada(g) ? "Entrada de cambio" : "Gasto"} anulado · ${money(g.importe)}`, "warn");
     const por = role === "cajero" ? punto.name : role === "admin" ? "Admin" : "Supervisor";
     const r = await db.anularGasto(g.id, ev.id, por);
     if (r.offline) setPending(db.pendingCount());
@@ -607,7 +617,7 @@ export default function App() {
     const invs = invitaciones(allOpen);
     const voids = evSales.filter(s => s.puntoId === puntoObj.id && s.voided && !s.closureId).length;
     const gTurno = (stateRef.current.gastos || []).filter(g => g.eventId === ev.id && g.puntoId === puntoObj.id && !g.voided && !g.closureId);
-    const gastos = round2(gTurno.reduce((t, g) => t + g.importe, 0));
+    const gastos = sumMov(gTurno, "gasto"), entradas = sumMov(gTurno, "entrada");
     if (allOpen.length === 0 && voids === 0 && gTurno.length === 0) { flash("Sin ventas en el turno actual", "warn"); return; }
     const map = {};
     sales.forEach(s => { map[s.productId] = map[s.productId] || { name: s.name, qty: 0, total: 0 }; map[s.productId].qty++; map[s.productId].total += s.price; });
@@ -615,9 +625,10 @@ export default function App() {
     const efectivo = round2(sales.filter(s => s.pago === "efectivo").reduce((t, s) => t + s.price, 0));
     const tarjeta = round2(sales.filter(s => s.pago === "tarjeta").reduce((t, s) => t + s.price, 0));
     const fondo = round2(puntoObj.fondo || 0);
-    const esperado = round2(fondo + efectivo - gastos);              // lo que debe haber en el cajón (ya restados los gastos)
+    // Lo que debe haber: con venta avanzada, en el cajón; sin ella, cajón + datáfono
+    const esperado = round2(fondo + (ev.advanced ? efectivo : revenue) + entradas - gastos);
     const descuadre = contado == null ? null : round2(contado - esperado);
-    const z = { puntoName: puntoObj.name, lines: Object.values(map).map(l => ({ ...l, total: round2(l.total) })), revenue, efectivo, tarjeta, fondo, esperado, contado, descuadre, gastos, gastosList: gTurno.map(g => ({ concepto: g.concepto, importe: g.importe })), advanced: !!ev.advanced, count: sales.length, voids, invites: invs.n, invitesValue: invs.valor, ts: Date.now() };
+    const z = { puntoName: puntoObj.name, lines: Object.values(map).map(l => ({ ...l, total: round2(l.total) })), revenue, efectivo, tarjeta, fondo, esperado, contado, descuadre, gastos, entradas, gastosList: gTurno.filter(g => !isEntrada(g)).map(g => ({ concepto: g.concepto, importe: g.importe })), entradasList: gTurno.filter(isEntrada).map(g => ({ concepto: g.concepto, importe: g.importe })), showArqueo: !!ev.advanced || ev.pedirFondo !== false || gastos > 0 || entradas > 0, advanced: !!ev.advanced, count: sales.length, voids, invites: invs.n, invitesValue: invs.valor, ts: Date.now() };
     const closureId = uid();
     // Cierra el turno EN LOCAL (funciona sin wifi) y encola el cierre para el servidor
     baseDispatch({ type: "ADD_CLOSURE", closure: { id: closureId, eventId: ev.id, puntoId: puntoObj.id, ...z } });
@@ -685,7 +696,9 @@ export default function App() {
   };
 
   // Fondo de caja: obligatorio antes de vender cuando la venta avanzada está activa
-  const needsFondo = !!ev.advanced && !ev.closed && role && punto && punto.fondo == null;
+  // Fondo de caja: se confirma al abrir cada barra (y tras cada cierre Z). Se puede desactivar en el evento.
+  const needsFondo = ev.pedirFondo !== false && !ev.closed && !!ev.id && !!punto?.id && punto.fondo == null && (role === "cajero" || ((role === "admin" || role === "supervisor") && view === "pos"));
+  const ultimoFondo = useMemo(() => { const c = state.closures.filter(x => x.puntoId === punto?.id && x.fondo != null).sort((a, b) => (a.ts || 0) - (b.ts || 0)); return c.length ? Number(c[c.length - 1].fondo) : null; }, [state.closures, punto?.id]);
   const saveFondo = async (amount) => {
     // Optimista: se guarda en local YA (deja vender al momento), y sube sola si no hay red
     baseDispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: punto.id, patch: { fondo: amount, fondoPor: role } });
@@ -753,7 +766,7 @@ export default function App() {
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn} aria-label="Menú"><Ic n="menu" /></button>
           </header>
           <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => setShowGasto(true)} gastoTotal={round2(turnoGastos.reduce((t, g) => t + g.importe, 0))} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => setShowGasto(true)} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
           </div>
         </div>
       ) : (
@@ -766,7 +779,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.topBtn}><Ic n="lock" s={16} />Salir</button></div>
           </header>
           <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => setShowGasto(true)} gastoTotal={round2(turnoGastos.reduce((t, g) => t + g.importe, 0))} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => setShowGasto(true)} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
           </div>
         </div>
       ))}
@@ -787,7 +800,7 @@ export default function App() {
                 <button onClick={() => setAskRevenue(true)} style={{ ...S.iconBtn, color: "var(--accent)" }} aria-label="Consultar facturación"><Ic n="euro" /></button>
               </div>
             </div>
-            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => setShowGasto(true)} gastoTotal={round2(turnoGastos.reduce((t, g) => t + g.importe, 0))} />}
+            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => setShowGasto(true)} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
             {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
             {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
@@ -832,7 +845,7 @@ export default function App() {
               </div>
             </header>
             <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => setShowGasto(true)} gastoTotal={round2(turnoGastos.reduce((t, g) => t + g.importe, 0))} />}
+              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => setShowGasto(true)} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
               {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
               {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
               {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
@@ -881,13 +894,13 @@ export default function App() {
 
       {/* ===== Fondo de caja (bloquea la venta hasta declararlo) ===== */}
       {needsFondo && !showCheck && (
-        <FondoGate puntoName={punto.name} onSave={saveFondo} onBack={exitToLogin} pending={!online} />
+        <FondoGate key={punto.id} puntoName={punto.name} previsto={punto.fondoPrevisto} ultimo={ultimoFondo} onSave={saveFondo} onBack={exitToLogin} pending={!online} />
       )}
 
       {/* ===== Gasto de caja ===== */}
-      {showGasto && <GastoModal puntoName={punto.name} gastos={turnoGastos} onSave={registrarGasto} onClose={() => setShowGasto(false)}
+      {showGasto && <CajaModal puntoName={punto.name} movs={turnoMovs} fondo={punto.fondo} onSave={registrarGasto} onClose={() => setShowGasto(false)}
         onVoid={(g) => { if (role === "cajero") setAskGastoVoid(g); else anularGasto(g); }} />}
-      {askGastoVoid && <PinModal correct={ev.pin_supervisor} onClose={() => setAskGastoVoid(null)} onOk={() => { const g = askGastoVoid; setAskGastoVoid(null); anularGasto(g); }} label="PIN de supervisor para anular el gasto" />}
+      {askGastoVoid && <PinModal correct={ev.pin_supervisor} onClose={() => setAskGastoVoid(null)} onOk={() => { const g = askGastoVoid; setAskGastoVoid(null); anularGasto(g); }} label="PIN de supervisor para anular el movimiento" />}
 
       {/* ===== Cobro avanzado ===== */}
       {payFlow && (
@@ -954,7 +967,7 @@ export default function App() {
             <div style={{ fontSize: 44, fontWeight: 800, color: "var(--green)", margin: "12px 0" }}>{money(eventRevenue)}</div>
             <div style={{ textAlign: "left", borderTop: "1px solid var(--line)", paddingTop: 12, marginBottom: 14 }}>
               {ev.puntos.map(p => { const r = evSales.filter(s => s.puntoId === p.id && !s.voided).reduce((t, s) => t + s.price, 0); return <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "4px 0" }}><span style={{ color: "var(--muted)" }}>{p.name}</span><b>{money(r)}</b></div>; })}
-              {(() => { const gt = round2(evGastos.filter(g => !g.voided).reduce((t, g) => t + g.importe, 0)); return gt > 0 ? (<>
+              {(() => { const gt = sumMov(evGastos, "gasto"); return gt > 0 ? (<>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "8px 0 4px", marginTop: 6, borderTop: "1px solid var(--line)" }}><span style={{ color: "var(--amber)" }}>💸 Gastos de caja</span><b style={{ color: "var(--amber)" }}>-{money(gt)}</b></div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "4px 0" }}><span>A cuadrar (efectivo + datáfono)</span><b>{money(round2(eventRevenue - gt))}</b></div>
                 {ev.advanced && <div style={{ fontSize: 11.5, color: "var(--muted)" }}>Sin contar el fondo inicial de los cajones.</div>}
@@ -1240,106 +1253,153 @@ function EmojiPicker({ value, onChange, size = 52 }) {
 }
 
 /* ---------------------- Fondo de caja (obligatorio para abrir) ---------------------- */
-function FondoGate({ puntoName, onSave, onBack, pending }) {
+function FondoGate({ puntoName, previsto = null, ultimo = null, onSave, onBack, pending }) {
+  const sugerido = previsto != null ? previsto : ultimo;
+  const [edit, setEdit] = useState(sugerido == null);
   const [v, setV] = useState("");
   const amount = parseFloat(v || "0") || 0;
   const press = (d) => setV(x => (d === "." && x.includes(".") ? x : (x + d).slice(0, 7)));
   const quick = [0, 50, 100, 150, 200, 300];
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 85, background: "var(--bg)", overflow: "auto", padding: "calc(18px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom))" }}>
-      <div style={{ maxWidth: 460, margin: "0 auto" }}>
-        <div style={{ textAlign: "center", marginBottom: 18 }}>
-          <div style={{ fontSize: 44 }}>💰</div>
-          <div style={{ ...S.display, marginTop: 4 }}>Fondo de caja</div>
-          <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 4 }}>¿Cuánto dinero hay en el cajón de <b style={{ color: "var(--accent)" }}>{puntoName}</b> antes de empezar?</div>
-        </div>
+  const wrap = { position: "fixed", inset: 0, zIndex: 85, background: "var(--bg)", overflow: "auto", padding: "calc(18px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom))" };
+  const head = (
+    <div style={{ textAlign: "center", marginBottom: 18 }}>
+      <div style={{ fontSize: 44 }}>💰</div>
+      <div style={{ ...S.display, marginTop: 4 }}>Abrir barra</div>
+      <div style={{ color: "var(--muted)", fontSize: 13.5, marginTop: 4 }}>Cuenta el cambio del cajón de <b style={{ color: "var(--accent)" }}>{puntoName}</b> antes de empezar a vender</div>
+    </div>
+  );
+  const foot = (<>
+    {pending && <div style={{ fontSize: 12, color: "var(--amber)", textAlign: "center", marginTop: 10 }}>⏳ Se guardará en este equipo y subirá solo cuando haya conexión.</div>}
+    <button onClick={onBack} style={{ ...S.btnGhost, width: "100%", marginTop: 12, padding: "13px" }}>Cambiar de barra / rol</button>
+  </>);
 
-        <div style={{ background: "var(--surface)", border: "2px solid var(--line)", borderRadius: 16, padding: 16, textAlign: "center", marginBottom: 14 }}>
-          <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 2, fontWeight: 800 }}>Fondo inicial</div>
-          <div style={{ fontSize: 46, fontWeight: 900, lineHeight: 1.05, color: "var(--green)" }}>{money(amount)}</div>
+  if (!edit) return (
+    <div style={wrap}>
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        {head}
+        <div style={{ background: "rgba(34,211,166,.08)", border: "2px solid var(--green)", borderRadius: 20, padding: "18px 16px", textAlign: "center", marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 2, fontWeight: 800 }}>{previsto != null ? "Fondo previsto" : "Fondo del turno anterior"}</div>
+          <div style={{ fontSize: 58, fontWeight: 900, lineHeight: 1.05, color: "var(--green)", margin: "4px 0" }}>{money(sugerido)}</div>
+          <div style={{ fontSize: 13, color: "var(--muted)" }}>¿Es lo que hay en el cajón?</div>
+        </div>
+        <button onClick={() => onSave(round2(sugerido))} style={{ ...S.btnPrimary, width: "100%", padding: "20px", fontSize: 18, background: "var(--green)", color: "#04241b" }}>✅ Sí, hay {money(sugerido)} · Abrir barra</button>
+        <button onClick={() => { setV(""); setEdit(true); }} style={{ ...S.btnGhost, width: "100%", marginTop: 10, padding: "15px", fontSize: 15, fontWeight: 800 }}>✏️ Hay otra cantidad</button>
+        {previsto != null && ultimo != null && ultimo !== previsto && <button onClick={() => onSave(round2(ultimo))} style={{ ...S.btnGhost, width: "100%", marginTop: 8, padding: "13px" }}>↺ Lo mismo que el turno anterior ({money(ultimo)})</button>}
+        {sugerido !== 0 && <button onClick={() => onSave(0)} style={{ ...S.btnGhost, width: "100%", marginTop: 8, padding: "13px", color: "var(--muted)" }}>Sin cambio (0 €)</button>}
+        {foot}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={wrap}>
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        {head}
+        <div style={{ background: "var(--surface)", border: "2px solid " + (v !== "" ? "var(--green)" : "var(--line)"), borderRadius: 16, padding: 16, textAlign: "center", marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 2, fontWeight: 800 }}>¿Cuánto hay en el cajón?</div>
+          <div style={{ fontSize: 46, fontWeight: 900, lineHeight: 1.05, color: v !== "" ? "var(--green)" : "var(--muted)" }}>{money(amount)}</div>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(82px,1fr))", gap: 8, marginBottom: 12 }}>
-          {quick.map(n => <button key={n} onClick={() => setV(String(n))} style={{ ...S.noteBtn, ...(amount === n && v !== "" ? { borderColor: "var(--green)", color: "var(--green)" } : {}) }}>{n === 0 ? "SIN FONDO" : money(n)}</button>)}
+          {quick.map(n => <button key={n} onClick={() => setV(String(n))} style={{ ...S.noteBtn, ...(amount === n && v !== "" ? { borderColor: "var(--green)", color: "var(--green)" } : {}) }}>{n === 0 ? "SIN CAMBIO" : money(n)}</button>)}
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
           {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "←"].map(k => (
-            <button key={k} onClick={() => k === "←" ? setV(x => x.slice(0, -1)) : press(k)} style={S.padBtn}>{k}</button>
+            <button key={k} onClick={() => k === "←" ? setV(x => x.slice(0, -1)) : press(k)} style={S.padBtn}>{k === "." ? "," : k}</button>
           ))}
         </div>
 
-        <button disabled={v === ""} onClick={() => onSave(round2(amount))} style={{ ...S.btnPrimary, width: "100%", marginTop: 14, padding: "18px", fontSize: 17, opacity: v === "" ? .4 : 1 }}>
-          ✅ Confirmar fondo y abrir la caja
+        <button disabled={v === ""} onClick={() => onSave(round2(amount))} style={{ ...S.btnPrimary, width: "100%", marginTop: 14, padding: "18px", fontSize: 17, opacity: v === "" ? .4 : 1, background: "var(--green)", color: "#04241b" }}>
+          ✅ {v === "" ? "Escribe el fondo" : `Abrir barra con ${money(amount)}`}
         </button>
-        <div style={{ fontSize: 12, color: "var(--muted)", textAlign: "center", marginTop: 10 }}>Cuenta el dinero del cajón. Al cerrar el turno se usará para cuadrar.</div>
-        {pending && <div style={{ fontSize: 12, color: "var(--amber)", textAlign: "center", marginTop: 6 }}>⏳ Se guardará en este dispositivo y subirá solo cuando haya conexión.</div>}
-        <button onClick={onBack} style={{ ...S.btnGhost, width: "100%", marginTop: 10, padding: "13px" }}>Cambiar de barra / rol</button>
+        {sugerido != null && <button onClick={() => setEdit(false)} style={{ ...S.btnGhost, width: "100%", marginTop: 10, padding: "13px" }}>← Volver ({money(sugerido)})</button>}
+        <div style={{ fontSize: 12, color: "var(--muted)", textAlign: "center", marginTop: 10 }}>Al cerrar el turno se usa para cuadrar la caja.</div>
+        {foot}
       </div>
     </div>
   );
 }
 
 /* ---------------------- Cobro avanzado (efectivo / tarjeta + cambio) ---------------------- */
-/* ---------------------- Gasto / retirada de caja ----------------------
-   Dinero que sale del cajón durante la noche (pagar un proveedor, hielo, retirar efectivo…).
-   NO cambia la facturación. El cierre Z y los informes lo restan de lo que debe haber. */
-const GASTO_CONCEPTOS = ["Proveedor", "Hielo", "Compras", "Personal", "Retirada de efectivo", "Cambio / monedas"];
-function GastoModal({ puntoName, gastos, onSave, onVoid, onClose }) {
+/* ---------------------- Caja: sacar dinero (gasto) / meter cambio ----------------------
+   Movimientos de dinero del cajón durante la noche. NO cambian la facturación:
+   el cierre Z los usa para saber cuánto debe haber. */
+const MOV_CONCEPTOS = {
+  gasto: ["Proveedor", "Hielo", "Compras", "Personal", "Retirada de efectivo"],
+  entrada: ["Más cambio", "Monedas", "Billetes pequeños"],
+};
+function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose }) {
   const isMobile = useIsMobile();
+  const [tipo, setTipo] = useState("gasto");
   const [val, setVal] = useState("");
   const [concepto, setConcepto] = useState("");
   const [confirmId, setConfirmId] = useState(null);
   const imp = parseFloat((val || "0").replace(",", ".")) || 0;
-  const total = round2(gastos.reduce((t, g) => t + g.importe, 0));
+  const tG = sumMov(movs, "gasto"), tE = sumMov(movs, "entrada");
+  const isG = tipo === "gasto";
+  const col = isG ? "var(--amber)" : "var(--green)";
   const press = (d) => setVal(v => {
     if (d === "." && (v.includes(".") || !v)) return v || "0.";
     const nv = (v + d);
     if (/\.\d{3}$/.test(nv) || nv.replace(".", "").length > 7) return v;
     return nv;
   });
-  const save = async () => { if (!(imp > 0)) return; const ok = await onSave(imp, concepto); if (ok) { setVal(""); setConcepto(""); } };
+  const switchTipo = (t) => { setTipo(t); setConcepto(""); };
+  const save = async () => { if (!(imp > 0)) return; const ok = await onSave(imp, concepto, tipo); if (ok) { setVal(""); setConcepto(""); } };
   const hora = (ts) => new Date(ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+  const seg = (t, ico, label, c) => (
+    <button onClick={() => switchTipo(t)} style={{ flex: 1, padding: "12px 6px", borderRadius: 12, fontWeight: 900, fontSize: 15, cursor: "pointer", border: `2px solid ${tipo === t ? c : "var(--line)"}`, background: tipo === t ? c : "var(--surface2)", color: tipo === t ? "#1a1205" : "var(--text)" }}>{ico} {label}</button>
+  );
   return (
     <div style={S.payWrap} onClick={onClose}>
       <div className={isMobile ? "sheet-anim" : ""} style={{ ...S.payCard, maxWidth: 480, ...(isMobile ? { borderRadius: "22px 22px 0 0", maxHeight: "94dvh" } : {}) }} onClick={e => e.stopPropagation()}>
-        <div style={{ textAlign: "center", marginBottom: 12 }}>
-          <div style={{ fontSize: 32, lineHeight: 1 }}>💸</div>
-          <div style={{ fontWeight: 900, fontSize: 19, marginTop: 6 }}>Registrar gasto de caja</div>
-          <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 2 }}>{puntoName} · dinero que sale del cajón. No cambia lo facturado: se descuenta en el cierre.</div>
-        </div>
-        <div style={{ background: "var(--surface2)", border: "2px solid " + (imp > 0 ? "var(--amber)" : "var(--line)"), borderRadius: 16, padding: "12px 14px", textAlign: "center", marginBottom: 12 }}>
-          <div style={S.miniLabel}>Importe</div>
-          <div style={{ fontSize: 40, fontWeight: 900, color: imp > 0 ? "var(--amber)" : "var(--muted)", lineHeight: 1.15 }}>{imp > 0 ? "-" + money(imp) : money(0)}</div>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 12 }}>
-          {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0"].map(d => <button key={d} onClick={() => press(d)} style={{ ...S.pinBtn, padding: "14px 0" }}>{d === "." ? "," : d}</button>)}
-          <button onClick={() => setVal(v => v.slice(0, -1))} style={{ ...S.pinBtn, padding: "14px 0", fontSize: 18 }} aria-label="Borrar">⌫</button>
-        </div>
-        <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Concepto</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-          {GASTO_CONCEPTOS.map(c => <button key={c} onClick={() => setConcepto(concepto === c ? "" : c)} style={{ ...S.qtyChip, padding: "8px 12px", fontSize: 13, ...(concepto === c ? { background: "var(--amber)", color: "#1a1205", borderColor: "var(--amber)" } : {}) }}>{c}</button>)}
-        </div>
-        <input value={concepto} maxLength={120} onChange={e => setConcepto(e.target.value)} placeholder="O escribe el concepto (opcional)" style={{ ...S.input, marginBottom: 12 }} />
-        <button onClick={save} disabled={!(imp > 0)} style={{ ...S.btnPrimary, width: "100%", padding: "16px", fontSize: 16, background: imp > 0 ? "var(--amber)" : "var(--line)", color: imp > 0 ? "#1a1205" : "var(--muted)" }}>{imp > 0 ? `Registrar gasto de ${money(imp)}` : "Escribe el importe"}</button>
-        <button onClick={onClose} style={{ ...S.btnGhost, width: "100%", marginTop: 8, padding: "13px" }}>Cerrar</button>
-
-        <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-            <b style={{ fontSize: 14 }}>Gastos de este turno</b>
-            <b style={{ color: total ? "var(--amber)" : "var(--muted)" }}>{total ? "-" + money(total) : "Ninguno"}</b>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 900, fontSize: 19 }}>💰 Caja</div>
+            <div style={{ color: "var(--muted)", fontSize: 12.5 }}>{puntoName} · no cambia lo facturado</div>
           </div>
-          {gastos.slice().reverse().map(g => (
+          <button onClick={onClose} style={{ ...S.smallBtn, flexShrink: 0 }} aria-label="Cerrar">✕</button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 6, marginBottom: 14 }}>
+          <div style={S.cajaTile}><div style={S.miniLabel}>Fondo</div><b style={{ fontSize: 16 }}>{fondo != null ? money(fondo) : "—"}</b></div>
+          <div style={S.cajaTile}><div style={S.miniLabel}>Añadido</div><b style={{ fontSize: 16, color: tE ? "var(--green)" : "var(--muted)" }}>{tE ? "+" + money(tE) : money(0)}</b></div>
+          <div style={S.cajaTile}><div style={S.miniLabel}>Gastos</div><b style={{ fontSize: 16, color: tG ? "var(--amber)" : "var(--muted)" }}>{tG ? "-" + money(tG) : money(0)}</b></div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          {seg("gasto", "💸", "Sacar dinero", "var(--amber)")}
+          {seg("entrada", "➕", "Meter cambio", "var(--green)")}
+        </div>
+
+        <div style={{ background: "var(--surface2)", border: "2px solid " + (imp > 0 ? col : "var(--line)"), borderRadius: 16, padding: "10px 14px", textAlign: "center", marginBottom: 10 }}>
+          <div style={S.miniLabel}>{isG ? "¿Cuánto sale del cajón?" : "¿Cuánto cambio metes?"}</div>
+          <div style={{ fontSize: 38, fontWeight: 900, color: imp > 0 ? col : "var(--muted)", lineHeight: 1.15 }}>{imp > 0 ? (isG ? "-" : "+") + money(imp) : money(0)}</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 10 }}>
+          {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0"].map(d => <button key={d} onClick={() => press(d)} style={{ ...S.pinBtn, padding: "12px 0" }}>{d === "." ? "," : d}</button>)}
+          <button onClick={() => setVal(v => v.slice(0, -1))} style={{ ...S.pinBtn, padding: "12px 0", fontSize: 18 }} aria-label="Borrar">⌫</button>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {MOV_CONCEPTOS[tipo].map(c => <button key={c} onClick={() => setConcepto(concepto === c ? "" : c)} style={{ ...S.qtyChip, padding: "8px 12px", fontSize: 13, ...(concepto === c ? { background: col, color: "#1a1205", borderColor: col } : {}) }}>{c}</button>)}
+        </div>
+        <input value={concepto} maxLength={120} onChange={e => setConcepto(e.target.value)} placeholder="Concepto (opcional)" style={{ ...S.input, marginBottom: 12 }} />
+        <button onClick={save} disabled={!(imp > 0)} style={{ ...S.btnPrimary, width: "100%", padding: "16px", fontSize: 16, background: imp > 0 ? col : "var(--line)", color: imp > 0 ? "#1a1205" : "var(--muted)" }}>{imp > 0 ? (isG ? `💸 Sacar ${money(imp)} de la caja` : `➕ Meter ${money(imp)} de cambio`) : "Escribe el importe"}</button>
+
+        {movs.length > 0 && <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+          <b style={{ fontSize: 14 }}>Movimientos de este turno</b>
+          {movs.slice().reverse().map(g => (
             <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
               <span style={{ color: "var(--muted)", flexShrink: 0 }}>{hora(g.ts)}</span>
-              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.concepto || "Gasto"}{!g.synced && <span style={{ color: "var(--amber)" }}> · ⏳</span>}</span>
-              <b style={{ flexShrink: 0 }}>-{money(g.importe)}</b>
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isEntrada(g) ? "➕" : "💸"} {g.concepto || (isEntrada(g) ? "Cambio" : "Gasto")}{!g.synced && <span style={{ color: "var(--amber)" }}> · ⏳</span>}</span>
+              <b style={{ flexShrink: 0, color: isEntrada(g) ? "var(--green)" : "var(--amber)" }}>{isEntrada(g) ? "+" : "-"}{money(g.importe)}</b>
               {confirmId === g.id
                 ? <span style={{ display: "flex", gap: 4, flexShrink: 0 }}><button onClick={() => { setConfirmId(null); onVoid(g); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Anular</button><button onClick={() => setConfirmId(null)} style={S.smallBtn}>✗</button></span>
                 : <button onClick={() => setConfirmId(g.id)} style={{ ...S.smallBtn, flexShrink: 0 }}>Anular</button>}
             </div>
           ))}
-        </div>
+        </div>}
       </div>
     </div>
   );
@@ -1470,7 +1530,7 @@ function CheckCard({ state, title, value, note, children }) {
 /* ============================================================
    POS
    ============================================================ */
-function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onInvite, onComboInvite, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, onToggleAdvanced, onGasto, gastoTotal = 0 }) {
+function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onInvite, onComboInvite, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, onToggleAdvanced, onGasto, gastoTotal = 0, entradaTotal = 0, fondo = null }) {
   const isMobile = useIsMobile();
   const combos = punto.combos || [];
   const [qty, setQty] = useState(1);
@@ -1584,7 +1644,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
             <div style={isMobile ? { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8, width: "100%" } : { display: "flex", gap: 8 }}>
               <button onClick={() => { setArranging(false); setInviting(v => !v); }} style={{ ...S.inviteBtn, ...(inviting ? S.inviteBtnOn : {}), flex: isMobile ? 1 : "none" }}>🎁 {inviting ? "Cancelar" : isMobile ? "Invit." : "Invitación"}</button>
               <button onClick={startGroup} style={{ ...S.groupBtn, flex: isMobile ? 1 : "none" }}>🧾 Unir</button>
-              {onGasto && <button onClick={() => { setArranging(false); setInviting(false); onGasto(); }} style={{ ...S.gastoBtn, flex: isMobile ? 1 : "none" }} title="Registrar dinero que sale de la caja">💸 Gasto{gastoTotal > 0 && !isMobile ? <span style={S.gastoBadge}>-{money(gastoTotal)}</span> : null}</button>}
+              {onGasto && <button onClick={() => { setArranging(false); setInviting(false); onGasto(); }} style={{ ...S.gastoBtn, flex: isMobile ? 1 : "none" }} title="Sacar dinero (gastos) o meter cambio en la caja">💰 Caja{!isMobile && entradaTotal > 0 ? <span style={{ ...S.gastoBadge, background: "var(--green)" }}>+{money(entradaTotal)}</span> : null}{!isMobile && gastoTotal > 0 ? <span style={S.gastoBadge}>-{money(gastoTotal)}</span> : null}</button>}
               <button onClick={onReprint} disabled={!canReprint} style={{ ...S.btnGhost, flex: isMobile ? 1 : "none", opacity: canReprint ? 1 : .4 }}>🖨️ {isMobile ? "Reimp." : "Reimprimir"}</button>
               <button onClick={onVoid} style={{ ...S.voidBtn, flex: isMobile ? 1 : "none" }}>↩︎ Anular</button>
             </div>
@@ -1884,7 +1944,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
     const pmap = {};
     const puntos = src.puntos.filter(p => !p.archivado).map(p => {
       const products = p.products.map((x, i) => { const id = uid(); pmap[x.id] = id; return { ...x, id, orden: x.orden ?? i }; });
-      return { id: uid(), name: p.name, archivado: false, fondo: null, sortMode: p.sortMode || "manual", products, combos: [] , _src: p };
+      return { id: uid(), name: p.name, archivado: false, fondo: null, fondoPrevisto: p.fondoPrevisto ?? null, sortMode: p.sortMode || "manual", products, combos: [] , _src: p };
     });
     puntos.forEach(p => { p.combos = (p._src.combos || []).map(c => ({ ...c, id: uid(), items: (c.items || []).map(it => ({ ...it, productId: pmap[it.productId] || it.productId })) })); delete p._src; });
     const st = { ...(src.style || {}) };
@@ -1921,6 +1981,21 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
           {ev.advanced && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Al vender, el camarero elegirá <b>Efectivo</b> o <b>Tarjeta</b>. {ev.changeHelp !== false ? "Con efectivo verá los billetes y el cambio a devolver." : "Con efectivo cobrará directo, sin pedir billetes."} El cierre Z mostrará el arqueo separado.</div>}
         </div>
 
+        <div style={{ ...S.panel, marginTop: 16 }}>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}>💰 Fondo de caja (cambio inicial)</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>Al abrir cada barra, el camarero confirma el cambio del cajón con un toque. Pon aquí lo que vas a dejar en cada una.</div>
+          <label style={S.toggleRow}><span>Pedir el fondo al abrir cada barra</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pedirFondo: !(ev.pedirFondo !== false) } })} style={{ ...S.switch, background: ev.pedirFondo !== false ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.pedirFondo !== false ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          {ev.pedirFondo !== false && ev.puntos.filter(p => !p.archivado).map(p => (
+            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: "1px solid var(--line)" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700 }}>📍 {p.name}</div>
+                <div style={{ fontSize: 12, color: p.fondo != null ? "var(--green)" : "var(--muted)" }}>{p.fondo != null ? `Abierta con ${money(p.fondo)}` : "Sin abrir todavía"}</div>
+              </div>
+              <FondoPrevistoInput value={p.fondoPrevisto} onSave={(n) => { dispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: p.id, patch: { fondoPrevisto: n } }); flash(n == null ? `Sin fondo previsto en ${p.name}` : `Fondo previsto ${p.name}: ${money(n)}`); }} />
+            </div>
+          ))}
+        </div>
+
         {isAdmin && (
           <div style={{ ...S.panel, marginTop: 16 }}>
             <div style={{ fontWeight: 800, marginBottom: 10 }}>Estado de la caja</div>
@@ -1947,7 +2022,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
               <option value="">— Empezar de cero —</option>
               {state.events.map(e => <option key={e.id} value={e.id}>{e.name}{e.date ? ` · ${e.date}` : ""}</option>)}
             </select>
-            {newEvent.copyFrom && <div style={{ fontSize: 12, color: "var(--green)", marginBottom: 10 }}>✓ Se copia todo menos las ventas, los cierres y el fondo de caja.</div>}
+            {newEvent.copyFrom && <div style={{ fontSize: 12, color: "var(--green)", marginBottom: 10 }}>✓ Se copia todo (también el fondo previsto de cada barra) menos las ventas y los cierres.</div>}
             <input style={S.input} placeholder="Nombre del evento" value={newEvent.name} onChange={e => setNewEvent({ ...newEvent, name: e.target.value })} /><div style={{ height: 8 }} />
             <input type="date" style={S.input} value={newEvent.date} onChange={e => setNewEvent({ ...newEvent, date: e.target.value })} /><div style={{ height: 8 }} />
             <input style={S.input} placeholder="Recinto" value={newEvent.venue} onChange={e => setNewEvent({ ...newEvent, venue: e.target.value })} />
@@ -2155,8 +2230,8 @@ function resumenEvento(ev, allSales, closures, allGastos = []) {
   const hk = Object.keys(horas).map(Number); const pico = hk.length ? hk.reduce((a, b) => horas[b] > horas[a] ? b : a) : null;
   const barras = ev.puntos.map(p => { const v = ventas.filter(s => s.puntoId === p.id); return { id: p.id, name: p.name, tickets: v.length, revenue: round2(v.reduce((t, s) => t + s.price, 0)) }; }).filter(b => b.tickets > 0);
   const cz = (closures || []).filter(c => c.eventId === ev.id);
-  const desc = cz.filter(c => c.contado != null).map(c => round2(c.contado - (Number(c.fondo || 0) + Number(c.efectivo || 0) - Number(c.gastos || 0))));
-  const gastos = round2((allGastos || []).filter(g => g.eventId === ev.id && !g.voided).reduce((t, g) => t + g.importe, 0));
+  const desc = cz.filter(c => c.contado != null).map(c => round2(c.contado - (c.esperado != null ? Number(c.esperado) : (Number(c.fondo || 0) + Number(c.efectivo || 0) - Number(c.gastos || 0)))));
+  const gastos = sumMov((allGastos || []).filter(g => g.eventId === ev.id), "gasto");
   return {
     ev, revenue, gastos, neto: round2(revenue - gastos), tickets: ventas.length, medio: ventas.length ? round2(revenue / ventas.length) : 0, efectivo, tarjeta,
     inv, liq, anul: anuladas.length, anulImporte: round2(anuladas.filter(s => !isInvite(s)).reduce((t, s) => t + s.price, 0)),
@@ -2345,9 +2420,11 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, role, onVoid, onCier
 
   const liq = liquidacion(ev, evSales);
   const inv = invitaciones(evSales);
-  const gastosOk = evGastos.filter(g => !g.voided);
-  const gTotal = round2(gastosOk.reduce((t, g) => t + g.importe, 0));
-  const gTurnoDe = (pid) => round2(gastosOk.filter(g => g.puntoId === pid && !g.closureId).reduce((t, g) => t + g.importe, 0));
+  const gastosOk = evGastos.filter(g => !g.voided && !isEntrada(g));
+  const entradasOk = evGastos.filter(g => !g.voided && isEntrada(g));
+  const gTotal = sumMov(evGastos, "gasto"), eTotal = sumMov(evGastos, "entrada");
+  const gTurnoDe = (pid) => sumMov(evGastos.filter(g => g.puntoId === pid && !g.closureId), "gasto");
+  const eTurnoDe = (pid) => sumMov(evGastos.filter(g => g.puntoId === pid && !g.closureId), "entrada");
   const [confirmGasto, setConfirmGasto] = useState(null);
   const exportCSV = () => {
     const rows = [["Punto de venta", "Producto", "Precio", "Unidades", "Total"]];
@@ -2363,6 +2440,11 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, role, onVoid, onCier
       gastosOk.forEach(g => rows.push(["GASTOS DE CAJA", g.concepto || "Gasto", new Date(g.ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }), ev.puntos.find(p => p.id === g.puntoId)?.name || "", g.importe.toFixed(2)]));
       rows.push(["TOTAL GASTOS", "", "", "", gTotal.toFixed(2)]);
       rows.push(["A CUADRAR (efectivo + datáfono)", "", "", "", round2(grandRevenue - gTotal).toFixed(2)]);
+    }
+    if (entradasOk.length) {
+      rows.push([]); rows.push(["CAMBIO AÑADIDO", "Concepto", "Hora", "Barra", "Importe"]);
+      entradasOk.forEach(g => rows.push(["CAMBIO AÑADIDO", g.concepto || "Cambio", new Date(g.ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }), ev.puntos.find(p => p.id === g.puntoId)?.name || "", g.importe.toFixed(2)]));
+      rows.push(["TOTAL CAMBIO AÑADIDO", "", "", "", eTotal.toFixed(2)]);
     }
     if (inv.n) {
       rows.push([]); rows.push(["INVITACIONES", "Producto", "", "Unidades", "Valor"]);
@@ -2457,14 +2539,16 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, role, onVoid, onCier
               <div style={{ fontSize: 22, fontWeight: 800, color: "var(--green)", marginTop: 4 }}>{money(b.revenue)}</div>
               <div style={{ fontSize: 12, color: "var(--muted)" }}>{b.count} tickets · {b.voids} anul.</div>
               {gTurnoDe(b.punto.id) > 0 && <div style={{ fontSize: 12, color: "var(--amber)", marginTop: 4, fontWeight: 700 }}>💸 Gastos del turno: -{money(gTurnoDe(b.punto.id))}</div>}
-              {ev.advanced && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>💰 Fondo: <b style={{ color: b.punto.fondo != null ? "var(--green)" : "var(--amber)" }}>{b.punto.fondo != null ? money(b.punto.fondo) : "sin declarar"}</b>{b.punto.fondo != null && db.pendingFondo(b.punto.id) != null && <span style={{ color: "var(--amber)" }}> · ⏳ subiendo…</span>}</div>}
+              {eTurnoDe(b.punto.id) > 0 && <div style={{ fontSize: 12, color: "var(--green)", marginTop: 4, fontWeight: 700 }}>➕ Cambio añadido: +{money(eTurnoDe(b.punto.id))}</div>}
+              {(ev.advanced || ev.pedirFondo !== false) && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>💰 Fondo: <b style={{ color: b.punto.fondo != null ? "var(--green)" : "var(--amber)" }}>{b.punto.fondo != null ? money(b.punto.fondo) : "sin declarar"}</b>{b.punto.fondo != null && db.pendingFondo(b.punto.id) != null && <span style={{ color: "var(--amber)" }}> · ⏳ subiendo…</span>}</div>}
               {(role === "admin" || role === "supervisor") && <button onClick={() => {
-                if (!ev.advanced) { onCierreZ(b.punto); return; }
-                const abiertas = evSales.filter(s => s.puntoId === b.punto.id && !s.voided && !s.closureId);
+                const abiertas = evSales.filter(s => s.puntoId === b.punto.id && !s.voided && !s.closureId && !isInvite(s));
                 const efe = round2(abiertas.filter(s => s.pago === "efectivo").reduce((t, s) => t + s.price, 0));
+                const fact = round2(abiertas.reduce((t, s) => t + s.price, 0));
                 const fondo = round2(b.punto.fondo || 0);
-                const gas = gTurnoDe(b.punto.id);
-                setCountZ({ punto: b.punto, fondo, efectivo: efe, gastos: gas, esperado: round2(fondo + efe - gas), valor: "" });
+                const gas = gTurnoDe(b.punto.id), ent = eTurnoDe(b.punto.id);
+                const base = ev.advanced ? efe : fact;
+                setCountZ({ punto: b.punto, advanced: !!ev.advanced, fondo, efectivo: base, gastos: gas, entradas: ent, esperado: round2(fondo + base + ent - gas), valor: "" });
               }} style={{ ...S.smallBtn, marginTop: 8, width: "100%", color: "var(--accent)", borderColor: "var(--accent)" }}>Cierre Z 🧾</button>}
             </div>
           ))}
@@ -2474,12 +2558,13 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, role, onVoid, onCier
       {/* Gastos / retiradas de caja (no cambian la facturación; se restan de lo que debe haber) */}
       {evGastos.length > 0 && (
         <div style={{ ...S.panel, marginBottom: 16 }}>
-          <div style={{ fontWeight: 800, marginBottom: 4 }}>💸 Gastos de caja</div>
-          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>Dinero que ha salido de las cajas. La facturación no cambia; las cuentas de la noche lo descuentan.</div>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}>💰 Movimientos de caja</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>Gastos (dinero que sale) y cambio añadido (dinero que entra). La facturación no cambia; el cierre lo tiene en cuenta.</div>
           <div style={{ background: "var(--surface2)", borderRadius: 14, padding: 14, marginBottom: 12, fontSize: 14, maxWidth: 460 }}>
             <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Facturado</span><b>{money(grandRevenue)}</b></div>
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}><span style={{ color: "var(--amber)" }}>− Gastos de caja</span><b style={{ color: "var(--amber)" }}>{money(gTotal)}</b></div>
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)", fontSize: 16 }}><span>A cuadrar (efectivo + datáfono)</span><b style={{ color: "var(--green)" }}>{money(round2(grandRevenue - gTotal))}</b></div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Sin contar el fondo inicial{eTotal > 0 ? ` ni el cambio añadido (+${money(eTotal)})` : ""}.</div>
             {ev.advanced && (() => { const efe = round2(evSales.filter(s => !s.voided && s.pago === "efectivo").reduce((t, s) => t + s.price, 0)); const tar = round2(evSales.filter(s => !s.voided && s.pago === "tarjeta").reduce((t, s) => t + s.price, 0)); return (
               <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 8 }}>Efectivo {money(efe)} − gastos {money(gTotal)} = <b style={{ color: "var(--text)" }}>{money(round2(efe - gTotal))}</b> en cajones (más el fondo) · Datáfono {money(tar)}</div>
             ); })()}
@@ -2489,8 +2574,8 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, role, onVoid, onCier
             return (
               <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5, opacity: g.voided ? .45 : 1 }}>
                 <span style={{ color: "var(--muted)", flexShrink: 0 }}>{new Date(g.ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</span>
-                <span style={{ flex: 1, minWidth: 0 }}><b>{g.concepto || "Gasto"}</b> <span style={{ color: "var(--muted)" }}>· 📍 {pn}{g.por && g.por !== pn ? ` · ${g.por}` : ""}{g.closureId ? " · cerrado en Z" : ""}{!g.synced ? " · ⏳" : ""}</span></span>
-                <b style={{ flexShrink: 0, textDecoration: g.voided ? "line-through" : "none", color: g.voided ? "var(--muted)" : "var(--amber)" }}>-{money(g.importe)}</b>
+                <span style={{ flex: 1, minWidth: 0 }}><b>{isEntrada(g) ? "➕ " : "💸 "}{g.concepto || (isEntrada(g) ? "Cambio añadido" : "Gasto")}</b> <span style={{ color: "var(--muted)" }}>· 📍 {pn}{g.por && g.por !== pn ? ` · ${g.por}` : ""}{g.closureId ? " · cerrado en Z" : ""}{!g.synced ? " · ⏳" : ""}</span></span>
+                <b style={{ flexShrink: 0, textDecoration: g.voided ? "line-through" : "none", color: g.voided ? "var(--muted)" : isEntrada(g) ? "var(--green)" : "var(--amber)" }}>{isEntrada(g) ? "+" : "-"}{money(g.importe)}</b>
                 {g.voided ? <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0 }}>Anulado</span>
                   : (role === "admin" || role === "supervisor") && !g.closureId && onVoidGasto ? (confirmGasto === g.id
                     ? <span style={{ display: "flex", gap: 6, flexShrink: 0 }}><button onClick={() => { onVoidGasto(g); setConfirmGasto(null); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Sí</button><button onClick={() => setConfirmGasto(null)} style={S.smallBtn}>✗</button></span>
@@ -2615,15 +2700,16 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, role, onVoid, onCier
             <div style={{ textAlign: "center", marginBottom: 14 }}>
               <div style={{ fontSize: 34 }}>🧾</div>
               <div style={{ fontWeight: 900, fontSize: 19 }}>Cierre Z · {countZ.punto.name}</div>
-              <div style={{ color: "var(--muted)", fontSize: 13 }}>Cuenta el dinero del cajón</div>
+              <div style={{ color: "var(--muted)", fontSize: 13 }}>{countZ.advanced ? "Cuenta el dinero del cajón" : "Cuenta el dinero del cajón y súmale el total del datáfono"}</div>
             </div>
             <div style={{ background: "var(--surface2)", borderRadius: 14, padding: 14, marginBottom: 12, fontSize: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Fondo inicial</span><b>{money(countZ.fondo)}</b></div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}><span style={{ color: "var(--muted)" }}>+ Ventas en efectivo</span><b>{money(countZ.efectivo)}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}><span style={{ color: "var(--muted)" }}>{countZ.advanced ? "+ Ventas en efectivo" : "+ Facturado del turno"}</span><b>{money(countZ.efectivo)}</b></div>
+              {countZ.entradas > 0 && <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}><span style={{ color: "var(--green)" }}>+ Cambio añadido</span><b style={{ color: "var(--green)" }}>{money(countZ.entradas)}</b></div>}
               {countZ.gastos > 0 && <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}><span style={{ color: "var(--amber)" }}>− Gastos de caja</span><b style={{ color: "var(--amber)" }}>{money(countZ.gastos)}</b></div>}
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)", fontSize: 16 }}><span>Debe haber</span><b style={{ color: "var(--green)" }}>{money(countZ.esperado)}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)", fontSize: 16 }}><span>Debe haber {countZ.advanced ? "en el cajón" : "(cajón + datáfono)"}</span><b style={{ color: "var(--green)" }}>{money(countZ.esperado)}</b></div>
             </div>
-            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>¿Cuánto has contado? (puedes dejarlo vacío)</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>{countZ.advanced ? "¿Cuánto has contado en el cajón?" : "¿Cuánto suman cajón + datáfono?"} (puedes dejarlo vacío)</div>
             <input autoFocus type="number" inputMode="decimal" value={countZ.valor} onChange={e => setCountZ({ ...countZ, valor: e.target.value })} style={{ ...S.input, fontSize: 24, fontWeight: 900, textAlign: "center", padding: "14px" }} placeholder="0.00" />
             {has && (
               <div style={{ textAlign: "center", marginTop: 12, padding: 12, borderRadius: 12, background: dif === 0 ? "rgba(34,211,166,.12)" : "rgba(255,180,0,.12)", border: `2px solid ${dif === 0 ? "var(--green)" : dif > 0 ? "var(--amber)" : "var(--red)"}` }}>
@@ -2687,6 +2773,24 @@ function PinModal({ correct, onOk, onClose, label }) {
           <button onClick={() => setPin(pin.slice(0, -1))} style={{ ...S.pinBtn, fontSize: 18 }}>⌫</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Importe del fondo previsto de una barra: se guarda al salir del campo o con Enter
+function FondoPrevistoInput({ value, onSave }) {
+  const [v, setV] = useState(value != null ? String(value).replace(".", ",") : "");
+  useEffect(() => { setV(value != null ? String(value).replace(".", ",") : ""); }, [value]);
+  const commit = () => {
+    const t = v.trim().replace(",", ".");
+    const n = t === "" ? null : round2(parseFloat(t));
+    if (t !== "" && !(n >= 0 && n < 1000000)) { setV(value != null ? String(value).replace(".", ",") : ""); return; }
+    if (n !== (value ?? null)) onSave(n);
+  };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+      <input inputMode="decimal" value={v} placeholder="—" onChange={e => setV(e.target.value.replace(/[^\d.,]/g, "").slice(0, 9))} onBlur={commit} onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }} style={{ ...S.input, width: 96, textAlign: "right", fontWeight: 800, fontSize: 16 }} aria-label="Fondo previsto en euros" />
+      <span style={{ color: "var(--muted)", fontWeight: 700 }}>€</span>
     </div>
   );
 }
@@ -2827,6 +2931,7 @@ const S = {
   prodRowDrag: { borderColor: "var(--accent)", boxShadow: "0 12px 30px rgba(0,0,0,.45), 0 0 0 1px var(--accent)", background: "var(--surface2)" },
   grip: { display: "grid", placeItems: "center", width: 30, height: 40, margin: "-4px -4px -4px -2px", borderRadius: 8, touchAction: "none", userSelect: "none", WebkitUserSelect: "none", flexShrink: 0 },
   arrowBtn: { width: 28, height: 20, borderRadius: 6, background: "var(--surface2)", border: "1px solid var(--line)", color: "var(--text)", display: "grid", placeItems: "center", padding: 0 },
+  cajaTile: { background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: "8px 10px", textAlign: "center", minWidth: 0 },
   gastoBtn: { background: "rgba(255,180,0,.12)", color: "var(--amber)", border: "2px solid rgba(255,180,0,.55)", borderRadius: 12, padding: "8px 14px", fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, whiteSpace: "nowrap" },
   gastoBadge: { background: "var(--amber)", color: "#1a1205", borderRadius: 20, padding: "1px 8px", fontSize: 12, fontWeight: 900 },
   inviteBtn: { background: "rgba(168,85,247,.14)", color: "#d8b4fe", border: "2px solid rgba(168,85,247,.55)", borderRadius: 12, padding: "8px 16px", fontWeight: 800 },

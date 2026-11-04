@@ -3,23 +3,23 @@ import { supabase, uid } from "./supabase";
 /* ===================== MAPEADORES BD <-> UI ===================== */
 const prodFromDb = (p) => ({ id: p.id, name: p.nombre, price: Number(p.precio), color: p.color, emoji: p.emoji, soldOut: p.agotado, orden: p.orden ?? 0, subtitle: p.subtitulo || "", print: p.imprimir !== false });
 const byOrden = (a, b) => (a.orden - b.orden) || String(a.creado_en || "").localeCompare(String(b.creado_en || "")) || String(a.id).localeCompare(String(b.id));
-const puntoFromDb = (p) => ({ id: p.id, name: p.nombre, archivado: p.archivado, combos: p.combos || [], fondo: p.fondo != null ? Number(p.fondo) : null, fondoEn: p.fondo_en, fondoPor: p.fondo_por, sortMode: p.orden_modo === "ventas" ? "ventas" : "manual", products: (p.ticket_productos || []).slice().sort(byOrden).map(prodFromDb) });
+const puntoFromDb = (p) => ({ id: p.id, name: p.nombre, archivado: p.archivado, combos: p.combos || [], fondo: p.fondo != null ? Number(p.fondo) : null, fondoEn: p.fondo_en, fondoPor: p.fondo_por, fondoPrevisto: p.fondo_previsto != null ? Number(p.fondo_previsto) : null, sortMode: p.orden_modo === "ventas" ? "ventas" : "manual", products: (p.ticket_productos || []).slice().sort(byOrden).map(prodFromDb) });
 const evFromDb = (e) => ({
   id: e.id, name: e.nombre, date: e.fecha, venue: e.recinto || "", template: e.plantilla, paper: e.papel,
   footer: e.pie || "", logo: e.logo_url || "", showEventName: e.mostrar_evento, showDate: e.mostrar_fecha,
   showTime: e.mostrar_hora, showPrice: e.mostrar_precio, anularPin: e.anular_pin,
-  closed: !!e.cerrada, startsAt: e.inicio || "", advanced: !!e.venta_avanzada, changeHelp: e.ayuda_cambio !== false,
+  closed: !!e.cerrada, pedirFondo: e.pedir_fondo !== false, startsAt: e.inicio || "", advanced: !!e.venta_avanzada, changeHelp: e.ayuda_cambio !== false,
   style: e.ticket_style || {},
   pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor,
   puntos: (e.ticket_puntos || []).map(puntoFromDb),
 });
 const saleFromDb = (s) => ({ id: s.id, clientUuid: s.client_uuid, code: s.codigo, num: s.numero, eventId: s.evento_id, puntoId: s.punto_id, productId: s.producto_id, name: s.nombre, price: Number(s.precio), ts: new Date(s.creado_en).getTime(), voided: s.anulada, closureId: s.closure_id, operario: s.operario, pago: s.metodo_pago, invite: /^invitacion/.test(s.metodo_pago || ""), inviteValue: /^invitacion/.test(s.metodo_pago || "") ? (Number(String(s.metodo_pago).split(":")[1]) || 0) : 0, entregado: s.entregado != null ? Number(s.entregado) : null, cambio: s.cambio != null ? Number(s.cambio) : null, synced: true });
-const gastoFromDb = (g) => ({ id: g.id, eventId: g.evento_id, puntoId: g.punto_id, importe: Number(g.importe), concepto: g.concepto || "", por: g.registrado_por || "", ts: new Date(g.creado_en).getTime(), voided: !!g.anulado, closureId: g.closure_id, synced: true });
-const closureFromDb = (c) => ({ id: c.id, eventId: c.evento_id, puntoId: c.punto_id, count: c.tickets, revenue: Number(c.facturacion), voids: c.anulaciones, lines: c.detalle || [], efectivo: Number(c.efectivo || 0), tarjeta: Number(c.tarjeta || 0), fondo: Number(c.fondo || 0), contado: c.contado != null ? Number(c.contado) : null, gastos: Number(c.gastos || 0), ts: new Date(c.creado_en).getTime() });
+const gastoFromDb = (g) => ({ tipo: g.tipo === "entrada" ? "entrada" : "gasto", id: g.id, eventId: g.evento_id, puntoId: g.punto_id, importe: Number(g.importe), concepto: g.concepto || "", por: g.registrado_por || "", ts: new Date(g.creado_en).getTime(), voided: !!g.anulado, closureId: g.closure_id, synced: true });
+const closureFromDb = (c) => ({ id: c.id, eventId: c.evento_id, puntoId: c.punto_id, count: c.tickets, revenue: Number(c.facturacion), voids: c.anulaciones, lines: c.detalle || [], efectivo: Number(c.efectivo || 0), tarjeta: Number(c.tarjeta || 0), fondo: Number(c.fondo || 0), contado: c.contado != null ? Number(c.contado) : null, gastos: Number(c.gastos || 0), entradas: Number(c.entradas || 0), esperado: c.esperado != null ? Number(c.esperado) : null, ts: new Date(c.creado_en).getTime() });
 
-const evToDb = (e) => ({ id: e.id, nombre: e.name, fecha: e.date, recinto: e.venue, plantilla: e.template, papel: e.paper, pie: e.footer, logo_url: e.logo, mostrar_evento: e.showEventName, mostrar_fecha: e.showDate, mostrar_hora: e.showTime, mostrar_precio: e.showPrice, anular_pin: e.anularPin, cerrada: !!e.closed, inicio: e.startsAt || null, venta_avanzada: !!e.advanced, ayuda_cambio: e.changeHelp !== false, ticket_style: e.style || {}, pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor });
+const evToDb = (e) => ({ id: e.id, nombre: e.name, fecha: e.date, recinto: e.venue, plantilla: e.template, papel: e.paper, pie: e.footer, logo_url: e.logo, mostrar_evento: e.showEventName, mostrar_fecha: e.showDate, mostrar_hora: e.showTime, mostrar_precio: e.showPrice, anular_pin: e.anularPin, cerrada: !!e.closed, inicio: e.startsAt || null, venta_avanzada: !!e.advanced, ayuda_cambio: e.changeHelp !== false, pedir_fondo: e.pedirFondo !== false, ticket_style: e.style || {}, pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor });
 const evPatchToDb = (patch) => {
-  const m = { name: "nombre", date: "fecha", venue: "recinto", template: "plantilla", paper: "papel", footer: "pie", logo: "logo_url", showEventName: "mostrar_evento", showDate: "mostrar_fecha", showTime: "mostrar_hora", showPrice: "mostrar_precio", anularPin: "anular_pin", closed: "cerrada", startsAt: "inicio", advanced: "venta_avanzada", changeHelp: "ayuda_cambio", style: "ticket_style", pin_admin: "pin_admin", pin_supervisor: "pin_supervisor" };
+  const m = { name: "nombre", date: "fecha", venue: "recinto", template: "plantilla", paper: "papel", footer: "pie", logo: "logo_url", showEventName: "mostrar_evento", showDate: "mostrar_fecha", showTime: "mostrar_hora", showPrice: "mostrar_precio", anularPin: "anular_pin", closed: "cerrada", startsAt: "inicio", advanced: "venta_avanzada", changeHelp: "ayuda_cambio", pedirFondo: "pedir_fondo", style: "ticket_style", pin_admin: "pin_admin", pin_supervisor: "pin_supervisor" };
   const out = {}; for (const k in patch) if (m[k]) out[m[k]] = patch[k]; return out;
 };
 const prodToDb = (puntoId, p) => ({ id: p.id, punto_id: puntoId, nombre: p.name, precio: p.price, color: p.color, emoji: p.emoji, agotado: p.soldOut, orden: p.orden ?? 0, subtitulo: (p.subtitle || "").trim(), imprimir: p.print !== false });
@@ -90,7 +90,7 @@ export async function persistAction(action, ctx = {}) {
       case "ADD_EVENT": {
         const r1 = await supabase.from("ticket_eventos").insert(evToDb(action.event)); if (r1.error) throw r1.error;
         if (action.event.puntos?.length) {
-          const r2 = await supabase.from("ticket_puntos").insert(action.event.puntos.map(p => ({ id: p.id, evento_id: action.event.id, nombre: p.name, archivado: !!p.archivado, combos: p.combos || [], orden_modo: p.sortMode === "ventas" ? "ventas" : "manual" }))); if (r2.error) throw r2.error;
+          const r2 = await supabase.from("ticket_puntos").insert(action.event.puntos.map(p => ({ id: p.id, evento_id: action.event.id, nombre: p.name, archivado: !!p.archivado, combos: p.combos || [], orden_modo: p.sortMode === "ventas" ? "ventas" : "manual", fondo_previsto: p.fondoPrevisto ?? null }))); if (r2.error) throw r2.error;
           // Evento duplicado: también sus productos (con orden, colores, emojis, subtítulos…)
           const prods = action.event.puntos.flatMap(p => (p.products || []).map((x, i) => prodToDb(p.id, { ...x, orden: x.orden ?? i })));
           if (prods.length) { const r3 = await supabase.from("ticket_productos").insert(prods); if (r3.error) throw r3.error; }
@@ -100,7 +100,7 @@ export async function persistAction(action, ctx = {}) {
       case "UPDATE_EVENT": await supabase.from("ticket_eventos").update(evPatchToDb(action.patch)).eq("id", action.id); break;
       case "ADD_PUNTO": await supabase.from("ticket_puntos").insert({ id: action.punto.id, evento_id: action.eventId, nombre: action.punto.name, archivado: false }); break;
       case "ARCHIVE_PUNTO": await supabase.from("ticket_puntos").update({ archivado: action.value }).eq("id", action.puntoId); break;
-      case "UPDATE_PUNTO": { const m = { name: "nombre", archivado: "archivado", combos: "combos", sortMode: "orden_modo" }; const o = {}; for (const k in action.patch) if (m[k]) o[m[k]] = action.patch[k]; await supabase.from("ticket_puntos").update(o).eq("id", action.puntoId); break; }
+      case "UPDATE_PUNTO": { const m = { name: "nombre", archivado: "archivado", combos: "combos", sortMode: "orden_modo", fondoPrevisto: "fondo_previsto" }; const o = {}; for (const k in action.patch) if (m[k]) o[m[k]] = action.patch[k]; await supabase.from("ticket_puntos").update(o).eq("id", action.puntoId); break; }
       case "DELETE_PUNTO": await supabase.from("ticket_puntos").delete().eq("id", action.puntoId); break;
       case "ADD_PRODUCT": await supabase.from("ticket_productos").insert(prodToDb(action.puntoId, action.product)); break;
       case "UPDATE_PRODUCT": await supabase.from("ticket_productos").update(prodPatchToDb(action.patch)).eq("id", action.productId); break;
@@ -156,7 +156,7 @@ export const pendingCount = () => loadQ().length;
 // Identificadores de ventas y anulaciones aún sin subir (para no "perderlas" de la pantalla)
 export function pendingSaleUuids() { const s = new Set(); loadQ().forEach(it => { if (it.op === "vender") (it.args?.p_client_uuids || []).forEach(u => s.add(u)); }); return s; }
 // Gastos de caja aún sin subir (registrados en este equipo) y anulaciones de gasto pendientes
-export function pendingGastos() { return loadQ().filter(it => it.op === "gasto").map(it => ({ id: it.id, eventId: it.evento, puntoId: it.punto, importe: Number(it.importe), concepto: it.concepto || "", por: it.por || "", ts: new Date(it.fecha).getTime(), voided: false, closureId: null, synced: false })); }
+export function pendingGastos() { return loadQ().filter(it => it.op === "gasto").map(it => ({ tipo: it.tipo === "entrada" ? "entrada" : "gasto", id: it.id, eventId: it.evento, puntoId: it.punto, importe: Number(it.importe), concepto: it.concepto || "", por: it.por || "", ts: new Date(it.fecha).getTime(), voided: false, closureId: null, synced: false })); }
 export function pendingGastoVoids() { const s = new Set(); loadQ().forEach(it => { if (it.op === "anularGasto") s.add(it.id); }); return s; }
 export function pendingVoidUuids() { const s = new Set(); loadQ().forEach(it => { if (it.op === "anularVenta") s.add(it.clientUuid); }); return s; }
 
@@ -176,7 +176,7 @@ async function runItem(it) {
     try { localStorage.setItem(scopedKey("ticketera_last_backup"), it.tomado_en); } catch {}
   }
   else if (it.op === "gasto") {
-    const { error } = await supabase.from("ticket_gastos").insert({ id: it.id, evento_id: it.evento, punto_id: it.punto, importe: it.importe, concepto: it.concepto || "", registrado_por: it.por || null, creado_en: it.fecha });
+    const { error } = await supabase.from("ticket_gastos").insert({ id: it.id, tipo: it.tipo === "entrada" ? "entrada" : "gasto", evento_id: it.evento, punto_id: it.punto, importe: it.importe, concepto: it.concepto || "", registrado_por: it.por || null, creado_en: it.fecha });
     if (error && !isDuplicate(error)) throw error;          // ya subido = correcto
   }
   else if (it.op === "anularGasto") {
@@ -253,8 +253,8 @@ export function anularVenta(clientUuid, por) { return doOrQueue({ op: "anularVen
 
 // Gasto / retirada de caja: dinero que SALE del cajón. No cambia la facturación; se descuenta en el arqueo.
 // Offline-safe: se guarda primero en el equipo y sube solo (el id lo pone la app: nunca se duplica).
-export function registrarGasto({ id, eventoId, puntoId, importe, concepto, por }) {
-  return doOrQueue({ op: "gasto", id, evento: eventoId, punto: puntoId, importe, concepto, por, fecha: new Date().toISOString() });
+export function registrarGasto({ id, tipo = "gasto", eventoId, puntoId, importe, concepto, por }) {
+  return doOrQueue({ op: "gasto", id, tipo: tipo === "entrada" ? "entrada" : "gasto", evento: eventoId, punto: puntoId, importe, concepto, por, fecha: new Date().toISOString() });
 }
 export function anularGasto(id, eventoId, por) { return doOrQueue({ op: "anularGasto", id, evento: eventoId, por }); }
 
