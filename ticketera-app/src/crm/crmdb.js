@@ -141,3 +141,22 @@ export async function actualizarLiquidacion(eventoId, datos) {
 export async function reabrirLiquidacion(eventoId) {
   ok(await supabase.from("ticket_crm_liquidaciones").delete().eq("evento_id", eventoId));
 }
+
+/* ---------- Dashboard: datos de TODOS los eventos de la cuenta ---------- */
+async function todas(build) {
+  const out = [];
+  for (let from = 0; ; from += 1000) {
+    const rows = ok(await build().range(from, from + 999));
+    out.push(...rows);
+    if (rows.length < 1000) break;
+  }
+  return out;
+}
+export async function loadCuenta() {
+  const [ing, gs, fp] = await Promise.all([
+    todas(() => supabase.from("ticket_crm_ingresos").select("*").order("id", { ascending: true })),
+    todas(() => supabase.from("ticket_crm_gastos").select("*").order("id", { ascending: true })),
+    supabase.from("ticket_crm_fuentes_punto").select("*"),
+  ]);
+  return { ingresos: ing.map(ingresoFrom), gastos: gs.map(gastoFrom), fuentes: Object.fromEntries(ok(fp).map(x => [x.punto_id, x.fuente])) };
+}

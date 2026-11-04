@@ -6,33 +6,16 @@ import * as crm from "./crmdb";
 import { money, r2, hoy, fechaCorta, parseImporte, isInvite, useIsMobile, Dot, C } from "./ui";
 import { Gastos, totalesGastos } from "./Gastos";
 import { Liquidacion, calcularLiquidacion } from "./Liquidacion";
+import { GRUPOS, CATS, catInfo, fuenteAuto } from "./modelo";
+import { Dashboard } from "./Dashboard";
 
-// Grupos de ingreso (las tarjetas de arriba) y categorías por defecto
-const GRUPOS = [
-  { k: "barra", t: "Barras", ico: "🍹", c: "#ff5a3c" },
-  { k: "entradas", t: "Entradas", ico: "🎟️", c: "#a855f7" },
-  { k: "merch", t: "Merchandising", ico: "👕", c: "#3b82f6" },
-  { k: "patrocinio", t: "Patrocinios", ico: "🤝", c: "#22d3a6" },
-  { k: "otros", t: "Otros", ico: "✨", c: "#ffb400" },
-];
-const CATS = [
-  { k: "Entradas anticipadas", g: "entradas", ico: "🎟️" },
-  { k: "Ticketera online", g: "entradas", ico: "🌐" },
-  { k: "Merchandising", g: "merch", ico: "👕" },
-  { k: "Patrocinio", g: "patrocinio", ico: "🤝" },
-  { k: "Subvención", g: "otros", ico: "🏛️" },
-  { k: "Guardarropa", g: "otros", ico: "🧥" },
-  { k: "Otros", g: "otros", ico: "✨" },
-];
-const catInfo = (k) => CATS.find(c => c.k === k) || { k, g: "otros", ico: "✨" };
 const METODOS = [["efectivo", "💶 Efectivo"], ["transferencia", "🏦 Transferencia"], ["bizum", "📲 Bizum"], ["tarjeta", "💳 Tarjeta"], ["otro", "Otro"]];
 const FUENTES_PUNTO = [["barra", "🍹 Barra"], ["entradas", "🎟️ Entradas"], ["merch", "👕 Merch"], ["otros", "✨ Otros"]];
 const COLORES = ["#ff5a3c", "#a855f7", "#3b82f6", "#22d3a6", "#ffb400", "#ec4899", "#14b8a6", "#f97316"];
-const fuenteAuto = (p) => /taquill|entrada|ticket/i.test(p.name) ? "entradas" : /merch|camiset/i.test(p.name) ? "merch" : "barra";
 
 export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent, onExit, flash }) {
   const isMobile = useIsMobile();
-  const [tab, setTab] = useState("ingresos");
+  const [tab, setTab] = useState("dashboard");
   const [data, setData] = useState(null);      // { socios, participacion, ingresos, fuentes }
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -100,14 +83,17 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
       </header>
 
       <nav style={{ ...C.tabs, padding: isMobile ? "0 12px" : "0 22px" }}>
-        {[["ingresos", "💶 Ingresos"], ["gastos", "🧾 Gastos"], ["liquidacion", "⚖️ Liquidación"], ["socios", "🤝 Socios"]].map(([k, l]) =>
-          <button key={k} onClick={() => setTab(k)} style={{ ...C.tab, ...(isMobile ? { flex: 1, padding: "12px 4px 10px", fontSize: 12.5 } : {}), ...(tab === k ? C.tabOn : {}) }}>{isMobile ? l.replace("Liquidación", "Liquidar") : l}</button>)}
+        {[["dashboard", "📊", "Dashboard", "Panel"], ["ingresos", "💶", "Ingresos", "Ingresos"], ["gastos", "🧾", "Gastos", "Gastos"], ["liquidacion", "⚖️", "Liquidación", "Liquidar"], ["socios", "🤝", "Socios", "Socios"]].map(([k, ico, l, lm]) =>
+          <button key={k} onClick={() => setTab(k)} style={{ ...C.tab, ...(isMobile ? { flex: 1, padding: "9px 2px 7px", fontSize: 11.5, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 } : {}), ...(tab === k ? C.tabOn : {}) }}>{isMobile ? <><span style={{ fontSize: 17 }}>{ico}</span>{lm}</> : `${ico} ${l}`}</button>)}
       </nav>
 
       <main style={{ flex: 1, overflow: "auto", padding: isMobile ? 12 : 22, WebkitOverflowScrolling: "touch" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
           {error && <div style={{ ...C.panel, borderColor: "var(--amber)", color: "var(--amber)", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}><span>⚠️ {error}</span><button onClick={cargar} style={C.ghost}>Reintentar</button></div>}
           {!data && !error && <div style={{ color: "var(--muted)", padding: 30, textAlign: "center" }}>Cargando…</div>}
+          {data && tab === "dashboard" && (
+            <Dashboard ev={ev} events={events} sales={sales} gastosCaja={gastosCaja} onSelectEvent={onSelectEvent} refreshKey={data} />
+          )}
           {data && tab === "ingresos" && (
             <Ingresos ev={ev} T={T} barras={barras} ingresos={ingresos} socios={socios} socioById={socioById} isMobile={isMobile}
               onNuevo={() => setEditIng({})} onEditar={(i) => setEditIng(i)}
