@@ -22,19 +22,22 @@ const gastoFrom = (g) => ({
 });
 
 export async function loadCRM(eventoId) {
-  const [s, es, ing, fp, gs] = await Promise.all([
+  const [s, es, ing, fp, gs, lq] = await Promise.all([
     supabase.from("ticket_crm_socios").select("*").order("creado_en", { ascending: true }),
     supabase.from("ticket_crm_evento_socios").select("*").eq("evento_id", eventoId),
     supabase.from("ticket_crm_ingresos").select("*").eq("evento_id", eventoId).order("fecha", { ascending: false }).order("creado_en", { ascending: false }),
     supabase.from("ticket_crm_fuentes_punto").select("*"),
     supabase.from("ticket_crm_gastos").select("*").eq("evento_id", eventoId).order("creado_en", { ascending: true }),
+    supabase.from("ticket_crm_liquidaciones").select("*").eq("evento_id", eventoId).maybeSingle(),
   ]);
+  const liq = ok(lq);
   return {
     socios: ok(s).map(socioFrom),
     participacion: ok(es).map(partFrom),
     ingresos: ok(ing).map(ingresoFrom),
     fuentes: Object.fromEntries(ok(fp).map(x => [x.punto_id, x.fuente])),
     gastos: ok(gs).map(gastoFrom),
+    liquidacion: liq ? { id: liq.id, datos: liq.datos || {}, cerradaEn: liq.cerrada_en } : null,
   };
 }
 
@@ -126,4 +129,15 @@ export async function copiarPresupuesto(desdeEventoId, haciaEventoId) {
   const hijos = src.filter(g => g.padre_id && mapa[g.padre_id]);
   if (hijos.length) ok(await supabase.from("ticket_crm_gastos").insert(hijos.map(g => ({ ...base(g), padre_id: mapa[g.padre_id] }))));
   return src.length;
+}
+
+/* ---------- Liquidación (cifras congeladas al cerrar) ---------- */
+export async function cerrarLiquidacion(eventoId, datos) {
+  ok(await supabase.from("ticket_crm_liquidaciones").upsert({ evento_id: eventoId, datos, cerrada_en: new Date().toISOString(), actualizado_en: new Date().toISOString() }, { onConflict: "evento_id" }));
+}
+export async function actualizarLiquidacion(eventoId, datos) {
+  ok(await supabase.from("ticket_crm_liquidaciones").update({ datos, actualizado_en: new Date().toISOString() }).eq("evento_id", eventoId));
+}
+export async function reabrirLiquidacion(eventoId) {
+  ok(await supabase.from("ticket_crm_liquidaciones").delete().eq("evento_id", eventoId));
 }

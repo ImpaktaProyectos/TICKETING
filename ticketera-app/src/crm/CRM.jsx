@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import * as crm from "./crmdb";
 import { money, r2, hoy, fechaCorta, parseImporte, isInvite, useIsMobile, Dot, C } from "./ui";
 import { Gastos, totalesGastos } from "./Gastos";
+import { Liquidacion, calcularLiquidacion } from "./Liquidacion";
 
 // Grupos de ingreso (las tarjetas de arriba) y categorías por defecto
 const GRUPOS = [
@@ -80,6 +81,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
     return { porGrupo, tpv, manual, pendiente, total: r2(tpv + manual), enSocios };
   }, [barras, ingresos]);
   const G = useMemo(() => totalesGastos(ev, data?.gastos || [], gastosCaja), [ev, data?.gastos, gastosCaja]);
+  const L = useMemo(() => calcularLiquidacion({ ev, tpv: T.tpv, ingresos, G, participacion: data?.participacion || [], socios }), [ev, T.tpv, ingresos, G, data?.participacion, socios]);
 
   const wrap = { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--text)" };
   return (
@@ -98,8 +100,8 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
       </header>
 
       <nav style={{ ...C.tabs, padding: isMobile ? "0 12px" : "0 22px" }}>
-        {[["ingresos", "💶 Ingresos"], ["gastos", "🧾 Gastos"], ["socios", "🤝 Socios"]].map(([k, l]) =>
-          <button key={k} onClick={() => setTab(k)} style={{ ...C.tab, ...(tab === k ? C.tabOn : {}) }}>{l}</button>)}
+        {[["ingresos", "💶 Ingresos"], ["gastos", "🧾 Gastos"], ["liquidacion", "⚖️ Liquidación"], ["socios", "🤝 Socios"]].map(([k, l]) =>
+          <button key={k} onClick={() => setTab(k)} style={{ ...C.tab, ...(isMobile ? { flex: 1, padding: "12px 4px 10px", fontSize: 12.5 } : {}), ...(tab === k ? C.tabOn : {}) }}>{isMobile ? l.replace("Liquidación", "Liquidar") : l}</button>)}
       </nav>
 
       <main style={{ flex: 1, overflow: "auto", padding: isMobile ? 12 : 22, WebkitOverflowScrolling: "touch" }}>
@@ -117,6 +119,13 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
               onSave={(x) => run(() => crm.saveGasto({ ...x, eventoId: ev.id }), x.id ? "Gasto actualizado" : "Gasto añadido")}
               onDelete={(x) => run(() => crm.deleteGasto(x.id), "Gasto borrado")}
               onCopiar={(desde) => run(async () => { const nn = await crm.copiarPresupuesto(desde.id, ev.id); if (!nn) throw new Error("vacío"); }, `Presupuesto de ${desde.name} copiado`)} />
+          )}
+          {data && tab === "liquidacion" && (
+            <Liquidacion L={L} guardada={data.liquidacion} busy={busy}
+              onIrSocios={() => setTab("socios")} onIrIngresos={() => setTab("ingresos")}
+              onCerrar={(datos) => run(() => crm.cerrarLiquidacion(ev.id, datos), "Liquidación cerrada")}
+              onReabrir={() => run(() => crm.reabrirLiquidacion(ev.id), "Liquidación reabierta")}
+              onMarcarPagado={(socioId, v) => run(() => crm.actualizarLiquidacion(ev.id, { ...data.liquidacion.datos, filas: data.liquidacion.datos.filas.map(f => f.socioId === socioId ? { ...f, pagado: v } : f) }), v ? "Marcado como hecho" : "Desmarcado")} />
           )}
           {data && tab === "socios" && (
             <Socios ev={ev} data={data} T={T} G={G} isMobile={isMobile} busy={busy}
