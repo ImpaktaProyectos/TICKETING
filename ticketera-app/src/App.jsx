@@ -1,9 +1,11 @@
-import React, { useReducer, useState, useMemo, useEffect, useRef } from "react";
+import React, { useReducer, useState, useMemo, useEffect, useRef, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { uid } from "./supabase";
 import { logout } from "./auth";
 import * as db from "./db";
 import { nextFolios, prefijoDePunto, peekFolio, getDeviceTag, resetFolios, seedFolio } from "./folio";
+// Modo CRM: código aparte que solo se descarga al abrirlo (el TPV no pesa más ni arranca más lento)
+const CRM = lazy(() => import("./crm/CRM.jsx"));
 
 /* ============================================================================
    TIXFAST — TPV de tickets para eventos
@@ -30,7 +32,7 @@ const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.04e";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.05a";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -298,6 +300,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState(null);
   const [view, setView] = useState("pos");
+  const [appMode, setAppMode] = useState("tpv");   // "tpv" | "crm" (el CRM solo para admin)
   const [toast, setToast] = useState(null);
   const [printJob, setPrintJob] = useState(null);
   const [showRevenue, setShowRevenue] = useState(false);
@@ -735,7 +738,8 @@ export default function App() {
     flash(`🧪 ${puntoObj.name} en modo prueba`, "warn");
   };
 
-  const exitToLogin = () => { setRole(null); setView("pos"); };
+  const exitToLogin = () => { setRole(null); setView("pos"); setAppMode("tpv"); };
+  const inCRM = role === "admin" && appMode === "crm";
   const isPriv = role === "admin" || role === "supervisor";
   const allNav = [
     { id: "pos", label: "TPV", icon: "pos", roles: ["admin", "supervisor"] },
@@ -743,9 +747,11 @@ export default function App() {
     { id: "config", label: "Evento", icon: "config", roles: ["admin"] },
     { id: "reports", label: "Informes", icon: "reports", roles: ["admin", "supervisor"] },
     { id: "history", label: "Histórico", icon: "history", roles: ["admin"] },
+    { id: "crm", label: "CRM", icon: "crm", roles: ["admin"] },
   ];
   const navItems = allNav.filter(n => n.roles.includes(role));
-  const safeView = navItems.find(n => n.id === view) ? view : "pos";
+  const safeView = navItems.find(n => n.id === view && n.id !== "crm") ? view : "pos";
+  const goNav = (id) => { if (id === "crm") { setMenuOpen(false); setAppMode("crm"); } else setView(id); };
 
   const syncNow = async () => { const r = await db.syncPending(); setPending(db.pendingCount()); if (r.synced) { flash(`✅ ${r.synced} ventas sincronizadas`); await hydrate().catch(() => {}); } else flash(pending ? "Aún sin conexión" : "Todo sincronizado"); };
   const OnlinePill = ({ small }) => (
@@ -778,7 +784,7 @@ export default function App() {
       {role === null && (
         <RoleGate ev={ev} events={state.events} adminPin={ev.pin_admin} supervisorPin={ev.pin_supervisor}
           onSelectEvent={id => dispatch({ type: "SELECT_EVENT", id })}
-          onRole={(r, puntoId) => { if (puntoId) dispatch({ type: "SET_PUNTO", id: puntoId }); setRole(r); setView("pos"); setShowCheck(true); }} />
+          onRole={(r, puntoId, modo) => { if (puntoId) dispatch({ type: "SET_PUNTO", id: puntoId }); setRole(r); setView("pos"); const crmMode = modo === "crm" && r === "admin"; setAppMode(crmMode ? "crm" : "tpv"); setShowCheck(!crmMode); }} />
       )}
 
       {/* ===== CAJERO ===== */}
@@ -812,8 +818,15 @@ export default function App() {
         </div>
       ))}
 
+      {/* ===== CRM (solo admin) ===== */}
+      {inCRM && (
+        <Suspense fallback={<div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: "var(--muted)" }}>Abriendo el CRM…</div>}>
+          <CRM events={state.events} sales={state.sales} ev={ev} onSelectEvent={(id) => dispatch({ type: "SELECT_EVENT", id })} onExit={() => setAppMode("tpv")} flash={flash} />
+        </Suspense>
+      )}
+
       {/* ===== ADMIN / SUPERVISOR ===== */}
-      {isPriv && (isMobile ? (
+      {isPriv && !inCRM && (isMobile ? (
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
           <header style={S.mTop}>
             <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width="32" height="32" style={{ flexShrink: 0, display: "block" }} />
@@ -835,7 +848,7 @@ export default function App() {
             {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
           </div>
           <nav style={S.bottomNav}>
-            {navItems.map(n => <button key={n.id} onClick={() => setView(n.id)} style={{ ...S.bTab, ...(safeView === n.id ? S.bTabActive : {}) }}>
+            {navItems.map(n => <button key={n.id} onClick={() => goNav(n.id)} style={{ ...S.bTab, ...(safeView === n.id ? S.bTabActive : {}) }}>
               <span style={{ ...S.bTabIco, ...(safeView === n.id ? S.bTabIcoActive : {}) }}><Ic n={n.icon} s={21} w={safeView === n.id ? 2.2 : 1.9} /></span>{n.label}
             </button>)}
           </nav>
@@ -851,7 +864,7 @@ export default function App() {
             <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={S.select}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
             <div style={{ ...S.sideLabel, marginTop: 20 }}>Menú</div>
             <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              {navItems.map(n => <button key={n.id} onClick={() => setView(n.id)} className="nav-btn" style={{ ...S.navBtn, ...(safeView === n.id ? S.navActive : {}) }}><span style={{ color: safeView === n.id ? "var(--accent)" : "var(--muted)", display: "flex" }}><Ic n={n.icon} /></span>{n.label}</button>)}
+              {navItems.map(n => <button key={n.id} onClick={() => goNav(n.id)} className="nav-btn" style={{ ...S.navBtn, ...(safeView === n.id ? S.navActive : {}) }}><span style={{ color: safeView === n.id ? "var(--accent)" : "var(--muted)", display: "flex" }}><Ic n={n.icon} /></span>{n.label}</button>)}
             </nav>
             <div style={{ marginTop: "auto", paddingTop: 16 }}>
               <div style={S.sideLabel}>Punto de venta activo</div>
@@ -1141,6 +1154,7 @@ const IC = {
   chev: "M9 6l6 6-6 6",
   store: "M4 9l1.5-5h13L20 9M4 9h16M4 9v11h16V9M9 20v-6h6v6",
   history: "M3 12a9 9 0 1 0 3-6.7M3 4v4h4M12 7v5l3 2",
+  crm: "M4 8h16v11H4zM9 8V5h6v3M4 13h16M11 12v2h2v-2",
   grip: "M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01",
   up: "M6 15l6-6 6 6",
   down: "M6 9l6 6 6-6",
@@ -1174,6 +1188,7 @@ function RoleGate({ ev, events, adminPin, supervisorPin, onSelectEvent, onRole }
     { k: "cajero", icon: "receipt", t: "Cajero", d: "Solo TPV e impresión" },
     { k: "supervisor", icon: "eye", t: "Supervisor", d: "TPV + informes + cierres" },
     { k: "admin", icon: "shield", t: "Administrador", d: "Configura todo" },
+    { k: "crm", icon: "crm", t: "CRM", d: "Ingresos, socios y cuentas" },
   ];
   return (
     <div style={S.gateWrap}>
@@ -1199,6 +1214,7 @@ function RoleGate({ ev, events, adminPin, supervisorPin, onSelectEvent, onRole }
         )}
         {mode === "supervisor" && <PinModal correct={supervisorPin} onOk={() => onRole("supervisor")} onClose={() => setMode(null)} label="PIN de supervisor" />}
         {mode === "admin" && <PinModal correct={adminPin} onOk={() => onRole("admin")} onClose={() => setMode(null)} label="PIN de administrador" />}
+        {mode === "crm" && <PinModal correct={adminPin} onOk={() => onRole("admin", null, "crm")} onClose={() => setMode(null)} label="PIN de administrador para el CRM" />}
       </div>
     </div>
   );
