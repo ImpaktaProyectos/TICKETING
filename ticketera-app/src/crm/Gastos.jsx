@@ -56,21 +56,20 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {/* ===== Resultado ===== */}
+      {/* ===== Total de gastos (el resultado está en el Panel) ===== */}
       <section style={{ ...C.hero, padding: isMobile ? 16 : 22 }}>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.1fr 1fr", gap: isMobile ? 14 : 28, alignItems: "center" }}>
           <div>
-            <div style={C.label}>Resultado previsto · {ev.name}</div>
-            <div style={{ fontSize: isMobile ? 38 : 50, fontWeight: 900, letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4, color: beneficio >= 0 ? "var(--green)" : "var(--red)" }}>{money(beneficio)}</div>
-            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{ivaOn ? "Sin IVA: ya descuenta el IVA a pagar a Hacienda." : "Cuenta todos los ingresos, también los pendientes de cobrar. Cada gasto, por su importe real; si aún no lo tiene, por el previsto."}</div>
+            <div style={C.label}>Gastos de {ev.name}</div>
+            <div style={{ fontSize: isMobile ? 38 : 50, fontWeight: 900, letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4, color: "var(--text)" }}>{money(G.total)}</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{gastos.length + G.caja.length} {gastos.length + G.caja.length === 1 ? "gasto" : "gastos"}. Cada uno cuenta por su importe real; si aún no lo tiene, por el previsto.{ivaOn ? " Sin IVA." : ""}</div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <Barra t="Ingresos" v={ingresosTotal} max={maxRes} c="var(--green)" i="wallet" />
-            <Barra t="Gastos" v={G.total} max={maxRes} c="var(--accent)" i="receipt" />
+            <Barra t="Presupuesto previsto" v={G.previsto} max={Math.max(1, G.previsto, G.total)} c="var(--muted)" i="scale" />
+            <Barra t="Gastos" v={G.total} max={Math.max(1, G.previsto, G.total)} c={G.previsto && G.total > G.previsto + 0.005 ? "var(--red)" : "var(--accent)"} i="receipt" />
           </div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : `repeat(${G.cajaTotal > 0 ? 4 : 3},minmax(0,1fr))`, gap: 8, marginTop: 16 }}>
-          <Mini l="Presupuesto previsto" v={money(G.previsto)} />
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : `repeat(${G.cajaTotal > 0 ? 3 : 2},minmax(0,1fr))`, gap: 8, marginTop: 16 }}>
           <Mini l="Gastado real" v={money(G.real)} sub={G.previsto ? `${Math.round(G.real / G.previsto * 100)} % del previsto` : null} c={G.previsto && G.real > G.previsto ? "var(--red)" : undefined} />
           <Mini l="Pendiente de pagar" v={money(G.pendiente)} c={G.pendiente ? "var(--amber)" : undefined} />
           {G.cajaTotal > 0 && <Mini l="Sacado de caja (TPV)" v={money(G.cajaTotal)} />}
