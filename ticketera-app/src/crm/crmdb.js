@@ -232,16 +232,21 @@ const artTo = (x) => ({
   orden: Math.round(n(x.orden)), actualizado_en: new Date().toISOString(),
 });
 const movFrom = (m) => ({ id: m.id, eventoId: m.evento_id, articuloId: m.articulo_id, tipo: m.tipo, cantidad: m.cantidad != null ? n(m.cantidad) : 0, cajas: m.cajas != null ? n(m.cajas) : null,
-  sueltas: m.sueltas != null ? n(m.sueltas) : null, costeUnidad: m.coste_unidad != null ? n(m.coste_unidad) : null, documento: m.documento || "", nota: m.nota || "", anulaId: m.anula_id || null, creadoPor: m.creado_por || "", creadoEn: m.creado_en });
+  sueltas: m.sueltas != null ? n(m.sueltas) : null, costeUnidad: m.coste_unidad != null ? n(m.coste_unidad) : null, documento: m.documento || "", nota: m.nota || "", anulaId: m.anula_id || null, creadoPor: m.creado_por || "", creadoEn: m.creado_en,
+  documentoId: m.documento_id || null, trasRecuento: !!m.tras_recuento });
+const docFrom = (x) => ({ id: x.id, eventoId: x.evento_id, proveedor: x.proveedor, numero: x.numero || "", fecha: x.fecha, tipo: x.tipo, estado: x.estado,
+  base: x.base != null ? n(x.base) : null, total: x.total != null ? n(x.total) : null, ivas: x.ivas || [], lineas: x.lineas || [], huella: x.huella || null,
+  gastos: x.gastos || [], vinculoId: x.vinculo_id || null, nota: x.nota || "", creadoEn: x.creado_en, actualizadoEn: x.actualizado_en });
 const lineaFrom = (l) => ({ id: l.id, articuloId: l.articulo_id, cajas: n(l.cajas), sueltas: n(l.sueltas), abierta: n(l.abierta), total: n(l.total), contadoPor: l.contado_por || "", actualizadoEn: l.actualizado_en });
 const claveNueva = () => (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
 export async function loadStock(eventoId) {
-  const [as, ms, rs, cs] = await Promise.all([
+  const [as, ms, rs, cs, ds] = await Promise.all([
     supabase.from("ticket_crm_stock_articulos").select("*").order("orden", { ascending: true }).order("nombre", { ascending: true }),
     supabase.from("ticket_crm_stock_movimientos").select("*").eq("evento_id", eventoId).order("creado_en", { ascending: false }),
     supabase.from("ticket_crm_stock_recetas").select("*"),
     supabase.from("ticket_crm_stock_conteos").select("*").eq("evento_id", eventoId).maybeSingle(),
+    supabase.from("ticket_crm_stock_documentos").select("*").eq("evento_id", eventoId),
   ]);
   const conteo = ok(cs);
   const lineas = conteo ? ok(await supabase.from("ticket_crm_stock_conteo_lineas").select("*").eq("conteo_id", conteo.id)).map(lineaFrom) : [];
@@ -250,6 +255,7 @@ export async function loadStock(eventoId) {
     recetas: ok(rs).map(r => ({ id: r.id, producto: r.producto, items: Array.isArray(r.items) ? r.items : [] })),
     conteo: conteo ? { id: conteo.id, estado: conteo.estado, empezadoEn: conteo.empezado_en, selladoEn: conteo.sellado_en, selladoPor: conteo.sellado_por || "" } : null,
     lineas,
+    documentos: ok(ds).map(docFrom).sort((x, y) => String(y.creadoEn).localeCompare(String(x.creadoEn))),
   };
 }
 export async function saveArticulo(x) {
@@ -302,3 +308,70 @@ export async function saveLinea(conteoId, articuloId, { cajas, sueltas, abierta,
 export async function borrarLinea(conteoId, articuloId) { ok(await supabase.from("ticket_crm_stock_conteo_lineas").delete().eq("conteo_id", conteoId).eq("articulo_id", articuloId)); }
 export async function sellarConteo(conteoId, por) { ok(await supabase.from("ticket_crm_stock_conteos").update({ estado: "sellado", sellado_en: new Date().toISOString(), sellado_por: por || null }).eq("id", conteoId)); }
 export async function reabrirConteo(conteoId) { ok(await supabase.from("ticket_crm_stock_conteos").update({ estado: "abierto", sellado_en: null, sellado_por: null }).eq("id", conteoId)); }
+
+/* ---------- STOCK fase 2: facturas, abonos y devoluciones ---------- */
+const movTo = (x) => ({
+  evento_id: x.eventoId, articulo_id: x.articuloId, tipo: x.tipo, cantidad: Math.round(n(x.cantidad) * 1000) / 1000,
+  cajas: x.cajas != null ? Math.abs(Math.round(n(x.cajas) * 1000) / 1000) : null, sueltas: x.sueltas != null ? Math.abs(Math.round(n(x.sueltas) * 1000) / 1000) : null,
+  coste_unidad: x.costeUnidad == null ? null : Math.round(n(x.costeUnidad) * 10000) / 10000,
+  documento: String(x.documento || "").trim().slice(0, 60) || null, nota: String(x.nota || "").trim().slice(0, 300) || null,
+  creado_por: String(x.creadoPor || "").slice(0, 40) || null, clave: x.clave, documento_id: x.documentoId || null, tras_recuento: !!x.trasRecuento,
+});
+// Varios movimientos de una vez; si alguno ya existía (misma clave), no se duplica
+export async function addMovimientos(lista) {
+  if (!lista.length) return;
+  const filas = lista.map(movTo);
+  const r = await supabase.from("ticket_crm_stock_movimientos").insert(filas);
+  if (!r.error) return;
+  if (r.error.code !== "23505") throw r.error;
+  // Reintento: alguno ya estaba guardado → uno a uno, saltando los repetidos
+  for (const f of filas) { const x = await supabase.from("ticket_crm_stock_movimientos").insert(f); if (x.error && x.error.code !== "23505") throw x.error; }
+}
+// ¿Ya está este fichero o esta factura en la cuenta? (en cualquier evento)
+export async function buscarDocumento({ huella, proveedor, numero }) {
+  if (huella) { const r = ok(await supabase.from("ticket_crm_stock_documentos").select("id, evento_id, numero, estado").eq("huella", huella).limit(1)); if (r.length) return r[0]; }
+  if (numero) { const r = ok(await supabase.from("ticket_crm_stock_documentos").select("id, evento_id, numero, estado").eq("proveedor", proveedor).eq("numero", numero).neq("estado", "anulado").neq("tipo", "devolucion").limit(1)); if (r.length) return r[0]; }
+  return null;
+}
+export async function crearDocumento(x) {
+  return docFrom(ok(await supabase.from("ticket_crm_stock_documentos").insert({
+    evento_id: x.eventoId, proveedor: String(x.proveedor).slice(0, 80), numero: x.numero ? String(x.numero).slice(0, 40) : null, fecha: x.fecha || null,
+    tipo: x.tipo, estado: x.estado, base: x.base ?? null, total: x.total ?? null, ivas: x.ivas || [], lineas: x.lineas || [], huella: x.huella || null,
+    gastos: x.gastos || [], vinculo_id: x.vinculoId || null, nota: x.nota ? String(x.nota).slice(0, 300) : null,
+  }).select().single()));
+}
+export async function actualizarDocumento(id, patch) {
+  const row = { actualizado_en: new Date().toISOString() };
+  if (patch.estado) row.estado = patch.estado;
+  if (patch.gastos) row.gastos = patch.gastos;
+  if ("vinculoId" in patch) row.vinculo_id = patch.vinculoId;
+  if ("huella" in patch) row.huella = patch.huella;
+  if (patch.lineas) row.lineas = patch.lineas;
+  ok(await supabase.from("ticket_crm_stock_documentos").update(row).eq("id", id));
+}
+
+/* ---------- STOCK fase 3: almacén general ---------- */
+// Saldo del almacén = lo que se guardó desde los eventos − lo que se sacó hacia eventos + ajustes del almacén
+export async function loadAlmacen() {
+  const [ms, an, aj] = await Promise.all([
+    todas(() => supabase.from("ticket_crm_stock_movimientos").select("id, evento_id, articulo_id, tipo, cantidad, coste_unidad, creado_en").in("tipo", ["traspaso_salida", "traspaso_entrada"]).order("id", { ascending: true })),
+    todas(() => supabase.from("ticket_crm_stock_movimientos").select("anula_id").eq("tipo", "anulacion").order("id", { ascending: true })),
+    todas(() => supabase.from("ticket_crm_stock_almacen_ajustes").select("*").order("id", { ascending: true })),
+  ]);
+  const anulados = new Set(an.map(x => x.anula_id));
+  const saldo = {}, coste = {}, ultimo = {};
+  ms.filter(m => !anulados.has(m.id)).forEach(m => {
+    const q = n(m.cantidad), s = m.tipo === "traspaso_salida" ? 1 : -1;
+    saldo[m.articulo_id] = (saldo[m.articulo_id] || 0) + s * q;
+    if (s > 0 && m.coste_unidad != null) { const c = coste[m.articulo_id] || { q: 0, v: 0 }; c.q += q; c.v += q * n(m.coste_unidad); coste[m.articulo_id] = c; }
+    if (!ultimo[m.articulo_id] || m.creado_en > ultimo[m.articulo_id]) ultimo[m.articulo_id] = m.creado_en;
+  });
+  aj.forEach(a => { saldo[a.articulo_id] = (saldo[a.articulo_id] || 0) + n(a.cantidad); if (!ultimo[a.articulo_id] || a.creado_en > ultimo[a.articulo_id]) ultimo[a.articulo_id] = a.creado_en; });
+  Object.keys(saldo).forEach(k => { saldo[k] = Math.round(saldo[k] * 1000) / 1000; });
+  return { saldo, costeMedio: Object.fromEntries(Object.entries(coste).map(([k, c]) => [k, c.q ? c.v / c.q : null])), ultimo, nMovs: ms.length + aj.length };
+}
+export async function ajustarAlmacen(articuloId, diferencia, nota, creadoPor) {
+  const cant = Math.round(n(diferencia) * 1000) / 1000;
+  if (!cant) return;
+  ok(await supabase.from("ticket_crm_stock_almacen_ajustes").insert({ articulo_id: articuloId, cantidad: cant, nota: nota ? String(nota).slice(0, 300) : null, creado_por: creadoPor || null, clave: claveNueva() }));
+}

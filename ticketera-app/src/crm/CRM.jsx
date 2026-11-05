@@ -145,7 +145,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
               onCopiar={(desde) => run(async () => { const nn = await crm.copiarPresupuesto(desde.id, ev.id); if (!nn) throw new Error("vacío"); }, `Presupuesto de ${desde.name} copiado`)} />
           )}
           {data && tab === "stock" && (
-            <Stock ev={ev} sales={sales} ajustes={data.ajustes || {}} flash={flash}
+            <Stock ev={ev} sales={sales} ajustes={data.ajustes || {}} flash={flash} onRecargarCRM={cargar}
               onGuardarAjustes={async (datos) => { await crm.saveAjustes(datos); await cargar(); }} />
           )}
           {data && tab === "liquidacion" && (

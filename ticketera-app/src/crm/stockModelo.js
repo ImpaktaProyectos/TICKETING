@@ -23,7 +23,11 @@ export const TIPOS_MOV = [
   { k: "merma", t: "Merma", largo: "Merma o rotura", i: "alert", c: "var(--amber)", ink: "#1a1205" },
   { k: "interno", t: "Consumo interno", largo: "Consumo interno (personal, artistas)", i: "users", c: "#a855f7", ink: "#fff" },
 ];
-export const tipoInfo = (k) => TIPOS_MOV.find(t => t.k === k) || TIPOS_MOV[0];
+const TIPOS_EXTRA = [
+  { k: "traspaso_entrada", t: "Del almacén", largo: "Traído del almacén", i: "box", c: "#14b8a6", ink: "#fff" },
+  { k: "traspaso_salida", t: "Al almacén", largo: "Guardado en el almacén", i: "box", c: "#64748b", ink: "#fff" },
+];
+export const tipoInfo = (k) => TIPOS_MOV.find(t => t.k === k) || TIPOS_EXTRA.find(t => t.k === k) || TIPOS_MOV[0];
 export const STOCK_DEF = { copaMl: 50, chupitoMl: 30, refrescoMl: 200 };
 export const stockCfg = (ajustes) => ({ ...STOCK_DEF, ...((ajustes || {}).stock || {}) });
 
@@ -83,8 +87,15 @@ export function calcularStock({ ev, sales, articulos, movimientos, recetas, cont
   const anulados = new Set(movimientos.filter(m => m.tipo === "anulacion").map(m => m.anulaId));
   const validos = movimientos.filter(m => m.tipo !== "anulacion" && !anulados.has(m.id));
   const porArt = {};
-  const art = (id) => porArt[id] = porArt[id] || { entrada: 0, devolucion: 0, merma: 0, interno: 0, costeEntrada: 0 };
-  validos.forEach(m => { const x = art(m.articuloId); x[m.tipo] = r2(x[m.tipo] + m.cantidad); if (m.tipo === "entrada") { const a = artById[m.articuloId]; x.costeEntrada += m.cantidad * (m.costeUnidad ?? a?.coste ?? 0); } });
+  const art = (id) => porArt[id] = porArt[id] || { entrada: 0, devolucion: 0, devolTras: 0, merma: 0, interno: 0, costeEntrada: 0 };
+  validos.forEach(m => {
+    const x = art(m.articuloId);
+    // Traspasos con el almacén: entrar desde el almacén = entrada; guardar en el almacén = salida como una devolución
+    const tipo = m.tipo === "traspaso_entrada" ? "entrada" : m.tipo === "traspaso_salida" ? "devolucion" : m.tipo;
+    if (tipo === "devolucion" && m.trasRecuento) { x.devolTras = r2(x.devolTras + m.cantidad); return; } // sale de lo ya contado: no cambia el consumo
+    x[tipo] = r2(x[tipo] + m.cantidad);
+    if (tipo === "entrada") { const a = artById[m.articuloId]; x.costeEntrada += m.cantidad * (m.costeUnidad ?? a?.coste ?? 0); }
+  });
   const contadoArt = Object.fromEntries((lineas || []).map(l => [l.articuloId, l]));
   const recetaMap = Object.fromEntries((recetas || []).map(r => [r.producto, r.items]));
 
@@ -104,9 +115,9 @@ export function calcularStock({ ev, sales, articulos, movimientos, recetas, cont
 
   // Por artículo
   const filas = articulos.map(a => {
-    const x = porArt[a.id] || { entrada: 0, devolucion: 0, merma: 0, interno: 0, costeEntrada: 0 };
+    const x = porArt[a.id] || { entrada: 0, devolucion: 0, devolTras: 0, merma: 0, interno: 0, costeEntrada: 0 };
     const l = contadoArt[a.id];
-    const tiene = x.entrada > 0 || x.devolucion > 0 || x.merma > 0 || x.interno > 0;
+    const tiene = x.entrada > 0 || x.devolucion > 0 || x.devolTras > 0 || x.merma > 0 || x.interno > 0;
     const final = l ? Number(l.total) : null;
     const real = final == null ? null : r2(x.entrada - x.devolucion - final);
     const deberia = r2(x.entrada - x.devolucion - x.merma - x.interno - (tpvArt[a.id] || 0));
@@ -121,7 +132,8 @@ export function calcularStock({ ev, sales, articulos, movimientos, recetas, cont
     if (!fs.length && !tpvFam[F.k]) return null;
     const m = (f) => factor(f.a) || (F.medida === "ml" ? 0 : 1);
     const entra = r2(fs.reduce((t, f) => t + f.entrada * m(f), 0));
-    const devuelto = r2(fs.reduce((t, f) => t + f.devolucion * m(f), 0));
+    const devuelto = r2(fs.reduce((t, f) => t + (f.devolucion + (F.noAudita ? f.devolTras : 0)) * m(f), 0));
+    const devueltoTras = r2(fs.reduce((t, f) => t + f.devolTras * m(f), 0));
     const merma = r2(fs.reduce((t, f) => t + (f.merma + f.interno) * m(f), 0));
     const sinContar = fs.filter(f => f.final == null && (f.entrada - f.devolucion) > 0);
     const contados = fs.filter(f => f.final != null);
@@ -138,12 +150,13 @@ export function calcularStock({ ev, sales, articulos, movimientos, recetas, cont
     const usada = famUsadas.has(F.k);
     let estado = "pendiente";
     if (F.noAudita) estado = "info";
+    else if (conteo && sinContar.length) estado = "incompleto"; // con artículos sin contar no se puede saber si cuadra
     else if (!hayRecuento) estado = "pendiente";
     else if (!usada) estado = "sinreceta";
     else if (Math.abs(dif) <= tolerancia) estado = "cuadra";
     else estado = dif > 0 ? "falta" : "sobra";
     return {
-      ...F, entra, devuelto, merma, tpv, justificado, final, real, dif, tolerancia, costeMedida, usada, estado, sinContar, medidaMedia,
+      ...F, entra, devuelto, devueltoTras, merma, tpv, justificado, final, real, dif, tolerancia, costeMedida, usada, estado, sinContar, medidaMedia,
       deberia: r2(entra - devuelto - justificado), difCoste: dif != null ? r2(dif * costeMedida) : null,
       consumidoCoste: real != null ? r2(real * costeMedida) : null, valorEntrada: r2(fs.reduce((t, f) => t + f.costeEntrada, 0)),
     };
@@ -163,8 +176,9 @@ export function calcularStock({ ev, sales, articulos, movimientos, recetas, cont
   const faltaCoste = r2(auditables.filter(f => f.estado === "falta").reduce((t, f) => t + f.difCoste, 0));
   const sobraCoste = r2(auditables.filter(f => f.estado === "sobra").reduce((t, f) => t + f.difCoste, 0));
   const valorEntrada = r2(familias.reduce((t, f) => t + f.valorEntrada, 0));
-  const consumidoCoste = r2(auditables.reduce((t, f) => t + (f.consumidoCoste || 0), 0));
-  return { filas, enJuego, familias, productos, fiabilidad: { contadosPct, recetaPct, sellado, nivel, sinReceta, conEntrada: conEntrada.length }, faltaCoste, sobraCoste, valorEntrada, consumidoCoste, nMovs: validos.length };
+  const consumidoCoste = r2(auditables.filter(f => f.estado !== "incompleto").reduce((t, f) => t + (f.consumidoCoste || 0), 0));
+  const incompletas = auditables.filter(f => f.estado === "incompleto");
+  return { filas, enJuego, familias, productos, fiabilidad: { contadosPct, recetaPct, sellado, nivel, sinReceta, conEntrada: conEntrada.length }, faltaCoste, sobraCoste, valorEntrada, consumidoCoste, incompletas, nMovs: validos.length };
 }
 
 // ---- Catálogo de partida: Distribuciones Monteagudo (códigos y costes por unidad sacados de sus facturas, sin IVA) ----
@@ -203,3 +217,36 @@ export const CATALOGO_MONTEAGUDO = [
   ["707662", "Envase Estrella Galicia 1/3", "envase", "caja", null, 1, 2.57, true],
 ].map(([codigo, nombre, familia, unidad, ml, porCaja, coste, retornable = false, envaseCodigo = null, confirmar = false], i) =>
   ({ codigo, nombre, familia, unidad, ml, porCaja, coste, retornable, envaseCodigo, confirmar, proveedor: "Monteagudo", orden: i }));
+
+// ---- Artículo sugerido a partir de la descripción de una línea de factura ----
+export function articuloDesdeLinea(desc, codigo, proveedor) {
+  const d = String(desc || "").toUpperCase();
+  const familia = /ENVASE|CASCO|FIANZA/.test(d) ? "envase" : /VASO|COPA PL|CHUPITO TRANSP/.test(d) ? "vaso"
+    : /GINEBRA|\bGIN\b|\bRON\b|WHISK|VODKA|TEQUILA|LICOR|JAGER|BRANDY|CO[ÑN]AC|ANIS|PACHAR|BAILEYS|MARTINI|VERMUT/.test(d) ? "destilado"
+    : /CERVEZA|ESTRELLA|MAHOU|HEINEKEN|ALHAMBRA|AMSTEL|CRUZCAMPO|DAMM|1\/3/.test(d) ? "cerveza"
+    : /AGUA/.test(d) ? "agua" : /ENERG|RED ?BULL|MONSTER|CONTACT|BURN/.test(d) ? "energetica"
+    : /COCA|FANTA|SPRITE|SCHWEPPES|T[OÓ]NICA|NESTEA|AQUARIUS|REFRESCO|LIM[OÓ]N|NARANJA|7UP|PEPSI/.test(d) ? "refresco" : "otros";
+  const pack = d.match(/\*\s*(\d{1,3})\b/) || d.match(/\bX\s*(\d{1,3})\b/);
+  let ml = null;
+  const mL = d.match(/(\d+(?:[.,]\d+)?)\s*(?:L\b|LITROS?)/), mCl = d.match(/(\d+(?:[.,]\d+)?)\s*CL/), mMl = d.match(/(\d{3})\s*ML/), m13 = /1\/3/.test(d), m07 = d.match(/\b0[.,]70\b/);
+  if (mMl) ml = Number(mMl[1]); else if (mCl) ml = Math.round(parseFloat(mCl[1].replace(",", ".")) * 10); else if (mL) ml = Math.round(parseFloat(mL[1].replace(",", ".")) * 1000); else if (m13) ml = 330; else if (m07) ml = 700;
+  if (familia === "envase" || familia === "vaso") ml = null;
+  const unidad = familia === "envase" ? "caja" : /LATA/.test(d) || familia === "energetica" ? "lata" : familia === "vaso" || familia === "otros" ? "unidad" : "botella";
+  const porCaja = familia === "destilado" || familia === "envase" || familia === "vaso" ? 1 : pack ? Math.max(1, Number(pack[1])) : 1;
+  const nombre = d.replace(/\s+/g, " ").replace(/[."]+$/g, "").trim().toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase()).slice(0, 80);
+  return { nombre, familia, unidad, ml, porCaja, codigo: String(codigo || ""), proveedor: proveedor || "", retornable: /RETORN/.test(d) && !/NO RETORN/.test(d), confirmar: familia === "vaso", activo: true };
+}
+
+// ---- Propuesta de devolución del sobrante (lo que queda CERRADO en el recuento, menos lo ya devuelto) ----
+export function propuestaDevolucion({ articulos, lineas, movimientos }) {
+  const anulados = new Set(movimientos.filter(m => m.tipo === "anulacion").map(m => m.anulaId));
+  const yaDevuelto = {};
+  movimientos.filter(m => (m.tipo === "devolucion" || m.tipo === "traspaso_salida") && m.trasRecuento && !anulados.has(m.id)).forEach(m => { yaDevuelto[m.articuloId] = (yaDevuelto[m.articuloId] || 0) + m.cantidad; });
+  return (lineas || []).map(l => {
+    const a = articulos.find(x => x.id === l.articuloId);
+    if (!a || famInfo(a.familia).noAudita) return null;
+    const cerradas = r2(l.cajas * (a.porCaja || 1) + l.sueltas);
+    const pendiente = r2(Math.max(0, cerradas - (yaDevuelto[a.id] || 0)));
+    return { a, cerradas, yaDevuelto: yaDevuelto[a.id] || 0, pendiente };
+  }).filter(x => x && (x.cerradas > 0));
+}

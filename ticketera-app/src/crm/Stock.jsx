@@ -5,7 +5,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import * as crm from "./crmdb";
 import { money, r2, parseImporte, fechaCorta, useIsMobile, C, Icon, Tile, Badge, Seg, Head, Sheet, Field, IconGrid, MoneyInput } from "./ui";
 import { Vacio, Switch } from "./Ingresos";
-import { FAMILIAS, famInfo, UNIDADES, uniTxt, TIPOS_MOV, tipoInfo, stockCfg, num, medidaTxt, cantTxt, factor, formato, sugerirReceta, recetaTxt, calcularStock, CATALOGO_MONTEAGUDO } from "./stockModelo";
+import { FAMILIAS, famInfo, UNIDADES, uniTxt, TIPOS_MOV, tipoInfo, stockCfg, num, medidaTxt, cantTxt, factor, formato, sugerirReceta, recetaTxt, calcularStock, CATALOGO_MONTEAGUDO, propuestaDevolucion } from "./stockModelo";
+import { SubirFactura, Documentos, Sobrante, Almacen, TraerAlmacen, useAlmacen } from "./StockDocs";
 
 const QUIEN = "Admin";
 const ESTADO_FAM = {
@@ -14,11 +15,12 @@ const ESTADO_FAM = {
   sobra: { t: "Sale de más", c: "#3b82f6", i: "alert" },
   pendiente: { t: "Sin recuento", c: "var(--muted)", i: "clock" },
   sinreceta: { t: "Ningún producto lo descuenta", c: "var(--muted)", i: "dots" },
+  incompleto: { t: "Faltan por contar", c: "var(--amber)", i: "clipboard" },
   info: { t: "Saldo aparte", c: "var(--muted)", i: "crate" },
 };
 const NIVEL = { alta: { t: "Fiabilidad alta", c: "var(--green)" }, media: { t: "Fiabilidad media", c: "var(--amber)" }, baja: { t: "Fiabilidad baja", c: "var(--red)" } };
 
-export function Stock({ ev, sales, ajustes, onGuardarAjustes, flash }) {
+export function Stock({ ev, sales, ajustes, onGuardarAjustes, onRecargarCRM, flash }) {
   const isMobile = useIsMobile();
   const [d, setD] = useState(null);
   const [error, setError] = useState(null);
@@ -35,12 +37,13 @@ export function Stock({ ev, sales, ajustes, onGuardarAjustes, flash }) {
   };
   const cfg = stockCfg(ajustes);
   const S = useMemo(() => d ? calcularStock({ ev, sales, articulos: d.articulos, movimientos: d.movimientos, recetas: d.recetas, conteo: d.conteo, lineas: d.lineas, cfg }) : null, [d, ev, sales, ajustes]);
+  const { alm, cargar: recargarAlm } = useAlmacen(d);
 
   if (error) return <div style={{ ...C.panel, borderColor: "var(--amber)", color: "var(--amber)", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}><span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon n="alert" s={18} />{error}</span><button onClick={cargar} style={C.ghost}>Reintentar</button></div>;
   if (!d || !S) return <div style={{ color: "var(--muted)", padding: 30, textAlign: "center" }}>Cargando stock…</div>;
 
-  const props = { ev, d, S, cfg, busy, run, isMobile, ir: setVista, ajustes, onGuardarAjustes };
-  const titulo = { entradas: ["Entradas y salidas", "plus"], recetas: ["Recetas", "glass"], recuento: ["Recuento final", "clipboard"], catalogo: ["Catálogo", "box"] }[vista];
+  const props = { ev, d, S, cfg, busy, run, isMobile, ir: setVista, ajustes, onGuardarAjustes, alm, recargarAlm, onRecargarCRM };
+  const titulo = { entradas: ["Entradas y salidas", "plus"], recetas: ["Recetas", "glass"], recuento: ["Recuento final", "clipboard"], catalogo: ["Catálogo", "box"], sobrante: ["Qué hacer con lo que sobra", "truck"], almacen: ["Almacén general", "box"] }[vista];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {vista !== "resumen" && (
@@ -54,12 +57,14 @@ export function Stock({ ev, sales, ajustes, onGuardarAjustes, flash }) {
       {vista === "recetas" && <Recetas {...props} />}
       {vista === "recuento" && <Recuento {...props} />}
       {vista === "catalogo" && <Catalogo {...props} />}
+      {vista === "sobrante" && <Sobrante {...props} />}
+      {vista === "almacen" && <Almacen {...props} />}
     </div>
   );
 }
 
 /* ===================== RESUMEN ===================== */
-function Resumen({ ev, d, S, isMobile, ir }) {
+function Resumen({ ev, d, S, isMobile, ir, alm }) {
   const F = S.fiabilidad;
   const activos = d.articulos.filter(a => a.activo);
   const enRecuento = S.enJuego.filter(f => (f.entrada - f.devolucion) > 0);
@@ -70,7 +75,9 @@ function Resumen({ ev, d, S, isMobile, ir }) {
     { k: "catalogo", i: "box", t: "Catálogo", sub: activos.length ? `${activos.length} artículos` : "Sin artículos", hecho: activos.length > 0 },
     { k: "entradas", i: "plus", t: "Entradas", sub: S.nMovs ? `${S.nMovs} apuntes · ${money(S.valorEntrada)}` : "Apunta lo que llega", hecho: S.nMovs > 0 },
     { k: "recetas", i: "glass", t: "Recetas", sub: prodVendidos.length ? `${prodOk} de ${prodVendidos.length} confirmadas` : `${S.productos.length} productos del TPV`, hecho: prodVendidos.length > 0 ? prodOk === prodVendidos.length : S.productos.length > 0 && S.productos.every(p => p.estado === "confirmada" || p.estado === "nogasta") },
-    { k: "recuento", i: "clipboard", t: "Recuento final", sub: F.sellado ? "Sellado" : d.conteo ? `${contados} de ${enRecuento.length} contados` : "Al cerrar el evento", hecho: F.sellado },
+    { k: "recuento", i: "clipboard", t: "Recuento final", sub: F.sellado ? (S.incompletas.length ? "Sellado · con artículos sin contar" : "Sellado") : d.conteo ? `${contados} de ${enRecuento.length} contados` : "Al cerrar el evento", hecho: F.sellado },
+    (() => { const pend = F.sellado ? propuestaDevolucion({ articulos: d.articulos, lineas: d.lineas, movimientos: d.movimientos }).filter(p => p.pendiente > 0).length : null;
+      return { k: "sobrante", i: "truck", t: "Lo que sobra", sub: !F.sellado ? "Después del recuento" : pend ? `${pend} por devolver o guardar` : "Todo decidido", hecho: F.sellado && pend === 0 }; })(),
   ];
   const siguiente = pasos.find(p => !p.hecho)?.k;
   const sellado = F.sellado;
@@ -81,8 +88,10 @@ function Resumen({ ev, d, S, isMobile, ir }) {
     <section style={{ ...C.hero, padding: isMobile ? 16 : 22 }}>
       {sellado ? (<>
         <div style={C.label}>Resultado del stock · {ev.name}</div>
-        {S.faltaCoste > 0.5
-          ? <><div style={{ fontSize: isMobile ? 38 : 50, fontWeight: 900, letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4, color: "var(--amber)" }}>{money(S.faltaCoste)}</div><div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>de producto que falta y el TPV no explica, a precio de coste.</div></>
+        {S.incompletas.length > 0 && S.faltaCoste <= 0.5
+          ? <><div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: isMobile ? 30 : 40, fontWeight: 900, lineHeight: 1.1, marginTop: 4, color: "var(--amber)" }}><Icon n="clipboard" s={isMobile ? 28 : 36} w={2.4} />Falta terminar el recuento</div><div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>Hay artículos sin contar en {S.incompletas.map(f => f.corto.toLowerCase()).join(", ")}. Sin ellos no se puede saber si cuadra.</div></>
+          : S.faltaCoste > 0.5
+          ? <><div style={{ fontSize: isMobile ? 38 : 50, fontWeight: 900, letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4, color: "var(--amber)" }}>{money(S.faltaCoste)}</div><div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>de producto que falta y el TPV no explica, a precio de coste.{S.incompletas.length ? ` No incluye ${S.incompletas.map(f => f.corto.toLowerCase()).join(", ")}: faltan artículos por contar.` : ""}</div></>
           : <><div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: isMobile ? 34 : 44, fontWeight: 900, lineHeight: 1.05, marginTop: 4, color: "var(--green)" }}><Icon n="check" s={isMobile ? 32 : 40} w={2.6} />Todo cuadra</div><div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>Lo que falta en la barra coincide con lo vendido en el TPV.</div></>}
       </>) : (<>
         <div style={C.label}>Stock de {ev.name}</div>
@@ -91,12 +100,12 @@ function Resumen({ ev, d, S, isMobile, ir }) {
       </>)}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
         {(S.nMovs > 0 || sellado) && <Badge c={nv.c}><Icon n="shield" s={12} w={2.2} />{nv.t}</Badge>}
-        {sellado && <Badge>Consumido {money(S.consumidoCoste)} a coste</Badge>}
+        {sellado && S.consumidoCoste > 0 && <Badge>Consumido {money(S.consumidoCoste)} a coste</Badge>}
         {sellado && S.sobraCoste < -0.5 && <Badge c="#3b82f6">Sale de más {money(Math.abs(S.sobraCoste))}</Badge>}
       </div>
     </section>
 
-    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,minmax(0,1fr))", gap: 8 }}>
+    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(5,minmax(0,1fr))", gap: 8 }}>
       {pasos.map((p, i) => { const sig = p.k === siguiente; return (
         <button key={p.k} onClick={() => ir(p.k)} style={{ textAlign: "left", cursor: "pointer", padding: 14, borderRadius: 16, minWidth: 0, color: "var(--text)",
           border: `2px solid ${sig ? "var(--accent)" : "var(--line)"}`, background: sig ? "color-mix(in srgb, var(--accent) 10%, var(--surface))" : "var(--surface)" }}>
@@ -128,6 +137,13 @@ function Resumen({ ev, d, S, isMobile, ir }) {
         {F.sinReceta.length > 0 && <div style={{ fontSize: 12.5, color: "var(--amber)", fontWeight: 700, marginTop: 8 }}>Sin receta: {F.sinReceta.map(p => p.nombre).join(", ")}. Lo que se venda de ellos no se descuenta del stock.</div>}
       </section>
     )}
+
+    {(() => { const xs = alm ? d.articulos.filter(a => (alm.saldo[a.id] || 0) > 0.0001) : []; const v = xs.reduce((t, a) => t + (alm.saldo[a.id] || 0) * (alm.costeMedio[a.id] ?? a.coste ?? 0), 0); return (
+      <button onClick={() => ir("almacen")} style={{ ...C.panel, display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left", color: "var(--text)", width: "100%" }}>
+        <Tile n="box" c="#14b8a6" s={40} />
+        <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block", fontSize: 15.5 }}>Almacén general</b><span style={{ fontSize: 12.5, color: "var(--muted)" }}>{xs.length ? `${xs.length} ${xs.length === 1 ? "artículo guardado" : "artículos guardados"} para próximos eventos` : "Lo que sobra de un evento y se guarda para el siguiente"}</span></span>
+        {xs.length > 0 && <b style={{ fontSize: 17 }}>{money(v)}</b>}<Icon n="right" s={18} c="var(--muted)" />
+      </button>); })()}
 
     {envases && (
       <section style={C.panel}>
@@ -161,10 +177,11 @@ function FamiliaCard({ f, conRecuento }) {
         <Badge c={e.c}><Icon n={e.i} s={11} w={2.4} />{e.t}</Badge>
       </div>
       {barra(neto, "var(--muted)", "Entró (menos devuelto)")}
-      {conRecuento && f.real != null ? barra(f.real, f.c, "Consumido de verdad") : null}
+      {conRecuento && f.real != null && f.estado !== "incompleto" ? barra(f.real, f.c, "Consumido de verdad") : null}
       {barra(f.justificado, "var(--green)", "Explicado por el TPV y mermas")}
       {!conRecuento && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--line)" }}><span style={{ color: "var(--muted)", fontWeight: 700 }}>Debería quedar</span><b>{medidaTxt(f.k, f.deberia)}{botellas(f.deberia)}</b></div>}
-      {f.dif != null && f.estado !== "sinreceta" && (
+      {f.estado === "incompleto" && <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--line)", fontSize: 13, color: "var(--amber)", fontWeight: 700 }}>Cuenta lo que falta para ver si cuadra. Mientras tanto no se calcula la diferencia.</div>}
+      {f.dif != null && f.estado !== "sinreceta" && f.estado !== "incompleto" && (
         <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: "2px 8px", fontSize: 13.5, flexWrap: "wrap" }}>
             <span style={{ fontWeight: 800, color: f.estado === "cuadra" ? "var(--green)" : f.estado === "falta" ? "var(--amber)" : "#60a5fa" }}>{f.estado === "cuadra" ? (Math.abs(f.dif) < 0.005 ? "Sin diferencia" : "Diferencia pequeña") : f.dif > 0 ? "Falta sin justificar" : "Se vendió más de lo que salió"}</span>
@@ -182,8 +199,11 @@ function FamiliaCard({ f, conRecuento }) {
 }
 
 /* ===================== ENTRADAS Y SALIDAS ===================== */
-function Entradas({ ev, d, S, busy, run, isMobile, ir }) {
+function Entradas({ ev, d, S, busy, run, isMobile, ir, alm, recargarAlm, onRecargarCRM }) {
   const [form, setForm] = useState(null);
+  const [subir, setSubir] = useState(false);
+  const [traer, setTraer] = useState(false);
+  const enAlmacen = alm ? d.articulos.filter(a => (alm.saldo[a.id] || 0) > 0.0001).length : 0;
   const [filtro, setFiltro] = useState("todos");
   const [confirmar, setConfirmar] = useState(null);
   const artById = Object.fromEntries(d.articulos.map(a => [a.id, a]));
@@ -192,14 +212,26 @@ function Entradas({ ev, d, S, busy, run, isMobile, ir }) {
   const activos = d.articulos.filter(a => a.activo);
   if (!activos.length) return <section style={C.panel}><Vacio i="box" t="Primero necesitas el catálogo." sub="Carga el de Monteagudo con un toque o crea tus artículos." /><div style={{ display: "flex", justifyContent: "center", marginTop: 12 }}><button onClick={() => ir("catalogo")} style={C.btnPrimary}><Icon n="box" s={16} />Ir al catálogo</button></div></section>;
   return (<>
+    <div style={{ display: "grid", gridTemplateColumns: isMobile || !enAlmacen ? "1fr" : "2fr 1fr", gap: 8 }}>
+      <button onClick={() => setSubir(true)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 18px", borderRadius: 16, cursor: "pointer", textAlign: "left", border: "none", background: "var(--accent)", color: "#fff" }}>
+        <span style={{ width: 44, height: 44, borderRadius: 12, display: "grid", placeItems: "center", flexShrink: 0, background: "rgba(255,255,255,.2)" }}><Icon n="file" s={22} w={2.2} /></span>
+        <span><span style={{ display: "block", fontWeight: 900, fontSize: 16.5 }}>Subir factura del proveedor (PDF)</span><span style={{ display: "block", fontSize: 12.5, opacity: .85 }}>Facturas, devoluciones y abonos: se leen solos y los revisas antes de aplicar</span></span>
+      </button>
+      {enAlmacen > 0 && <button onClick={() => setTraer(true)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", borderRadius: 16, cursor: "pointer", textAlign: "left", border: "1px solid color-mix(in srgb, #14b8a6 55%, transparent)", background: "var(--surface)", color: "var(--text)" }}>
+        <Tile n="box" c="#14b8a6" s={40} />
+        <span><span style={{ display: "block", fontWeight: 900, fontSize: 15 }}>Traer del almacén</span><span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>{enAlmacen} {enAlmacen === 1 ? "artículo guardado" : "artículos guardados"}</span></span>
+      </button>}
+    </div>
+    <div style={{ ...C.label, marginBottom: -6 }}>O apúntalo a mano</div>
     <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,minmax(0,1fr))", gap: 8 }}>
       {TIPOS_MOV.map((t, i) => (
         <button key={t.k} onClick={() => setForm({ tipo: t.k })} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 12px", borderRadius: 14, cursor: "pointer", textAlign: "left", minWidth: 0,
-          border: i === 0 ? "none" : "1px solid var(--line)", background: i === 0 ? "var(--accent)" : "var(--surface)", color: i === 0 ? "#fff" : "var(--text)" }}>
-          <span style={{ width: 34, height: 34, borderRadius: 10, display: "grid", placeItems: "center", flexShrink: 0, background: i === 0 ? "rgba(255,255,255,.2)" : `color-mix(in srgb, ${t.c} 18%, transparent)`, color: i === 0 ? "#fff" : t.c }}><Icon n={t.i} s={17} w={2.2} /></span>
+          border: "1px solid var(--line)", background: "var(--surface)", color: "var(--text)" }}>
+          <span style={{ width: 34, height: 34, borderRadius: 10, display: "grid", placeItems: "center", flexShrink: 0, background: `color-mix(in srgb, ${t.c} 18%, transparent)`, color: t.c }}><Icon n={t.i} s={17} w={2.2} /></span>
           <span style={{ minWidth: 0 }}><span style={{ display: "block", fontWeight: 900, fontSize: 14 }}>{t.t}</span><span style={{ display: "block", fontSize: 11.5, opacity: .8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{["Llega mercancía", "Vuelve al proveedor", "Rotura o derrame", "Personal, artistas"][i]}</span></span>
         </button>))}
     </div>
+    <Documentos ev={ev} d={d} busy={busy} run={run} onRecargarCRM={onRecargarCRM} />
     <section style={C.panel}>
       <Head i="receipt" t="Apuntes del evento" sub="No se borran: si algo está mal, se anula y se apunta bien." right={<b style={{ fontSize: 17 }}>{money(S.valorEntrada)}</b>} />
       {d.movimientos.length > 0 && <div style={{ marginBottom: 6 }}><Seg size="sm" valor={filtro} onChange={setFiltro} opciones={[{ k: "todos", t: "Todos" }, ...TIPOS_MOV.map(t => ({ k: t.k, t: t.t }))]} /></div>}
@@ -221,6 +253,8 @@ function Entradas({ ev, d, S, busy, run, isMobile, ir }) {
           </span>
         </div>); })}
     </section>
+    {subir && <SubirFactura ev={ev} d={d} busy={busy} run={run} onClose={() => setSubir(false)} onAplicada={(conGasto) => { if (conGasto) onRecargarCRM?.(); }} />}
+    {traer && <TraerAlmacen ev={ev} d={d} alm={alm} busy={busy} run={run} onClose={() => setTraer(false)} onHecho={recargarAlm} />}
     {form && <MovForm tipo0={form.tipo} articulos={activos} busy={busy} onClose={() => setForm(null)}
       onSave={async (x, otro) => { const ok = await run(() => crm.addMovimiento({ ...x, eventoId: ev.id, creadoPor: QUIEN }), `${tipoInfo(x.tipo).t} apuntada`); if (ok && !otro) setForm(null); return ok; }} />}
   </>);
@@ -451,7 +485,7 @@ function Recuento({ ev, d, S, busy, run, isMobile, ir }) {
         <span style={{ display: "flex", alignItems: "center", gap: 10 }}><Tile n={sellado ? "lock" : "clipboard"} c={sellado ? "var(--green)" : "var(--accent)"} s={38} />
           <span><b style={{ display: "block", fontSize: 16 }}>{sellado ? "Recuento sellado" : `Contados ${lista.length - faltan.length} de ${lista.length}`}</b><span style={{ fontSize: 12.5, color: "var(--muted)" }}>{sellado ? `El ${new Date(c.selladoEn).toLocaleString("es-ES", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : faltan.length ? `Faltan ${faltan.length}` : "¡Todo contado! Ya puedes sellar."}</span></span></span>
         {sellado
-          ? <span style={{ display: "flex", gap: 8 }}><button onClick={() => ir("resumen")} style={C.btnPrimary}><Icon n="chart" s={16} />Ver resultado</button><button disabled={busy} onClick={() => run(() => crm.reabrirConteo(c.id), "Recuento reabierto")} style={C.btnGhost}>Reabrir</button></span>
+          ? <span style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button onClick={() => ir("resumen")} style={C.btnPrimary}><Icon n="chart" s={16} />Ver resultado</button><button onClick={() => ir("sobrante")} style={C.btnGhost}><Icon n="truck" s={16} />Lo que sobra</button><button disabled={busy} onClick={() => run(() => crm.reabrirConteo(c.id), "Recuento reabierto")} style={C.btnGhost}>Reabrir</button></span>
           : <b style={{ fontSize: 20, color: faltan.length ? "var(--text)" : "var(--green)" }}>{pct} %</b>}
       </div>
       {!sellado && <div style={{ height: 10, borderRadius: 6, background: "var(--surface2)", overflow: "hidden", marginTop: 12 }}><div style={{ width: `${pct}%`, height: "100%", background: faltan.length ? "var(--accent)" : "var(--green)", transition: "width .2s" }} /></div>}
