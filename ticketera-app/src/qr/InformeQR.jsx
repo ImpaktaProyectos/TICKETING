@@ -10,7 +10,7 @@ const MOTIVOS = {
   falso: { t: "Falsos o manipulados", c: "var(--red)" },
   otro_evento: { t: "De otro evento", c: "var(--amber)" },
   anulado: { t: "Tickets anulados", c: "var(--amber)" },
-  caducado: { t: "Caducados (barra con Z)", c: "var(--amber)" },
+  caducado: { t: "Fuera de hora (evento terminado)", c: "var(--amber)" },
   ilegible: { t: "Códigos ilegibles", c: "var(--muted)" },
 };
 const hora = (t) => { try { return new Date(t).toLocaleString("es-ES", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }); } catch { return ""; } };

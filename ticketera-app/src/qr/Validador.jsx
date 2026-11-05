@@ -12,6 +12,7 @@ import { scopedKey } from "../db";
    ========================================================================== */
 
 const hora = (t) => { try { return new Date(t).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
+const diaHora = (t) => { try { return new Date(t).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
 const kHist = (ev) => scopedKey("tixfast_qr_hist_" + ev);
 const leerHist = (ev) => { try { const h = JSON.parse(localStorage.getItem(kHist(ev)) || "[]"); return Array.isArray(h) ? h : []; } catch { return []; } };
 const guardarHist = (ev, h) => { try { localStorage.setItem(kHist(ev), JSON.stringify(h.slice(0, 60))); } catch {} };
@@ -24,7 +25,7 @@ function explicar(r) {
     case "falso": return { t: "TICKET NO VÁLIDO", d: "La firma no es de TIXFAST: está manipulado o es falso. No sirvas." };
     case "otro_evento": return { t: "DE OTRO EVENTO", d: `Este ticket es de «${r.evento || "otro evento"}». No vale aquí.` };
     case "anulado": return { t: "TICKET ANULADO", d: "Esa venta se anuló en caja. No sirvas." };
-    case "caducado": return { t: "CADUCADO", d: `${r.barra ? "La barra " + r.barra : "La barra donde se vendió"} ya hizo el cierre Z. Ya no vale.` };
+    case "caducado": return { t: "EVENTO TERMINADO", d: `El evento terminó${r.fin ? " el " + diaHora(r.fin) : ""}. Los tickets ya no valen.` };
     case "prueba": return { t: "TICKET DE PRUEBA", d: "Se imprimió en modo prueba. No vale para servir." };
     case "no_encontrado": return { t: "FOLIO NO ENCONTRADO", d: "Revisa el número. Si la venta se hizo sin internet, puede que aún no haya subido: prueba con el QR." };
     case "falta_vale": return { t: "ES UN BONO", d: "Escribe también el número del vale que pone en el ticket (·1, ·2…)." };
@@ -159,7 +160,7 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
     // ===== Sin internet =====
     if (usado) return { tipo: "mal", motivo: "ya_canjeado", t: usado.t, barra: usado.barra, disp: usado.disp, nombre };
     if (venta?.voided) return { tipo: "mal", motivo: "anulado", nombre };
-    if (venta?.closureId) return { tipo: "mal", motivo: "caducado", barra: (e.puntos.find(p => p.id === venta.puntoId) || {}).name, nombre };
+    if (e.endsAt && Date.now() > new Date(e.endsAt).getTime()) return { tipo: "mal", motivo: "caducado", fin: e.endsAt, nombre };
     const id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
     Q.encolarCanje(e.id, { id, hex: tk.hex, t: Date.now(), punto: punto.id, nombre });
     Q.marcarUsado(e.id, tk.clave, { barra: punto.name, disp: "este móvil", local: true });
@@ -210,7 +211,7 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
         <img src="/brand/tixfast_isotipo_app.svg" alt="" width="30" height="30" style={{ flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 800, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Validar tickets · {punto.name}</div>
-          <div style={{ fontSize: 12, color: "rgba(255,255,255,.65)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ev.name}</div>
+          <div style={{ fontSize: 12, color: ev.endsAt && Date.now() > new Date(ev.endsAt).getTime() ? "#ff8a80" : "rgba(255,255,255,.65)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ev.name}{ev.endsAt ? (Date.now() > new Date(ev.endsAt).getTime() ? " · evento terminado" : ` · valen hasta ${diaHora(ev.endsAt)}`) : ""}</div>
         </div>
         <span style={{ ...V.pill, background: online ? (cola ? "rgba(255,180,0,.18)" : "rgba(34,211,166,.16)") : "rgba(255,180,0,.2)", color: online && !cola ? "#5ee6bd" : "#ffcf5a" }}>
           <span style={{ width: 8, height: 8, borderRadius: 8, background: online && !cola ? "#22d3a6" : "#ffb400" }} />
@@ -226,7 +227,7 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
           <div style={V.centro}>
             <div style={{ fontSize: 46, marginBottom: 10 }}>📷</div>
             <div style={{ fontWeight: 800, fontSize: 20, marginBottom: 6 }}>Escanea el QR de cada ticket</div>
-            <div style={{ fontSize: 14, color: "rgba(255,255,255,.7)", maxWidth: 320, margin: "0 auto 20px", lineHeight: 1.4 }}>Verde: sirve. Rojo: no sirvas (copia, anulado o falso). Cada ticket vale una sola vez en todo el evento.</div>
+            <div style={{ fontSize: 14, color: "rgba(255,255,255,.7)", maxWidth: 320, margin: "0 auto 20px", lineHeight: 1.4 }}>Verde: sirve. Rojo: no sirvas (copia, anulado o falso). Cada ticket vale una sola vez, en cualquier barra, hasta que termina el evento.</div>
             <button onClick={arrancar} style={V.btnGrande}>Empezar a validar</button>
           </div>
         )}

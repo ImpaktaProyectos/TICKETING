@@ -34,10 +34,14 @@ const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", 
 const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+// Fecha y hora de fin del evento: se guarda con zona horaria; el campo de la pantalla usa la hora local
+const isoALocal = (iso) => { if (!iso) return ""; const d = new Date(iso); if (isNaN(d)) return ""; const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
+const localAIso = (v) => { if (!v) return null; const d = new Date(v); return isNaN(d) ? null : d.toISOString(); };
+const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d)) return ""; return d.toLocaleString("es-ES", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.05i";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.05j";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -2070,7 +2074,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
     puntos.forEach(p => { p.combos = (p._src.combos || []).map(c => ({ ...c, id: uid(), items: (c.items || []).map(it => ({ ...it, productId: pmap[it.productId] || it.productId })) })); delete p._src; });
     const st = { ...(src.style || {}) };
     if (st.comisiones) { const nc = {}; Object.entries(st.comisiones).forEach(([pid, l]) => { const last = l && l[l.length - 1]; if (pmap[pid] && last && last.proveedor) nc[pmap[pid]] = [{ ...last, desde: 0 }]; }); st.comisiones = nc; }
-    const event = { ...src, id: uid(), name, date, venue, closed: false, startsAt: "", style: st, puntos };
+    const event = { ...src, id: uid(), name, date, venue, closed: false, startsAt: newEvent?.startsAt || "", endsAt: localAIso(newEvent?.endsAt) || "", style: st, puntos };
     dispatch({ type: "ADD_EVENT", event });
     flash(`Evento duplicado: ${puntos.length} barras y ${puntos.reduce((t, p) => t + p.products.length, 0)} productos copiados`);
   };
@@ -2080,7 +2084,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
       const src = state.events.find(e => e.id === newEvent.copyFrom);
       if (src) { duplicarEvento(src, newEvent.name.trim().toUpperCase(), newEvent.date || new Date().toISOString().slice(0, 10), newEvent.venue); setNewEvent(null); return; }
     }
-    dispatch({ type: "ADD_EVENT", event: { id: uid(), name: newEvent.name.toUpperCase(), date: newEvent.date || "2026-01-01", venue: newEvent.venue, template: "festival", paper: 80, footer: "", logo: "", showEventName: true, showDate: true, showTime: true, showPrice: true, anularPin: false, puntos: [{ id: uid(), name: "Taquilla", archivado: false, products: [] }] } }); setNewEvent(null); flash("Evento creado"); };
+    dispatch({ type: "ADD_EVENT", event: { id: uid(), name: newEvent.name.toUpperCase(), date: newEvent.date || "2026-01-01", venue: newEvent.venue, startsAt: newEvent.startsAt || "", endsAt: localAIso(newEvent.endsAt) || "", template: "festival", paper: 80, footer: "", logo: "", showEventName: true, showDate: true, showTime: true, showPrice: true, anularPin: false, puntos: [{ id: uid(), name: "Taquilla", archivado: false, products: [] }] } }); setNewEvent(null); flash("Evento creado"); };
 
   return (
     <>
@@ -2090,7 +2094,11 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
         <div style={S.panel}>
           <Field label="Nombre"><input style={S.input} value={ev.name} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { name: e.target.value } })} /></Field>
           <Field label="Fecha"><input type="date" style={S.input} value={ev.date} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { date: e.target.value } })} /></Field>
-          <Field label="Inicio del evento (cuándo abre)"><input type="datetime-local" style={S.input} value={ev.startsAt || ""} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { startsAt: e.target.value } })} /></Field>
+          <div style={{ display: "flex", gap: 10, flexWrap: isMobile ? "wrap" : "nowrap" }}>
+            <div style={{ flex: isMobile ? "1 1 100%" : 1, minWidth: 0 }}><Field label="Empieza (fecha y hora)"><input type="datetime-local" style={S.input} value={ev.startsAt || ""} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { startsAt: e.target.value } })} /></Field></div>
+            <div style={{ flex: isMobile ? "1 1 100%" : 1, minWidth: 0 }}><Field label="Termina (fecha y hora)"><input type="datetime-local" style={{ ...S.input, ...(ev.qrActivo && !ev.endsAt ? { borderColor: "var(--amber)" } : {}) }} value={isoALocal(ev.endsAt)} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { endsAt: localAIso(e.target.value) || "" } })} /></Field></div>
+          </div>
+          {ev.startsAt && ev.endsAt && new Date(ev.endsAt) <= new Date(ev.startsAt) && <div style={{ fontSize: 12.5, color: "var(--red)", margin: "-4px 0 10px" }}>⚠️ La hora de fin es anterior al inicio. Revisa el día (si acaba de madrugada, es el día siguiente).</div>}
           <Field label="Recinto"><input style={S.input} value={ev.venue} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { venue: e.target.value } })} /></Field>
           <div style={{ display: "flex", gap: 10 }}>
             <Field label="PIN admin"><input style={S.input} value={ev.pin_admin || ""} maxLength={6} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pin_admin: e.target.value } })} /></Field>
@@ -2108,8 +2116,11 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
             {!ev.qrClave && <div style={{ fontSize: 12.5, color: "var(--amber)", marginTop: 8 }}>⏳ Preparando la clave del evento… (necesita internet una vez)</div>}
             <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "10px 0 8px", lineHeight: 1.45 }}>
               <b style={{ color: "var(--text)" }}>Cómo se usa:</b> en el móvil de cada barra, entra con <b>Validar tickets</b> y elige la barra. Verde = sirve · Rojo = no sirvas.
-              Con QR, cada unidad sale en su propio ticket (×3 = 3 tickets). Los tickets caducan cuando su barra hace el cierre Z.
+              Con QR, cada unidad sale en su propio ticket (×3 = 3 tickets). Un ticket vale en <b style={{ color: "var(--text)" }}>cualquier barra</b> hasta que termina el evento.
             </div>
+            {ev.endsAt
+              ? <div style={{ fontSize: 12.5, color: "var(--green)", marginBottom: 8 }}>✅ Los QR valen hasta el <b>{fechaHora(ev.endsAt)}</b>. Después salen en rojo: «Evento terminado».</div>
+              : <div style={{ fontSize: 12.5, color: "var(--amber)", marginBottom: 8, fontWeight: 700 }}>⚠️ Pon arriba la fecha y hora en que <b>termina</b> el evento: a partir de esa hora los QR dejan de valer. Sin ella no caducan.</div>}
             <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Toca un producto para quitarle o ponerle el QR:</div>
             {ev.puntos.filter(p => !p.archivado).map(p => (
               <div key={p.id} style={{ padding: "8px 0", borderTop: "1px solid var(--line)" }}>
@@ -2171,6 +2182,10 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
             {newEvent.copyFrom && <div style={{ fontSize: 12, color: "var(--green)", marginBottom: 10 }}>✓ Se copia todo (también el fondo previsto de cada barra) menos las ventas y los cierres.</div>}
             <input style={S.input} placeholder="Nombre del evento" value={newEvent.name} onChange={e => setNewEvent({ ...newEvent, name: e.target.value })} /><div style={{ height: 8 }} />
             <input type="date" style={S.input} value={newEvent.date} onChange={e => setNewEvent({ ...newEvent, date: e.target.value })} /><div style={{ height: 8 }} />
+            <div style={{ display: "flex", gap: 8, flexWrap: isMobile ? "wrap" : "nowrap" }}>
+              <label style={{ flex: isMobile ? "1 1 100%" : 1, minWidth: 0, fontSize: 12, color: "var(--muted)" }}>Empieza<input type="datetime-local" style={{ ...S.input, marginTop: 4 }} value={newEvent.startsAt || ""} onChange={e => setNewEvent({ ...newEvent, startsAt: e.target.value })} /></label>
+              <label style={{ flex: isMobile ? "1 1 100%" : 1, minWidth: 0, fontSize: 12, color: "var(--muted)" }}>Termina<input type="datetime-local" style={{ ...S.input, marginTop: 4 }} value={newEvent.endsAt || ""} onChange={e => setNewEvent({ ...newEvent, endsAt: e.target.value })} /></label>
+            </div><div style={{ height: 8 }} />
             <input style={S.input} placeholder="Recinto" value={newEvent.venue} onChange={e => setNewEvent({ ...newEvent, venue: e.target.value })} />
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}><button style={S.btnPrimary} onClick={createEvent}>{newEvent.copyFrom ? "Duplicar" : "Crear"}</button><button style={S.btnGhost} onClick={() => setNewEvent(null)}>Cancelar</button></div>
           </div>
