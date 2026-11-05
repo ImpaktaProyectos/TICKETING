@@ -4,8 +4,13 @@ import { uid } from "./supabase";
 import { logout } from "./auth";
 import * as db from "./db";
 import { nextFolios, prefijoDePunto, peekFolio, getDeviceTag, resetFolios, seedFolio } from "./folio";
+import QrCodigo from "./qr/QrCodigo";
+import { crearToken } from "./qr/token";
+import InformeQR from "./qr/InformeQR";
 // Modo CRM: código aparte que solo se descarga al abrirlo (el TPV no pesa más ni arranca más lento)
 const CRM = lazy(() => import("./crm/CRM.jsx"));
+// Validador de tickets con QR (cámara): solo se descarga en el móvil que valida
+const Validador = lazy(() => import("./qr/Validador.jsx"));
 
 /* ============================================================================
    TIXFAST — TPV de tickets para eventos
@@ -32,7 +37,7 @@ const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.05h";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.05i";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -50,7 +55,7 @@ function reducer(state, a) {
   const mapEv = (fn) => state.events.map(e => e.id === a.eventId ? fn(e) : e);
   const mapPunto = (e, fn) => ({ ...e, puntos: e.puntos.map(p => p.id === a.puntoId ? fn(p) : p) });
   switch (a.type) {
-    case "ADD_EVENT": return { ...state, events: [...state.events, a.event], currentEventId: a.event.id, currentPuntoId: a.event.puntos[0]?.id };
+    case "ADD_EVENT": return { ...state, events: [...state.events, { ...a.event, qrClave: "" }], currentEventId: a.event.id, currentPuntoId: a.event.puntos[0]?.id };   // la clave QR nueva la crea el servidor
     case "SELECT_EVENT": { const e = state.events.find(x => x.id === a.id); return { ...state, currentEventId: a.id, currentPuntoId: e?.puntos[0]?.id }; }
     case "UPDATE_EVENT": return { ...state, events: state.events.map(e => e.id === a.id ? { ...e, ...a.patch } : e) };
     case "ADD_PUNTO": return { ...state, events: mapEv(e => ({ ...e, puntos: [...e.puntos, a.punto] })), currentPuntoId: a.punto.id };
@@ -112,7 +117,7 @@ function ThermalTicket(props) {
   const band = <div style={{ background: "#000", color: "#fff", textAlign: "center", fontFamily: "'Roboto Mono', monospace", fontWeight: 900, fontSize: 13, letterSpacing: 1, padding: "1mm 0", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>✕ PRUEBA · NO VÁLIDO ✕</div>;
   return <div style={{ width: mm + "mm", background: "#fff" }}>{band}<ThermalTicketBody {...props} />{band}</div>;
 }
-function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio }) {
+function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio, qr }) {
   const mm = ev.paper === 58 ? 46 : 68;          // ancho del ticket con margen de seguridad (la impresora pierde ~3 mm a la derecha)
   const st = ev.style || {};
   const nd = st.nameSize === "xl" ? 18 : st.nameSize === "lg" ? 8 : 0;  // tamaño del nombre
@@ -163,9 +168,9 @@ function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio }) {
       {dashed}
       <div style={{ border: "3px solid #000", textAlign: "center", padding: "1.8mm 1.5mm", borderRadius: 2 }}><Name size={big} />{priceLine}{qtyLine}</div>
       {dashed}
-      <div style={{ display: "flex", justifyContent: "space-between", ...metaStyle }}>{ev.showDate && <span>{dateFmt(ev.date).split(" de ")[0]}/{ev.date.slice(5, 7)}</span>}{ev.showTime && <span>{time}</span>}</div>
-      {ref && <div style={{ ...metaStyle, marginTop: "1mm" }}>{ref}</div>}
-      {ev.footer && <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "1.5mm", fontWeight: 600 }}>{ev.footer}</div>}
+      {!qr && <div style={{ display: "flex", justifyContent: "space-between", ...metaStyle }}>{ev.showDate && <span>{dateFmt(ev.date).split(" de ")[0]}/{ev.date.slice(5, 7)}</span>}{ev.showTime && <span>{time}</span>}</div>}
+      {ref && !qr && <div style={{ ...metaStyle, marginTop: "1mm" }}>{ref}</div>}
+      {ev.footer && !qr && <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: qr ? 0 : "1.5mm", fontWeight: 600 }}>{ev.footer}</div>}
     </>);
   } else if (ev.template === "bold") {
     inner = (<>
@@ -175,9 +180,9 @@ function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio }) {
       </div>
       {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 800, fontSize: 13, marginTop: "2mm", color: "#000" }}>{ev.name}</div>}
       <Sub />
-      <div style={{ textAlign: "center", ...metaStyle, marginTop: "1mm" }}>{ev.showDate && dateFmt(ev.date)}{ev.showTime && ` · ${time}`}</div>
-      {ref && <div style={{ textAlign: "center", ...metaStyle }}>{ref}</div>}
-      {ev.footer && <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "2mm", borderTop: "2px solid #000", paddingTop: "1.5mm", fontWeight: 600 }}>{ev.footer}</div>}
+      {!qr && <div style={{ textAlign: "center", ...metaStyle, marginTop: "1mm" }}>{ev.showDate && dateFmt(ev.date)}{ev.showTime && ` · ${time}`}</div>}
+      {ref && !qr && <div style={{ textAlign: "center", ...metaStyle }}>{ref}</div>}
+      {ev.footer && !qr && <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "2mm", borderTop: "2px solid #000", paddingTop: "1.5mm", fontWeight: 600 }}>{ev.footer}</div>}
     </>);
   } else if (ev.template === "minimal") {
     inner = (<>
@@ -188,8 +193,8 @@ function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio }) {
       <Name size={big - 2} align="left" />
       {ev.showPrice && !(qty > 1) && <div style={{ fontWeight: 800, fontSize: priceSize, marginTop: "1.5mm" }}>{money(product?.price)}</div>}
       {qtyLine}
-      <div style={{ ...metaStyle, marginTop: "2mm" }}>{ev.showDate && dateFmt(ev.date)}{ev.showTime && ` — ${time}`}{ref && ` · ${ref}`}</div>
-      {ev.footer && <div style={{ fontSize: 11, color: "#000", marginTop: "2mm", fontWeight: 600 }}>{ev.footer}</div>}
+      {!qr && <div style={{ ...metaStyle, marginTop: "2mm" }}>{ev.showDate && dateFmt(ev.date)}{ev.showTime && ` — ${time}`}{ref && ` · ${ref}`}</div>}
+      {ev.footer && !qr && <div style={{ fontSize: 11, color: "#000", marginTop: "2mm", fontWeight: 600 }}>{ev.footer}</div>}
     </>);
   } else if (ev.template === "clasico") {
     inner = (<>
@@ -200,10 +205,10 @@ function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio }) {
       <Name size={big} />
       {priceLine}{qtyLine}
       {dashed}
-      <div style={{ display: "flex", justifyContent: "space-between", ...metaStyle }}>{ev.showDate && <span>{dateFmt(ev.date)}</span>}{ev.showTime && <span>{time}</span>}</div>
+      {!qr && <div style={{ display: "flex", justifyContent: "space-between", ...metaStyle }}>{ev.showDate && <span>{dateFmt(ev.date)}</span>}{ev.showTime && <span>{time}</span>}</div>}
       {ev.venue && <div style={{ textAlign: "center", fontSize: 11, fontWeight: 600, marginTop: "1mm" }}>{ev.venue}</div>}
-      {ref && <div style={{ textAlign: "center", ...metaStyle, marginTop: "1mm" }}>{ref}</div>}
-      {ev.footer && <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "1.5mm", fontWeight: 600 }}>{ev.footer}</div>}
+      {ref && !qr && <div style={{ textAlign: "center", ...metaStyle, marginTop: "1mm" }}>{ref}</div>}
+      {ev.footer && !qr && <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "1.5mm", fontWeight: 600 }}>{ev.footer}</div>}
     </>);
   } else if (ev.template === "vale") {
     inner = (<>
@@ -217,8 +222,8 @@ function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio }) {
       {qtyLine}
       <Sub />
       <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
-      <div style={{ ...metaStyle }}>{ev.showDate && dateFmt(ev.date)}{ev.showTime && ` · ${time}`}{ref && ` · ${ref}`}</div>
-      {ev.footer && <div style={{ fontSize: 11, color: "#000", marginTop: "1mm", fontWeight: 600 }}>{ev.footer}</div>}
+      {!qr && <div style={{ ...metaStyle }}>{ev.showDate && dateFmt(ev.date)}{ev.showTime && ` · ${time}`}{ref && ` · ${ref}`}</div>}
+      {ev.footer && !qr && <div style={{ fontSize: 11, color: "#000", marginTop: "1mm", fontWeight: 600 }}>{ev.footer}</div>}
     </>);
   } else { // sello (con código)
     inner = (<>
@@ -229,13 +234,26 @@ function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio }) {
       <Name size={big - 2} />
       {priceLine}{qtyLine}
       <div style={{ border: "2px solid #000", borderRadius: 3, textAlign: "center", fontSize: 16, letterSpacing: 2, fontWeight: 900, marginTop: "2mm", padding: "1.5mm 0" }}>{folio || shortCode(code || product?.id)}</div>
-      <div style={{ textAlign: "center", ...metaStyle, marginTop: "1.5mm" }}>{ev.showDate && dateFmt(ev.date)} {ev.showTime && time}</div>
-      {ev.footer && <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "1.5mm", fontWeight: 600 }}>{ev.footer}</div>}
+      {!qr && <div style={{ textAlign: "center", ...metaStyle, marginTop: "1.5mm" }}>{ev.showDate && dateFmt(ev.date)} {ev.showTime && time}</div>}
+      {ev.footer && !qr && <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "1.5mm", fontWeight: 600 }}>{ev.footer}</div>}
     </>);
   }
   return (
     <div style={{ ...base, ...(st.border ? { border: "2px solid #000", borderRadius: 4 } : {}) }}>
       {inner}
+      {qr && (
+        // Ticket validable: QR de un solo uso (se firma aquí mismo, sin internet) + folio para teclearlo si no se lee
+        <div className="qr-row" style={{ display: "flex", alignItems: "center", gap: "2mm", marginTop: "1.5mm", paddingTop: "1.5mm", borderTop: "2px dashed #000" }}>
+          <QrCodigo texto={qr} modulo={0.5} style={{ zoom: 1 }} />
+          <div style={{ flex: 1, minWidth: 0, color: "#000", lineHeight: 1.2 }}>
+            <div style={{ fontWeight: 900, fontSize: ev.paper === 58 ? 12 : 14, lineHeight: 1.1 }}>UN SOLO USO</div>
+            <div style={{ fontWeight: 700, fontSize: 10.5, marginTop: "0.5mm" }}>Las copias no valen</div>
+            {(ev.showDate || ev.showTime) && <div style={{ ...metaStyle, fontSize: 11, marginTop: "0.8mm" }}>{ev.showDate && `${dateFmt(ev.date).split(" de ")[0]}/${ev.date.slice(5, 7)}`}{ev.showDate && ev.showTime ? " · " : ""}{ev.showTime && time}</div>}
+            {folio && (ev.template !== "sello" || folio === "PRUEBA") && <div style={{ fontWeight: 900, fontSize: 12, marginTop: "0.5mm", overflowWrap: "anywhere" }}>{folio}</div>}
+            {ev.footer && <div style={{ fontSize: 10.5, fontWeight: 600, marginTop: "0.8mm", overflowWrap: "anywhere" }}>{ev.footer}</div>}
+          </div>
+        </div>
+      )}
       {st.message && <div style={{ marginTop: "2mm", textAlign: "center", fontWeight: 900, fontSize: 13, border: "2px solid #000", borderRadius: 3, padding: "1.5mm 2mm", textTransform: "uppercase" }}>{st.message}</div>}
     </div>
   );
@@ -337,6 +355,17 @@ export default function App() {
   const eventRevenue = useMemo(() => round2(evSales.filter(s => !s.voided).reduce((t, s) => t + s.price, 0)), [evSales]);
 
   const flash = (msg, kind = "ok") => { setToast({ msg, kind }); setTimeout(() => setToast(null), 1700); };
+
+  // ===== Tickets con QR de un solo uso =====
+  // Si el evento lo tiene activado, cada ticket impreso lleva su QR firmado (se firma aquí, sin internet).
+  // Con QR, "un ticket = un producto": la venta ×3 imprime 3 tickets, cada uno con su código.
+  const qrDe = (product) => !!(ev.qrActivo && ev.qrClave && product && product.qr !== false);
+  const firmar = (ventaUuid, product, idx = 0, prueba = false) => { try { return crearToken({ clave: ev.qrClave, ventaUuid, idx, productoId: product?.id, prueba }); } catch { return null; } };
+  const qrPrueba = (product, idx = 0) => qrDe(product) ? firmar(uid(), product, idx, true) : null;
+  const imprimirPrueba = (product, qty = 1) => {
+    if (qrDe(product) && qty > 1) setPrintJob({ kind: "multi", tickets: Array.from({ length: qty }, () => ({ product, folio: "PRUEBA", qr: qrPrueba(product) })), time: timeNow(), n: Date.now() });
+    else setPrintJob({ kind: "ticket", product, time: timeNow(), num: null, folio: "PRUEBA", qty, qr: qrPrueba(product), n: Date.now() });
+  };
 
   // Fusiona lo que viene del servidor con lo que aún está pendiente de subir en ESTE dispositivo
   const mergePending = (events, serverSales) => {
@@ -476,7 +505,7 @@ export default function App() {
     if (product.soldOut) { flash("Producto agotado", "warn"); return; }
     if (ev.closed) { flash("Caja cerrada · no se puede vender", "warn"); return; }
     const time = timeNow();
-    if (testMode) { setPrintJob({ kind: "ticket", product, time, num: null, folio: "PRUEBA", qty, n: Date.now() }); flash("🧪 Prueba (no cuenta)"); return; }
+    if (testMode) { imprimirPrueba(product, qty); flash("🧪 Prueba (no cuenta)"); return; }
     // Venta avanzada: primero se cobra (efectivo/tarjeta + cambio), luego se imprime
     if (ev.advanced) { setPayFlow({ kind: "single", product, qty, total: round2(product.price * qty) }); return; }
     doSell(product, qty);
@@ -493,7 +522,8 @@ export default function App() {
     const rows = folios.map((f, i) => ({ id: clientUuids[i], clientUuid: clientUuids[i], code: f, num: baseNum + i + 1, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: salePrice, ts: Date.now() + i, synced: online, voided: false, closureId: null, pago: pay?.pago || null, invite, inviteValue: invite ? product.price : 0, entregado: i === 0 ? (pay?.entregado ?? null) : null, cambio: i === 0 ? (pay?.cambio ?? null) : null }));
     baseDispatch({ type: "SELL", rows });
     if (product.print !== false) {
-      setPrintJob({ kind: "ticket", product, time, num: rows[0].num, folio: rows[0].code, qty, n: Date.now() });
+      if (qrDe(product) && qty > 1) setPrintJob({ kind: "multi", tickets: rows.map(r => ({ product, num: r.num, folio: r.code, qr: firmar(r.clientUuid, product) })), time, n: Date.now() });
+      else setPrintJob({ kind: "ticket", product, time, num: rows[0].num, folio: rows[0].code, qty, qr: qrDe(product) ? firmar(rows[0].clientUuid, product) : null, n: Date.now() });
       flash(invite ? `🎁 Invitación · ${qty > 1 ? qty + "× " : ""}${product.name}` : `🖨️ ${qty > 1 ? qty + "× " : ""}${product.name}`);
     } else flash(invite ? `🎁 Invitación guardada · ${product.name} (sin ticket)` : `✅ Venta guardada · ${qty > 1 ? qty + "× " : ""}${product.name} (sin ticket)`);
     if (navigator.vibrate) navigator.vibrate(invite ? [20, 40, 20] : 25);
@@ -505,7 +535,7 @@ export default function App() {
     if (!ev.id || !punto?.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return; }
     if (product.soldOut) { flash("Producto agotado", "warn"); return; }
     if (ev.closed) { flash("Caja cerrada · no se puede vender", "warn"); return; }
-    if (testMode) { setPrintJob({ kind: "ticket", product, time: timeNow(), num: null, folio: "PRUEBA", qty, n: Date.now() }); flash("🧪 Prueba (no cuenta)"); return; }
+    if (testMode) { imprimirPrueba(product, qty); flash("🧪 Prueba (no cuenta)"); return; }
     doSell(product, qty, null, true);
   };
   const sellComboInvite = (combo) => {
@@ -514,7 +544,7 @@ export default function App() {
     const vouchers = [];
     (combo.items || []).forEach(it => { const p = punto.products.find(x => x.id === it.productId); if (p) for (let k = 0; k < (it.qty || 1); k++) vouchers.push(p); });
     if (!vouchers.length) { flash("Bono sin productos válidos", "warn"); return; }
-    if (testMode) { setPrintJob({ kind: "multi", tickets: vouchers.map((p) => ({ product: p, folio: "PRUEBA" })), time: timeNow(), n: Date.now() }); flash("🧪 Prueba (no cuenta)"); return; }
+    if (testMode) { setPrintJob({ kind: "multi", tickets: vouchers.map((p, i) => ({ product: p, folio: "PRUEBA", qr: qrPrueba(p, i + 1) })), time: timeNow(), n: Date.now() }); flash("🧪 Prueba (no cuenta)"); return; }
     const value = round2((combo.price === "" || combo.price == null) ? vouchers.reduce((t, p) => t + p.price, 0) : Number(combo.price));
     doSellCombo(combo, vouchers, 0, { pago: invPago(value) }, value);
   };
@@ -527,7 +557,7 @@ export default function App() {
     const time = timeNow();
     if (testMode) {
       const tks = [];
-      items.forEach(({ product, qty }) => { for (let i = 0; i < qty; i++) tks.push({ product, folio: "PRUEBA" }); });
+      items.forEach(({ product, qty }) => { for (let i = 0; i < qty; i++) tks.push({ product, folio: "PRUEBA", qr: qrPrueba(product) }); });
       if (tks.length) { setPrintJob({ kind: "multi", tickets: tks, time, n: Date.now() }); flash("🧪 Prueba (no cuenta)"); }
       return;
     }
@@ -544,7 +574,7 @@ export default function App() {
     items.forEach(({ product, qty }) => {
       const folios = nextFolios(ev.id, punto.id, prefijoDePunto(punto), qty);
       const clientUuids = folios.map(() => uid());
-      folios.forEach((f, i) => { n++; rows.push({ id: clientUuids[i], clientUuid: clientUuids[i], code: f, num: n, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: product.price, ts: Date.now() + rows.length, synced: online, voided: false, closureId: null, pago: pay?.pago || null, entregado: (first && i === 0) ? (pay?.entregado ?? null) : null, cambio: (first && i === 0) ? (pay?.cambio ?? null) : null }); tickets.push({ product, num: n, folio: f }); });
+      folios.forEach((f, i) => { n++; rows.push({ id: clientUuids[i], clientUuid: clientUuids[i], code: f, num: n, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: product.price, ts: Date.now() + rows.length, synced: online, voided: false, closureId: null, pago: pay?.pago || null, entregado: (first && i === 0) ? (pay?.entregado ?? null) : null, cambio: (first && i === 0) ? (pay?.cambio ?? null) : null }); tickets.push({ product, num: n, folio: f, qr: qrDe(product) ? firmar(clientUuids[i], product) : null }); });
       db.vender({ eventoId: ev.id, puntoId: punto.id, producto: product, qty, operario: punto.name, folios, clientUuids, pago: pay?.pago || null, entregado: first ? (pay?.entregado ?? null) : null, cambio: first ? (pay?.cambio ?? null) : null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
       first = false;
     });
@@ -581,7 +611,7 @@ export default function App() {
     const vouchers = [];
     (combo.items || []).forEach(it => { const p = punto.products.find(x => x.id === it.productId); if (p) for (let k = 0; k < (it.qty || 1); k++) vouchers.push(p); });
     if (!vouchers.length) { flash("Bono sin productos válidos", "warn"); return; }
-    if (testMode) { setPrintJob({ kind: "multi", tickets: vouchers.map((p) => ({ product: p, folio: "PRUEBA" })), time: timeNow(), n: Date.now() }); flash("🧪 Prueba (no cuenta)"); return; }
+    if (testMode) { setPrintJob({ kind: "multi", tickets: vouchers.map((p, i) => ({ product: p, folio: "PRUEBA", qr: qrPrueba(p, i + 1) })), time: timeNow(), n: Date.now() }); flash("🧪 Prueba (no cuenta)"); return; }
     const price = round2((combo.price === "" || combo.price == null) ? vouchers.reduce((t, p) => t + p.price, 0) : Number(combo.price));
     if (ev.advanced) { setPayFlow({ kind: "combo", combo, vouchers, total: price }); return; }
     doSellCombo(combo, vouchers, price);
@@ -592,7 +622,7 @@ export default function App() {
     const cu = uid();
     const saleRow = { id: cu, clientUuid: cu, code: folio, num: evSales.length + 1, eventId: ev.id, puntoId: punto.id, productId: null, name: combo.name, price, ts: Date.now(), synced: online, voided: false, closureId: null, pago: pay?.pago || null, invite: inviteVal != null, inviteValue: inviteVal || 0, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null };
     baseDispatch({ type: "SELL", rows: [saleRow] });
-    const tickets = vouchers.map((p, i) => ({ product: p, folio: `${folio}·${i + 1}` })).filter(t => t.product.print !== false);
+    const tickets = vouchers.map((p, i) => ({ product: p, folio: `${folio}·${i + 1}`, qr: qrDe(p) ? firmar(cu, p, i + 1) : null })).filter(t => t.product.print !== false);
     if (tickets.length) setPrintJob({ kind: "multi", tickets, time: timeNow(), n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(45);
     flash((inviteVal != null ? "🎁 Invitación · " : "") + (tickets.length ? `🎟️ ${combo.name} · ${tickets.length} tickets` : `✅ Venta guardada · ${combo.name} (sin ticket)`));
@@ -671,9 +701,20 @@ export default function App() {
         const LIMIT = 68 * 96 / 25.4;
         document.querySelectorAll("#thermal-print-area .ticket-page:not(.z-page)").forEach(pg => {
           const inner = pg.firstElementChild; if (!inner) return;
-          inner.style.zoom = "";
+          const qrSvg = inner.querySelector(".qr-row svg");
+          inner.style.zoom = ""; if (qrSvg) qrSvg.style.zoom = "1";
           const h = inner.getBoundingClientRect().height;
-          if (h > LIMIT) inner.style.zoom = String(Math.max(0.6, LIMIT / h));
+          if (h <= LIMIT) return;
+          if (!qrSvg) { inner.style.zoom = String(Math.max(0.6, LIMIT / h)); return; }
+          // Con QR: se encoge el resto del ticket, NUNCA el QR (cada cuadradito cae en puntos exactos → se lee siempre)
+          const qh = qrSvg.getBoundingClientRect().height;
+          let z = Math.max(0.6, (LIMIT - qh) / Math.max(1, h - qh));
+          for (let k = 0; k < 4; k++) {
+            inner.style.zoom = String(z); qrSvg.style.zoom = String(1 / z);
+            const hh = inner.getBoundingClientRect().height;
+            if (hh <= LIMIT || z <= 0.6) break;
+            z = Math.max(0.6, z * LIMIT / hh);
+          }
         });
       } catch (e) {}
       try { window.print(); } catch (e) {}
@@ -694,7 +735,7 @@ export default function App() {
   // Ticket de prueba para calibrar la impresora sin hacer una venta
   const testPrint = () => {
     const demo = punto.products[0] || { id: "demo", name: "TICKET DE PRUEBA", price: 0, emoji: "🎟️", color: "#ff5a3c" };
-    setPrintJob({ kind: "ticket", product: demo, time: timeNow(), num: null, folio: "PRUEBA", qty: 1, n: Date.now() });
+    setPrintJob({ kind: "ticket", product: demo, time: timeNow(), num: null, folio: "PRUEBA", qty: 1, qr: qrPrueba(demo), n: Date.now() });
     flash("🖨️ Ticket de prueba enviado");
   };
 
@@ -784,7 +825,7 @@ export default function App() {
       {role === null && (
         <RoleGate ev={ev} events={state.events} adminPin={ev.pin_admin} supervisorPin={ev.pin_supervisor}
           onSelectEvent={id => dispatch({ type: "SELECT_EVENT", id })}
-          onRole={(r, puntoId, modo) => { if (puntoId) dispatch({ type: "SET_PUNTO", id: puntoId }); setRole(r); setView("pos"); const crmMode = modo === "crm" && r === "admin"; setAppMode(crmMode ? "crm" : "tpv"); setShowCheck(!crmMode); }} />
+          onRole={(r, puntoId, modo) => { if (puntoId) dispatch({ type: "SET_PUNTO", id: puntoId }); setRole(r); setView("pos"); const crmMode = modo === "crm" && r === "admin"; setAppMode(crmMode ? "crm" : "tpv"); setShowCheck(!crmMode && r !== "validador"); }} />
       )}
 
       {/* ===== CAJERO ===== */}
@@ -817,6 +858,13 @@ export default function App() {
           </div>
         </div>
       ))}
+
+      {/* ===== VALIDADOR DE TICKETS CON QR (un móvil por barra) ===== */}
+      {role === "validador" && (
+        <Suspense fallback={<div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: "var(--muted)" }}>Abriendo el validador…</div>}>
+          <Validador ev={ev} punto={punto} events={state.events} sales={evSales} onExit={exitToLogin} />
+        </Suspense>
+      )}
 
       {/* ===== CRM (solo admin) ===== */}
       {inCRM && (
@@ -986,11 +1034,11 @@ export default function App() {
 
       {/* ===== Zona de impresión oculta (fuera de pantalla; en impresión se coloca en 0,0) ===== */}
       {createPortal(<div id="thermal-print-area" aria-hidden style={{ position: "absolute", left: -9999, top: 0 }}>
-        {printJob?.kind === "ticket" && <div className="ticket-page"><ThermalTicket ev={ev} product={printJob.product} time={printJob.time} num={printJob.num} qty={printJob.qty} folio={printJob.folio} /></div>}
+        {printJob?.kind === "ticket" && <div className="ticket-page"><ThermalTicket ev={ev} product={printJob.product} time={printJob.time} num={printJob.num} qty={printJob.qty} folio={printJob.folio} qr={printJob.qr} /></div>}
         {printJob?.kind === "z" && <div className="ticket-page z-page"><ZTicket ev={ev} z={printJob.z} /></div>}
         {printJob?.kind === "multi" && printJob.tickets.map((t, i) => (
           <div key={i} className="ticket-page">
-            <ThermalTicket ev={ev} product={t.product} time={printJob.time} num={t.num} folio={t.folio} />
+            <ThermalTicket ev={ev} product={t.product} time={printJob.time} num={t.num} folio={t.folio} qr={t.qr} />
           </div>
         ))}
       </div>, document.body)}
@@ -1158,6 +1206,8 @@ const IC = {
   grip: "M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01",
   up: "M6 15l6-6 6 6",
   down: "M6 9l6 6 6-6",
+  scan: "M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M8 8h3v3H8zM13 13h3v3h-3zM13 8h3M8 13v3",
+  qr: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2M14 18h2v2M18 18h2v2h-2",
 };
 function Ic({ n, s = 20, w = 1.9, style }) {
   return (
@@ -1189,6 +1239,7 @@ function RoleGate({ ev, events, adminPin, supervisorPin, onSelectEvent, onRole }
     { k: "supervisor", icon: "eye", t: "Supervisor", d: "TPV + informes + cierres" },
     { k: "admin", icon: "shield", t: "Administrador", d: "Configura todo" },
     { k: "crm", icon: "crm", t: "CRM", d: "Ingresos, socios y cuentas" },
+    ...(ev.qrActivo ? [{ k: "validador", icon: "scan", t: "Validar tickets", d: "Escanea los QR al servir", wide: true }] : []),
   ];
   return (
     <div style={S.gateWrap}>
@@ -1200,15 +1251,15 @@ function RoleGate({ ev, events, adminPin, supervisorPin, onSelectEvent, onRole }
 
         {mode === null && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {roles.map(r => <button key={r.k} className="gate-role" onClick={() => r.k === "cajero" ? setMode("cajero") : setMode(r.k)} style={S.gateRole}><span style={{ ...S.gateIco, ...(r.k === "cajero" ? S.gateIcoMain : {}) }}><Ic n={r.icon} s={24} /></span><span style={{ fontWeight: 800, fontSize: 16, marginTop: 4 }}>{r.t}</span><span style={{ fontSize: 11, color: "var(--muted)" }}>{r.d}</span></button>)}
+            {roles.map(r => <button key={r.k} className="gate-role" onClick={() => setMode(r.k)} style={{ ...S.gateRole, ...(r.wide ? { gridColumn: "1 / -1" } : {}) }}><span style={{ ...S.gateIco, ...(r.k === "cajero" ? S.gateIcoMain : {}) }}><Ic n={r.icon} s={24} /></span><span style={{ fontWeight: 800, fontSize: 16, marginTop: 4 }}>{r.t}</span><span style={{ fontSize: 11, color: "var(--muted)" }}>{r.d}</span></button>)}
           </div>
         )}
 
-        {mode === "cajero" && (
+        {(mode === "cajero" || mode === "validador") && (
           <div>
-            <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>¿En qué punto de venta trabajas?</div>
+            <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>{mode === "validador" ? "¿En qué barra vas a validar?" : "¿En qué punto de venta trabajas?"}</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>{puntos.map(p => <button key={p.id} onClick={() => setOp(p.id)} style={{ ...S.chip, textAlign: "center", ...(op === p.id ? S.chipActive : {}) }}>{p.name}</button>)}</div>
-            <button onClick={() => onRole("cajero", op)} style={S.btnPrimary}>Entrar al TPV →</button>
+            <button onClick={() => onRole(mode, op)} style={S.btnPrimary}>{mode === "validador" ? "Abrir el validador →" : "Entrar al TPV →"}</button>
             <button onClick={() => setMode(null)} style={{ ...S.btnGhost, marginTop: 8, width: "100%" }}>Volver</button>
           </div>
         )}
@@ -2051,6 +2102,31 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
           {ev.advanced && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Al vender, el camarero elegirá <b>Efectivo</b> o <b>Tarjeta</b>. {ev.changeHelp !== false ? "Con efectivo verá los billetes y el cambio a devolver." : "Con efectivo cobrará directo, sin pedir billetes."} El cierre Z mostrará el arqueo separado.</div>}
         </div>
 
+        <div style={{ ...S.panel, marginTop: 16, ...(ev.qrActivo ? { borderColor: "rgba(34,211,166,.45)" } : {}) }}>
+          <label style={S.toggleRow}><span><b>🔐 Tickets con QR de un solo uso</b><span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2 }}>Cada ticket sale con un QR firmado. En la barra se escanea con el móvil y solo vale una vez: las copias, los anulados y los falsos salen en rojo.</span></span><button onClick={() => { const on = !ev.qrActivo; dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: on ? { qrActivo: true, style: { ...(ev.style || {}), qrDesde: Date.now() } } : { qrActivo: false } }); flash(on ? "🔐 Tickets con QR activados" : "Tickets con QR desactivados", on ? "ok" : "warn"); }} style={{ ...S.switch, background: ev.qrActivo ? "var(--green)" : "var(--line)", flexShrink: 0 }}><span style={{ ...S.knob, transform: ev.qrActivo ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          {ev.qrActivo && (<>
+            {!ev.qrClave && <div style={{ fontSize: 12.5, color: "var(--amber)", marginTop: 8 }}>⏳ Preparando la clave del evento… (necesita internet una vez)</div>}
+            <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "10px 0 8px", lineHeight: 1.45 }}>
+              <b style={{ color: "var(--text)" }}>Cómo se usa:</b> en el móvil de cada barra, entra con <b>Validar tickets</b> y elige la barra. Verde = sirve · Rojo = no sirvas.
+              Con QR, cada unidad sale en su propio ticket (×3 = 3 tickets). Los tickets caducan cuando su barra hace el cierre Z.
+            </div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Toca un producto para quitarle o ponerle el QR:</div>
+            {ev.puntos.filter(p => !p.archivado).map(p => (
+              <div key={p.id} style={{ padding: "8px 0", borderTop: "1px solid var(--line)" }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>📍 {p.name}</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {p.products.length === 0 && <span style={{ fontSize: 12, color: "var(--muted)" }}>Sin productos</span>}
+                  {p.products.map(x => { const on = x.qr !== false && x.print !== false; return (
+                    <button key={x.id} disabled={x.print === false} title={x.print === false ? "Este producto no imprime ticket" : ""} onClick={() => dispatch({ type: "UPDATE_PRODUCT", eventId: ev.id, puntoId: p.id, productId: x.id, patch: { qr: x.qr === false } })}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 11px", borderRadius: 20, fontSize: 12.5, fontWeight: 700, cursor: x.print === false ? "default" : "pointer", border: `1px solid ${on ? "rgba(34,211,166,.55)" : "var(--line)"}`, background: on ? "rgba(34,211,166,.12)" : "transparent", color: on ? "var(--text)" : "var(--muted)", opacity: x.print === false ? .5 : 1 }}>
+                      <span>{x.emoji}</span>{x.name}<span style={{ fontSize: 11, color: on ? "var(--green)" : "var(--muted)" }}>{x.print === false ? "sin ticket" : on ? "QR" : "sin QR"}</span>
+                    </button>); })}
+                </div>
+              </div>
+            ))}
+          </>)}
+        </div>
+
         <div style={{ ...S.panel, marginTop: 16 }}>
           <div style={{ fontWeight: 800, marginBottom: 4 }}>💰 Fondo de caja (cambio inicial)</div>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>Las barras están en modo prueba hasta que alguien pulsa «Iniciar venta» en el TPV; entonces se confirma el cambio del cajón con un toque. Pon aquí lo que vas a dejar en cada una.</div>
@@ -2636,6 +2712,8 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
           ))}
         </div>
       </div>
+
+      {ev.qrActivo && <InformeQR ev={ev} evSales={evSales} />}
 
       {/* Gastos / retiradas de caja (no cambian la facturación; se restan de lo que debe haber) */}
       {evGastos.length > 0 && (

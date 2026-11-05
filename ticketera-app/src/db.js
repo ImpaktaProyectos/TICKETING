@@ -1,7 +1,7 @@
 import { supabase, uid } from "./supabase";
 
 /* ===================== MAPEADORES BD <-> UI ===================== */
-const prodFromDb = (p) => ({ id: p.id, name: p.nombre, price: Number(p.precio), color: p.color, emoji: p.emoji, soldOut: p.agotado, orden: p.orden ?? 0, subtitle: p.subtitulo || "", print: p.imprimir !== false });
+const prodFromDb = (p) => ({ id: p.id, name: p.nombre, price: Number(p.precio), color: p.color, emoji: p.emoji, soldOut: p.agotado, orden: p.orden ?? 0, subtitle: p.subtitulo || "", print: p.imprimir !== false, qr: p.qr !== false });
 const byOrden = (a, b) => (a.orden - b.orden) || String(a.creado_en || "").localeCompare(String(b.creado_en || "")) || String(a.id).localeCompare(String(b.id));
 const puntoFromDb = (p) => ({ id: p.id, name: p.nombre, archivado: p.archivado, combos: p.combos || [], fondo: p.fondo != null ? Number(p.fondo) : null, fondoEn: p.fondo_en, fondoPor: p.fondo_por, fondoPrevisto: p.fondo_previsto != null ? Number(p.fondo_previsto) : null, estado: ["abierta", "cerrada"].includes(p.estado) ? p.estado : "prueba", abiertaEn: p.abierta_en, abiertaPor: p.abierta_por, cerradaEn: p.cerrada_en, cerradaPor: p.cerrada_por, sortMode: p.orden_modo === "ventas" ? "ventas" : "manual", products: (p.ticket_productos || []).slice().sort(byOrden).map(prodFromDb) });
 const evFromDb = (e) => ({
@@ -10,6 +10,7 @@ const evFromDb = (e) => ({
   showTime: e.mostrar_hora, showPrice: e.mostrar_precio, anularPin: e.anular_pin,
   closed: !!e.cerrada, pedirFondo: e.pedir_fondo !== false, startsAt: e.inicio || "", advanced: !!e.venta_avanzada, changeHelp: e.ayuda_cambio !== false,
   style: e.ticket_style || {},
+  qrActivo: !!e.qr_activo, qrClave: e.qr_clave || "",
   pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor,
   puntos: (e.ticket_puntos || []).map(puntoFromDb),
 });
@@ -17,13 +18,13 @@ const saleFromDb = (s) => ({ id: s.id, clientUuid: s.client_uuid, code: s.codigo
 const gastoFromDb = (g) => ({ tipo: g.tipo === "entrada" ? "entrada" : "gasto", id: g.id, eventId: g.evento_id, puntoId: g.punto_id, importe: Number(g.importe), concepto: g.concepto || "", por: g.registrado_por || "", ts: new Date(g.creado_en).getTime(), voided: !!g.anulado, closureId: g.closure_id, synced: true });
 const closureFromDb = (c) => ({ id: c.id, eventId: c.evento_id, puntoId: c.punto_id, count: c.tickets, revenue: Number(c.facturacion), voids: c.anulaciones, lines: c.detalle || [], efectivo: Number(c.efectivo || 0), tarjeta: Number(c.tarjeta || 0), fondo: Number(c.fondo || 0), contado: c.contado != null ? Number(c.contado) : null, gastos: Number(c.gastos || 0), entradas: Number(c.entradas || 0), esperado: c.esperado != null ? Number(c.esperado) : null, ts: new Date(c.creado_en).getTime() });
 
-const evToDb = (e) => ({ id: e.id, nombre: e.name, fecha: e.date, recinto: e.venue, plantilla: e.template, papel: e.paper, pie: e.footer, logo_url: e.logo, mostrar_evento: e.showEventName, mostrar_fecha: e.showDate, mostrar_hora: e.showTime, mostrar_precio: e.showPrice, anular_pin: e.anularPin, cerrada: !!e.closed, inicio: e.startsAt || null, venta_avanzada: !!e.advanced, ayuda_cambio: e.changeHelp !== false, pedir_fondo: e.pedirFondo !== false, ticket_style: e.style || {}, pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor });
+const evToDb = (e) => ({ id: e.id, nombre: e.name, fecha: e.date, recinto: e.venue, plantilla: e.template, papel: e.paper, pie: e.footer, logo_url: e.logo, mostrar_evento: e.showEventName, mostrar_fecha: e.showDate, mostrar_hora: e.showTime, mostrar_precio: e.showPrice, anular_pin: e.anularPin, cerrada: !!e.closed, inicio: e.startsAt || null, venta_avanzada: !!e.advanced, ayuda_cambio: e.changeHelp !== false, pedir_fondo: e.pedirFondo !== false, ticket_style: e.style || {}, qr_activo: !!e.qrActivo, pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor });
 const evPatchToDb = (patch) => {
-  const m = { name: "nombre", date: "fecha", venue: "recinto", template: "plantilla", paper: "papel", footer: "pie", logo: "logo_url", showEventName: "mostrar_evento", showDate: "mostrar_fecha", showTime: "mostrar_hora", showPrice: "mostrar_precio", anularPin: "anular_pin", closed: "cerrada", startsAt: "inicio", advanced: "venta_avanzada", changeHelp: "ayuda_cambio", pedirFondo: "pedir_fondo", style: "ticket_style", pin_admin: "pin_admin", pin_supervisor: "pin_supervisor" };
+  const m = { name: "nombre", date: "fecha", venue: "recinto", template: "plantilla", paper: "papel", footer: "pie", logo: "logo_url", showEventName: "mostrar_evento", showDate: "mostrar_fecha", showTime: "mostrar_hora", showPrice: "mostrar_precio", anularPin: "anular_pin", closed: "cerrada", startsAt: "inicio", advanced: "venta_avanzada", changeHelp: "ayuda_cambio", pedirFondo: "pedir_fondo", style: "ticket_style", qrActivo: "qr_activo", pin_admin: "pin_admin", pin_supervisor: "pin_supervisor" };
   const out = {}; for (const k in patch) if (m[k]) out[m[k]] = patch[k]; return out;
 };
-const prodToDb = (puntoId, p) => ({ id: p.id, punto_id: puntoId, nombre: p.name, precio: p.price, color: p.color, emoji: p.emoji, agotado: p.soldOut, orden: p.orden ?? 0, subtitulo: (p.subtitle || "").trim(), imprimir: p.print !== false });
-const prodPatchToDb = (patch) => { const m = { name: "nombre", price: "precio", color: "color", emoji: "emoji", soldOut: "agotado", orden: "orden", subtitle: "subtitulo", print: "imprimir" }; const o = {}; for (const k in patch) if (m[k]) o[m[k]] = patch[k]; return o; };
+const prodToDb = (puntoId, p) => ({ id: p.id, punto_id: puntoId, nombre: p.name, precio: p.price, color: p.color, emoji: p.emoji, agotado: p.soldOut, orden: p.orden ?? 0, subtitulo: (p.subtitle || "").trim(), imprimir: p.print !== false, qr: p.qr !== false });
+const prodPatchToDb = (patch) => { const m = { name: "nombre", price: "precio", color: "color", emoji: "emoji", soldOut: "agotado", orden: "orden", subtitle: "subtitulo", print: "imprimir", qr: "qr" }; const o = {}; for (const k in patch) if (m[k]) o[m[k]] = patch[k]; return o; };
 
 /* ===================== CARGA INICIAL ===================== */
 // Supabase devuelve máx. 1000 filas por consulta: cargamos por páginas para no perder ventas
@@ -379,6 +380,7 @@ export async function resetStats(eventId) {
   const b = await supabase.from("ticket_cierres").delete().eq("evento_id", eventId);
   if (b.error) throw b.error;
   await supabase.from("ticket_backups").delete().eq("evento_id", eventId);
+  await supabase.rpc("ticket_canjes_reset", { p_evento: eventId });   // canjes de QR de prueba
   // Las barras vuelven a modo prueba, sin fondo (listas para el evento real)
   await supabase.from("ticket_puntos").update({ estado: "prueba", fondo: null, fondo_en: null, fondo_por: null, abierta_en: null, abierta_por: null, cerrada_en: null, cerrada_por: null }).eq("evento_id", eventId);
   return true;
