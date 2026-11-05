@@ -52,7 +52,14 @@ function VistaEvento({ R, anterior, isMobile }) {
   const cats = Object.entries(R.G.porCat).sort((a, b) => b[1].total - a[1].total).slice(0, 8);
   const maxCat = Math.max(1, ...cats.map(([, v]) => Math.max(v.total, v.previsto)));
   // La noche va de la tarde a la madrugada: se ordena desde las 12:00 (23h antes que 0h)
-  const horas = Array.from({ length: 24 }, (_, i) => (i + 12) % 24).filter(h => R.horas[h]);
+  // Eje con las horas del evento (de inicio a fin), aunque haya pocas ventas: así una sola hora no pinta un bloque enorme
+  const ord = (h) => (h + 12) % 24;          // posición en la noche (12:00 → 0)
+  const conVentas = Array.from({ length: 24 }, (_, i) => (i + 12) % 24).filter(h => R.horas[h]);
+  const hDe = (t) => { if (!t) return null; const d = new Date(t); return isNaN(d) ? null : d.getHours(); };   // hora local
+  const lim = [hDe(R.ev?.startsAt), hDe(R.ev?.endsAt), ...conVentas].filter(h => h != null).map(ord);
+  let desde = lim.length ? Math.min(...lim) : 0, hasta = lim.length ? Math.max(...lim) : -1;
+  while (hasta >= 0 && hasta - desde < 5) { if (hasta < 23) hasta++; else desde--; }
+  const horas = conVentas.length ? Array.from({ length: hasta - desde + 1 }, (_, i) => (desde + i + 12) % 24) : [];
   const maxH = Math.max(1, ...Object.values(R.horas));
   const pico = horas.reduce((a, h) => (R.horas[h] > (R.horas[a] || 0) ? h : a), horas[0]);
   return (
@@ -60,7 +67,7 @@ function VistaEvento({ R, anterior, isMobile }) {
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,minmax(0,1fr))", gap: 10, marginBottom: 14 }}>
         <Big l="Ingresos" v={money(R.ingresos)} sub={anterior ? vs(R.ingresos, anterior.ingresos, anterior.ev.name) : null} />
         <Big l="Gastos" v={money(R.gastos)} sub={R.G.previsto ? `Previsto ${money(R.G.previsto)}` : null} />
-        <Big l="Beneficio" v={money(R.beneficio)} c={R.beneficio >= 0 ? "var(--green)" : "var(--red)"} sub={d != null ? <Delta d={d} txt={`vs ${anterior.ev.name}`} /> : null} />
+        <Big l="Resultado previsto" v={money(R.beneficio)} c={R.beneficio >= 0 ? "var(--green)" : "var(--red)"} sub={d != null ? <Delta d={d} txt={`vs ${anterior.ev.name}`} /> : "Incluye lo pendiente de cobrar"} />
         <Big l="Margen" v={R.margen != null ? `${R.margen} %` : "—"} c={R.margen != null ? (R.margen >= 0 ? "var(--green)" : "var(--red)") : undefined} sub="del total ingresado" />
       </div>
 
@@ -96,9 +103,9 @@ function VistaEvento({ R, anterior, isMobile }) {
           <div style={{ fontWeight: 900, marginBottom: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}><Icon n="clock" s={17} c="var(--accent)" />Ventas del TPV por hora {pico != null && <span style={{ color: "var(--muted)", fontWeight: 600, fontSize: 12.5 }}>· pico a las {String(pico).padStart(2, "0")}:00</span>}</div>
           {horas.length === 0 ? <div style={C.empty}>Sin ventas en el TPV.</div> : (
             <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 120 }}>
-              {horas.map(h => <div key={h} style={{ flex: 1, textAlign: "center", minWidth: 0 }} title={`${h}:00 · ${R.horas[h]} tickets`}>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 2 }}>{R.horas[h]}</div>
-                <div style={{ height: Math.max(4, R.horas[h] / maxH * 86), background: h === pico ? "var(--accent)" : "rgba(255,90,60,.35)", borderRadius: 4 }} />
+              {horas.map(h => <div key={h} style={{ flex: 1, textAlign: "center", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center" }} title={`${h}:00 · ${R.horas[h] || 0} tickets`}>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 2, minHeight: 15 }}>{R.horas[h] || ""}</div>
+                <div style={{ width: "100%", maxWidth: 28, height: R.horas[h] ? Math.max(4, R.horas[h] / maxH * 86) : 2, background: !R.horas[h] ? "var(--line)" : h === pico ? "var(--accent)" : "rgba(255,90,60,.35)", borderRadius: 4 }} />
                 <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}>{h}h</div>
               </div>)}
             </div>
@@ -141,7 +148,7 @@ function VistaTodos({ resumenes, periodo, setPeriodo, isMobile, onAbrir }) {
   if (meses.length) { const all = []; let [yy, mm] = meses[0].split("-").map(Number); const fin = meses[meses.length - 1]; while (true) { const k = `${yy}-${String(mm).padStart(2, "0")}`; all.push(k); if (k >= fin || all.length > 60) break; mm++; if (mm > 12) { mm = 1; yy++; } } meses = all; }
 
   const csv = () => {
-    const filas = [["Evento", "Fecha", "Ingresos", "Gastos", "Beneficio", "Margen %"], ...ranking.map(r => [r.ev.name, r.ev.date || "", r.ingresos.toFixed(2), r.gastos.toFixed(2), r.beneficio.toFixed(2), r.margen ?? ""])];
+    const filas = [["Evento", "Fecha", "Ingresos", "Gastos", "Resultado previsto", "Margen %"], ...ranking.map(r => [r.ev.name, r.ev.date || "", r.ingresos.toFixed(2), r.gastos.toFixed(2), r.beneficio.toFixed(2), r.margen ?? ""])];
     const cell = (x) => { let v = String(x ?? "").replace(/[;\r\n]+/g, " "); if (/^[=+\-@\t]/.test(v) && !/^-?\d+([.,]\d+)?$/.test(v)) v = "'" + v; return v; };
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["﻿" + filas.map(f => f.map(cell).join(";")).join("\n")], { type: "text/csv;charset=utf-8;" })); a.download = `TIXFAST_resultados_${periodo}.csv`; a.click();
   };
@@ -157,14 +164,14 @@ function VistaTodos({ resumenes, periodo, setPeriodo, isMobile, onAbrir }) {
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,minmax(0,1fr))", gap: 10, marginBottom: 14 }}>
         <Big l="Ingresos" v={money(T.ing)} />
         <Big l="Gastos" v={money(T.gas)} />
-        <Big l="Beneficio" v={money(T.ben)} c={T.ben >= 0 ? "var(--green)" : "var(--red)"} sub={T.ing ? `Margen ${Math.round(T.ben / T.ing * 100)} %` : null} />
+        <Big l="Resultado previsto" v={money(T.ben)} c={T.ben >= 0 ? "var(--green)" : "var(--red)"} sub={T.ing ? `Margen ${Math.round(T.ben / T.ing * 100)} %` : null} />
         <Big l="Eventos" v={conMov.length} sub={conMov.length ? `${money(T.ben / conMov.length)} de media` : null} />
       </div>
 
       <div style={{ ...C.panel, marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
           <div style={{ fontWeight: 900, display: "flex", alignItems: "center" }}><Icon n="trend" s={17} c="var(--accent)" style={{ verticalAlign: "-3px", marginRight: 6 }} />Por mes</div>
-          <div style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--muted)" }}><Ley c="var(--accent)" t="Ingresos" /><Ley c="#5b6275" t="Gastos" /><Ley c="var(--green)" t="Beneficio" linea /></div>
+          <div style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--muted)" }}><Ley c="var(--accent)" t="Ingresos" /><Ley c="#5b6275" t="Gastos" /><Ley c="var(--green)" t="Resultado" linea /></div>
         </div>
         {meses.length === 0 ? <div style={C.empty}>No hay eventos con fecha en este periodo.</div> : <GraficoMeses meses={meses} porMes={porMes} isMobile={isMobile} />}
       </div>
@@ -179,7 +186,7 @@ function VistaTodos({ resumenes, periodo, setPeriodo, isMobile, onAbrir }) {
             <span style={{ display: "flex", gap: isMobile ? 10 : 18, fontSize: 13, textAlign: "right", flexShrink: 0 }}>
               <span><span style={{ display: "block", color: "var(--muted)", fontSize: 12 }}>Ingresos</span>{money(r.ingresos)}</span>
               <span><span style={{ display: "block", color: "var(--muted)", fontSize: 12 }}>Gastos</span>{money(r.gastos)}</span>
-              <span style={{ minWidth: 96 }}><span style={{ display: "block", color: "var(--muted)", fontSize: 12 }}>Beneficio{r.margen != null ? ` · ${r.margen} %` : ""}</span><b style={{ color: r.beneficio >= 0 ? "var(--green)" : "var(--red)", fontSize: 15 }}>{money(r.beneficio)}</b></span>
+              <span style={{ minWidth: 96 }}><span style={{ display: "block", color: "var(--muted)", fontSize: 12 }}>Resultado{r.margen != null ? ` · ${r.margen} %` : ""}</span><b style={{ color: r.beneficio >= 0 ? "var(--green)" : "var(--red)", fontSize: 15 }}>{money(r.beneficio)}</b></span>
             </span>
           </button>
         ))}
@@ -200,7 +207,7 @@ function GraficoMeses({ meses, porMes, isMobile }) {
   const pts = meses.map((m, i) => `${x(i)},${y((porMes[m] || { ben: 0 }).ben)}`).join(" ");
   const cadaN = Math.max(1, Math.ceil(meses.length / (isMobile ? 6 : 12)));
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }} role="img" aria-label="Ingresos, gastos y beneficio por mes">
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }} role="img" aria-label="Ingresos, gastos y resultado por mes">
       {ticks.map((t, i) => <g key={i}><line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke="var(--line)" strokeWidth="1" /><text x={L - 6} y={y(t) + 4} textAnchor="end" fontSize="10.5" fill="var(--muted)">{compact(t)}</text></g>)}
       <line x1={L} x2={W - R} y1={y(0)} y2={y(0)} stroke="var(--muted)" strokeWidth="1" />
       {meses.map((m, i) => { const v = porMes[m] || { ing: 0, gas: 0 }; return (

@@ -41,7 +41,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.05l";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.05m";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -1248,9 +1248,16 @@ const IC = {
   cash: "M3 7h18v10H3zM12 10a2 2 0 1 0 0 4a2 2 0 1 0 0-4M6.5 12h.01M17.5 12h.01",
   undo: "M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11",
   more: "M5 12h.01M12 12h.01M19 12h.01",
+  alert: "M12 4l9 16H3zM12 10v4M12 17h.01",
+  download: "M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14",
+  folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
+  image: "M4 5h16v14H4zM8.5 10a1.5 1.5 0 1 0 0-3a1.5 1.5 0 1 0 0 3M20 15l-5-5-9 9",
+  plus: "M12 5v14M5 12h14",
+  users: "M9 11a3.5 3.5 0 1 0 0-7a3.5 3.5 0 1 0 0 7M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 6.5M18 13.5a6.5 6.5 0 0 1 3.5 6.5",
   edit: "M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16zM13.5 6.5l4 4",
   qr: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2M14 18h2v2M18 18h2v2h-2",
 };
+const II = { display: "inline-block", verticalAlign: "-3px", marginRight: 6 };   // icono en línea con texto
 function Ic({ n, s = 20, w = 1.9, style }) {
   return (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, display: "block", ...style }}>
@@ -2211,20 +2218,20 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
             <div style={{ flex: isMobile ? "1 1 100%" : 1, minWidth: 0 }}><Field label="Empieza (fecha y hora)"><input type="datetime-local" style={S.input} value={ev.startsAt || ""} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: e.target.value ? { startsAt: e.target.value, date: e.target.value.slice(0, 10) } : { startsAt: "" } })} /></Field></div>
             <div style={{ flex: isMobile ? "1 1 100%" : 1, minWidth: 0 }}><Field label="Termina (fecha y hora)"><input type="datetime-local" style={{ ...S.input, ...(ev.qrActivo && !ev.endsAt ? { borderColor: "var(--amber)" } : {}) }} value={isoALocal(ev.endsAt)} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { endsAt: localAIso(e.target.value) || "" } })} /></Field></div>
           </div>
-          {ev.startsAt && ev.endsAt && new Date(ev.endsAt) <= new Date(ev.startsAt) && <div style={{ fontSize: 12.5, color: "var(--red)", margin: "-4px 0 10px" }}>⚠️ La hora de fin es anterior al inicio. Revisa el día (si acaba de madrugada, es el día siguiente).</div>}
+          {ev.startsAt && ev.endsAt && new Date(ev.endsAt) <= new Date(ev.startsAt) && <div style={{ fontSize: 12.5, color: "var(--red)", margin: "-4px 0 10px" }}><Ic n="alert" s={15} style={II} />La hora de fin es anterior al inicio. Revisa el día (si acaba de madrugada, es el día siguiente).</div>}
           <Field label="Recinto"><input style={S.input} value={ev.venue} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { venue: e.target.value } })} /></Field>
           <div style={{ display: "flex", gap: 10 }}>
             <PinField label="PIN admin" value={ev.pin_admin} fabrica="1234" onSave={(v) => { dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pin_admin: v } }); flash("PIN de administrador cambiado"); }} flash={flash} />
             <PinField label="PIN supervisor" value={ev.pin_supervisor} fabrica="0000" onSave={(v) => { dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pin_supervisor: v } }); flash("PIN de supervisor cambiado"); }} flash={flash} />
           </div>
           <label style={S.toggleRow}><span>Anular ticket en caja exige PIN de supervisor</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { anularPin: !ev.anularPin } })} style={{ ...S.switch, background: ev.anularPin ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.anularPin ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
-          <label style={S.toggleRow}><span><b>Venta avanzada</b> · pedir efectivo/tarjeta y calcular el cambio{modoCobroBloqueado(ev, evSales) && <span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2 }}>🔒 Fijo: la venta ya ha empezado en este evento</span>}</span><button disabled={modoCobroBloqueado(ev, evSales)} aria-label="Venta avanzada" onClick={() => { if (modoCobroBloqueado(ev, evSales)) return; dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: ev.advanced ? { advanced: false } : { advanced: true, changeHelp: true } }); }} style={{ ...S.switch, flexShrink: 0, opacity: modoCobroBloqueado(ev, evSales) ? .45 : 1, cursor: modoCobroBloqueado(ev, evSales) ? "not-allowed" : "pointer", background: ev.advanced ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.advanced ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          <label style={S.toggleRow}><span><b>Venta avanzada</b> · pedir efectivo/tarjeta y calcular el cambio{modoCobroBloqueado(ev, evSales) && <span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2 }}><Ic n="lock" s={15} style={II} />Fijo: la venta ya ha empezado en este evento</span>}</span><button disabled={modoCobroBloqueado(ev, evSales)} aria-label="Venta avanzada" onClick={() => { if (modoCobroBloqueado(ev, evSales)) return; dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: ev.advanced ? { advanced: false } : { advanced: true, changeHelp: true } }); }} style={{ ...S.switch, flexShrink: 0, opacity: modoCobroBloqueado(ev, evSales) ? .45 : 1, cursor: modoCobroBloqueado(ev, evSales) ? "not-allowed" : "pointer", background: ev.advanced ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.advanced ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
           {ev.advanced && <label style={S.toggleRow}><span>Ayuda con el cambio · billetes y cálculo de devolución</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { changeHelp: !(ev.changeHelp !== false) } })} style={{ ...S.switch, background: ev.changeHelp !== false ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.changeHelp !== false ? "translateX(20px)" : "translateX(2px)" }} /></button></label>}
           {ev.advanced && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Al vender, el camarero elegirá <b>Efectivo</b> o <b>Tarjeta</b>. {ev.changeHelp !== false ? "Con efectivo verá los billetes y el cambio a devolver." : "Con efectivo cobrará directo, sin pedir billetes."} El cierre Z mostrará el arqueo separado.</div>}
         </div>
 
         <div style={{ ...S.panel, marginTop: 16, ...(ev.qrActivo ? { borderColor: "rgba(34,211,166,.45)" } : {}) }}>
-          <label style={S.toggleRow}><span><b>🔐 Tickets con QR de un solo uso</b><span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2 }}>Cada ticket sale con un QR firmado. En la barra se escanea con el móvil y solo vale una vez: las copias, los anulados y los falsos salen en rojo.</span></span><button onClick={() => { const on = !ev.qrActivo; dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: on ? { qrActivo: true, style: { ...(ev.style || {}), qrDesde: Date.now() } } : { qrActivo: false } }); flash(on ? "🔐 Tickets con QR activados" : "Tickets con QR desactivados", on ? "ok" : "warn"); }} style={{ ...S.switch, background: ev.qrActivo ? "var(--green)" : "var(--line)", flexShrink: 0 }}><span style={{ ...S.knob, transform: ev.qrActivo ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          <label style={S.toggleRow}><span><b><Ic n="qr" s={15} style={II} />Tickets con QR de un solo uso</b><span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2 }}>Cada ticket sale con un QR firmado. En la barra se escanea con el móvil y solo vale una vez: las copias, los anulados y los falsos salen en rojo.</span></span><button onClick={() => { const on = !ev.qrActivo; dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: on ? { qrActivo: true, style: { ...(ev.style || {}), qrDesde: Date.now() } } : { qrActivo: false } }); flash(on ? "🔐 Tickets con QR activados" : "Tickets con QR desactivados", on ? "ok" : "warn"); }} style={{ ...S.switch, background: ev.qrActivo ? "var(--green)" : "var(--line)", flexShrink: 0 }}><span style={{ ...S.knob, transform: ev.qrActivo ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
           {ev.qrActivo && (<>
             {!ev.qrClave && <div style={{ fontSize: 12.5, color: "var(--amber)", marginTop: 8 }}>⏳ Preparando la clave del evento… (necesita internet una vez)</div>}
             <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "10px 0 8px", lineHeight: 1.45 }}>
@@ -2233,11 +2240,11 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
             </div>
             {ev.endsAt
               ? <div style={{ fontSize: 12.5, color: "var(--green)", marginBottom: 8 }}>✅ Los QR valen hasta el <b>{fechaHora(ev.endsAt)}</b>. Después salen en rojo: «Evento terminado».</div>
-              : <div style={{ fontSize: 12.5, color: "var(--amber)", marginBottom: 8, fontWeight: 700 }}>⚠️ Pon arriba la fecha y hora en que <b>termina</b> el evento: a partir de esa hora los QR dejan de valer. Sin ella no caducan.</div>}
+              : <div style={{ fontSize: 12.5, color: "var(--amber)", marginBottom: 8, fontWeight: 700 }}><Ic n="alert" s={15} style={II} />Pon arriba la fecha y hora en que <b>termina</b> el evento: a partir de esa hora los QR dejan de valer. Sin ella no caducan.</div>}
             <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Toca un producto para quitarle o ponerle el QR:</div>
             {ev.puntos.filter(p => !p.archivado).map(p => (
               <div key={p.id} style={{ padding: "8px 0", borderTop: "1px solid var(--line)" }}>
-                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>📍 {p.name}</div>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}><Ic n="store" s={15} style={II} />{p.name}</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {p.products.length === 0 && <span style={{ fontSize: 12, color: "var(--muted)" }}>Sin productos</span>}
                   {p.products.map(x => { const on = x.qr !== false && x.print !== false; return (
@@ -2252,14 +2259,14 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
         </div>
 
         <div style={{ ...S.panel, marginTop: 16 }}>
-          <div style={{ fontWeight: 800, marginBottom: 4 }}>💰 Fondo de caja (cambio inicial)</div>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}><Ic n="cash" s={15} style={II} />Fondo de caja (cambio inicial)</div>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>Las barras están en modo prueba hasta que alguien pulsa «Iniciar venta» en el TPV; entonces se confirma el cambio del cajón con un toque. Pon aquí lo que vas a dejar en cada una.</div>
           <label style={S.toggleRow}><span>Pedir el fondo al iniciar la venta</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pedirFondo: !(ev.pedirFondo !== false) } })} style={{ ...S.switch, background: ev.pedirFondo !== false ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.pedirFondo !== false ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
           {ev.pedirFondo !== false && ev.puntos.filter(p => !p.archivado).map(p => (
             <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: "1px solid var(--line)" }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700 }}>📍 {p.name}</div>
-                <div style={{ fontSize: 12, color: p.estado === "abierta" ? "var(--green)" : p.estado === "cerrada" ? "var(--red)" : "var(--amber)" }}>{p.estado === "abierta" ? `🟢 Venta abierta${p.fondo != null ? ` con ${money(p.fondo)}` : ""}` : p.estado === "cerrada" ? "🔒 Venta cerrada (Z hecho)" : "🧪 En modo prueba"}</div>
+                <div style={{ fontWeight: 700 }}><Ic n="store" s={15} style={II} />{p.name}</div>
+                <div style={{ fontSize: 12, color: p.estado === "abierta" ? "var(--green)" : p.estado === "cerrada" ? "var(--red)" : "var(--amber)" }}>{p.estado === "abierta" ? `Venta abierta${p.fondo != null ? ` con ${money(p.fondo)}` : ""}` : p.estado === "cerrada" ? "Venta cerrada (Z hecho)" : "En modo prueba"}</div>
               </div>
               <FondoPrevistoInput value={p.fondoPrevisto} onSave={(n) => { dispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: p.id, patch: { fondoPrevisto: n } }); flash(n == null ? `Sin fondo previsto en ${p.name}` : `Fondo previsto ${p.name}: ${money(n)}`); }} />
             </div>
@@ -2279,7 +2286,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
 
         {isAdmin && (
           <div style={{ ...S.panel, marginTop: 16, border: "1px solid var(--red)" }}>
-            <div style={{ fontWeight: 800, marginBottom: 6, color: "var(--red)" }}>⚠️ Zona peligrosa</div>
+            <div style={{ fontWeight: 800, marginBottom: 6, color: "var(--red)" }}><Ic n="alert" s={15} style={II} />Zona peligrosa</div>
             <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>Resetear borra TODAS las ventas y cierres de “{ev.name}”. Ideal para limpiar las pruebas antes del evento. No se puede deshacer.</div>
             <button onClick={() => setConfirmReset(1)} style={{ ...S.btnGhost, width: "100%", color: "var(--red)", borderColor: "var(--red)" }}>Resetear estadísticas</button>
           </div>
@@ -2469,13 +2476,13 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
       <div style={S.overlay} onClick={() => setConfirmReset(0)}>
         <div style={{ ...S.pinCard, width: 360, maxWidth: "92vw", textAlign: "center", border: "2px solid var(--red)" }} onClick={e => e.stopPropagation()}>
           {confirmReset === 1 ? (<>
-            <div style={{ fontSize: 40 }}>⚠️</div>
+            <div style={{ display: "flex", justifyContent: "center", color: "var(--amber)" }}><Ic n="alert" s={40} /></div>
             <div style={{ fontWeight: 900, fontSize: 18, margin: "8px 0" }}>¿Resetear estadísticas?</div>
             <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 18 }}>Se borrarán TODAS las ventas y cierres de “{ev.name}”. Esto no se puede deshacer.</div>
             <button onClick={() => setConfirmReset(2)} style={{ ...S.btnPrimary, width: "100%", background: "var(--red)" }}>Continuar</button>
             <button onClick={() => setConfirmReset(0)} style={{ ...S.btnGhost, width: "100%", marginTop: 8 }}>Cancelar</button>
           </>) : (<>
-            <div style={{ fontSize: 40 }}>🛑</div>
+            <div style={{ display: "flex", justifyContent: "center", color: "var(--amber)" }}><Ic n="alert" s={40} /></div>
             <div style={{ fontWeight: 900, fontSize: 18, margin: "8px 0" }}>Última confirmación</div>
             <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 18 }}>¿Seguro del todo? Vas a borrar la caja de este evento para siempre.</div>
             <button onClick={() => { setConfirmReset(0); onReset && onReset(); }} style={{ ...S.btnPrimary, width: "100%", background: "var(--red)" }}>SÍ, BORRAR TODO</button>
@@ -2574,11 +2581,11 @@ function Historico({ state, onOpenEvent, flash }) {
         <button onClick={() => setSel(null)} style={{ ...S.smallBtn, marginBottom: 14 }}>← Volver al histórico</button>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
           <div><div style={{ ...S.display, fontSize: 24 }}>{r.ev.name}</div><div style={{ color: "var(--muted)", fontSize: 13 }}>{r.ev.date ? dateFmt(r.ev.date) : "Sin fecha"}{r.ev.venue ? ` · ${r.ev.venue}` : ""} · {r.ev.closed ? "Caja cerrada" : "Abierto"}</div></div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button onClick={() => csvEvento(r)} style={S.topBtn}>⬇ CSV del evento</button><button onClick={() => onOpenEvent(r.ev.id)} style={S.topBtn}>Abrir en el TPV →</button></div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button onClick={() => csvEvento(r)} style={S.topBtn}><Ic n="download" s={15} style={II} />CSV del evento</button><button onClick={() => onOpenEvent(r.ev.id)} style={S.topBtn}>Abrir en el TPV →</button></div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginBottom: 14 }}>
           <Kpi l="Facturación" v={money(r.revenue)} c="var(--green)" sub={r.delta != null ? `${r.delta >= 0 ? "+" : ""}${r.delta}% vs ${r.prev.ev.name}` : null} />
-          {r.gastos > 0 && <Kpi l="💸 Gastos de caja" v={"-" + money(r.gastos)} c="var(--amber)" sub={`A cuadrar ${money(r.neto)}`} />}
+          {r.gastos > 0 && <Kpi l="Gastos de caja" v={"-" + money(r.gastos)} c="var(--amber)" sub={`A cuadrar ${money(r.neto)}`} />}
           <Kpi l="Tickets" v={r.tickets} sub={`Ticket medio ${money(r.medio)}`} />
           {(r.efectivo > 0 || r.tarjeta > 0) && <Kpi l="Efectivo / Tarjeta" v={`${money(r.efectivo)}`} sub={`Tarjeta ${money(r.tarjeta)}`} />}
           <Kpi l="Invitaciones" v={r.inv.n} c="#c084fc" sub={money(r.inv.valor)} />
@@ -2590,7 +2597,7 @@ function Historico({ state, onOpenEvent, flash }) {
           <div style={S.panel}>
             <div style={{ fontWeight: 800, marginBottom: 10 }}>Barras</div>
             {r.barras.length === 0 && <div style={{ color: "var(--muted)", fontSize: 13 }}>Sin ventas.</div>}
-            {r.barras.map(b => <div key={b.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 14 }}><span>📍 {b.name} <span style={{ color: "var(--muted)" }}>· {b.tickets} tickets</span></span><b>{money(b.revenue)}</b></div>)}
+            {r.barras.map(b => <div key={b.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 14 }}><span><Ic n="store" s={15} style={II} />{b.name} <span style={{ color: "var(--muted)" }}>· {b.tickets} tickets</span></span><b>{money(b.revenue)}</b></div>)}
             <div style={{ fontWeight: 800, margin: "16px 0 10px" }}>Ventas por hora {r.pico != null && <span style={{ fontWeight: 600, color: "var(--muted)", fontSize: 12 }}>· pico {String(r.pico).padStart(2, "0")}:00</span>}</div>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 90 }}>
               {hk.map(h => <div key={h} style={{ flex: 1, textAlign: "center" }}><div style={{ height: Math.max(4, r.horas[h] / mh * 70), background: h === r.pico ? "var(--accent)" : "var(--surface2)", borderRadius: 4 }} /><div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}>{h}h</div></div>)}
@@ -2599,8 +2606,8 @@ function Historico({ state, onOpenEvent, flash }) {
           <div style={S.panel}>
             <div style={{ fontWeight: 800, marginBottom: 10 }}>Productos</div>
             {r.top.slice(0, 10).map((p, i) => <div key={p.name} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 14 }}><span>{i === 0 ? "🥇 " : i === 1 ? "🥈 " : i === 2 ? "🥉 " : ""}{p.name} <span style={{ color: "var(--muted)" }}>· {p.uds}</span></span><b>{money(p.total)}</b></div>)}
-            {r.inv.n > 0 && <><div style={{ fontWeight: 800, margin: "16px 0 8px" }}>🎁 Invitaciones</div>{r.inv.list.map(g => <div key={g.name} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}><span>{g.uds} × {g.name}</span><span>{money(g.valor)}</span></div>)}</>}
-            {r.liq.list.length > 0 && <><div style={{ fontWeight: 800, margin: "16px 0 8px" }}>🤝 Proveedores</div>{r.liq.list.map(g => <div key={g.proveedor} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}><span>{g.proveedor}</span><span>pagar <b style={{ color: "var(--amber)" }}>{money(g.pagar)}</b></span></div>)}</>}
+            {r.inv.n > 0 && <><div style={{ fontWeight: 800, margin: "16px 0 8px" }}><Ic n="gift" s={15} style={II} />Invitaciones</div>{r.inv.list.map(g => <div key={g.name} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}><span>{g.uds} × {g.name}</span><span>{money(g.valor)}</span></div>)}</>}
+            {r.liq.list.length > 0 && <><div style={{ fontWeight: 800, margin: "16px 0 8px" }}><Ic n="users" s={15} style={II} />Proveedores</div>{r.liq.list.map(g => <div key={g.proveedor} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}><span>{g.proveedor}</span><span>pagar <b style={{ color: "var(--amber)" }}>{money(g.pagar)}</b></span></div>)}</>}
           </div>
         </div>
       </div>
@@ -2613,12 +2620,12 @@ function Historico({ state, onOpenEvent, flash }) {
         <div><div style={{ ...S.display, fontSize: 24 }}>Histórico</div><div style={{ color: "var(--muted)", fontSize: 13 }}>Todos los eventos de esta cuenta</div></div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <div style={S.miniSeg}>{[["mes", "Este mes"], ["90", "90 días"], ["anio", "Este año"], ["todo", "Todo"]].map(([k, l]) => <button key={k} onClick={() => setPeriodo(k)} style={{ ...S.miniSegBtn, ...(periodo === k ? S.miniSegOn : {}) }}>{l}</button>)}</div>
-          <button onClick={csvPeriodo} style={S.smallBtn}>⬇ CSV</button>
+          <button onClick={csvPeriodo} style={S.smallBtn}><Ic n="download" s={15} style={II} />CSV</button>
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginBottom: 16 }}>
         <Kpi l="Facturación total" v={money(round2(T.revenue))} c="var(--green)" sub={`${lista.length} eventos · media ${money(media)}`} />
-        {T.gastos > 0 && <Kpi l="💸 Gastos de caja" v={"-" + money(round2(T.gastos))} c="var(--amber)" sub={`A cuadrar ${money(round2(T.revenue - T.gastos))}`} />}
+        {T.gastos > 0 && <Kpi l="Gastos de caja" v={"-" + money(round2(T.gastos))} c="var(--amber)" sub={`A cuadrar ${money(round2(T.revenue - T.gastos))}`} />}
         <Kpi l="Tickets vendidos" v={T.tickets} sub={T.tickets ? `Ticket medio ${money(round2(T.revenue / T.tickets))}` : null} />
         {(T.efectivo > 0 || T.tarjeta > 0) && <Kpi l="Efectivo / Tarjeta" v={money(round2(T.efectivo))} sub={`Tarjeta ${money(round2(T.tarjeta))}`} />}
         <Kpi l="Invitaciones" v={T.invN} c="#c084fc" sub={money(round2(T.invV))} />
@@ -2646,8 +2653,8 @@ function Historico({ state, onOpenEvent, flash }) {
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12.5, color: "var(--muted)", marginTop: 10 }}>
               <span><b style={{ color: "var(--text)" }}>{r.tickets}</b> tickets · medio {money(r.medio)}</span>
               {r.top[0] && <span>🥇 {r.top[0].name} ({r.top[0].uds})</span>}
-              {r.inv.n > 0 && <span>🎁 {r.inv.n} invit. ({money(r.inv.valor)})</span>}
-              {r.liq.list.length > 0 && <span>🤝 pagar {money(r.liq.pagar)}</span>}
+              {r.inv.n > 0 && <span><Ic n="gift" s={15} style={II} />{r.inv.n} invit. ({money(r.inv.valor)})</span>}
+              {r.liq.list.length > 0 && <span><Ic n="users" s={15} style={II} />pagar {money(r.liq.pagar)}</span>}
               {r.pico != null && <span>⏰ pico {String(r.pico).padStart(2, "0")}:00</span>}
             </div>
           </button>
@@ -2711,7 +2718,7 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
   const EstadoChip = ({ p }) => {
     const e = p.estado || "prueba";
     const c = e === "abierta" ? "var(--green)" : e === "cerrada" ? "var(--red)" : "var(--amber)";
-    const t = e === "abierta" ? `🟢 Venta abierta${p.abiertaEn ? " · " + hhmm(p.abiertaEn) : ""}` : e === "cerrada" ? `🔒 Cerrada${p.cerradaEn ? " · " + hhmm(p.cerradaEn) : ""}` : "🧪 Modo prueba";
+    const t = e === "abierta" ? `Venta abierta${p.abiertaEn ? " · " + hhmm(p.abiertaEn) : ""}` : e === "cerrada" ? `Cerrada${p.cerradaEn ? " · " + hhmm(p.cerradaEn) : ""}` : "Modo prueba";
     return <div style={{ display: "inline-block", fontSize: 12, fontWeight: 800, color: c, border: `1px solid ${c}`, borderRadius: 20, padding: "2px 9px", marginTop: 6 }}>{t}</div>;
   };
   const exportCSV = () => {
@@ -2790,15 +2797,15 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
                 <div style={{ fontSize: 13, color: fresh ? "var(--green)" : "var(--amber)", fontWeight: 700, marginTop: 2 }}>
                   {lastBackup ? `Última copia en la nube: ${new Date(lastBackup).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} (hace ${mins} min)` : "Aún no hay copia en la nube desde este equipo"}
                 </div>
-                <div style={{ fontSize: 12, color: pend ? "var(--amber)" : "var(--muted)", marginTop: 2 }}>{pend ? `⚠️ ${pend} operaciones solo en este equipo (sin subir)` : "Todo lo de este equipo está en la nube"} · automáticas cada 30 min</div>
+                <div style={{ fontSize: 12, color: pend ? "var(--amber)" : "var(--muted)", marginTop: 2 }}>{pend ? `${pend} operaciones solo en este equipo (sin subir)` : "Todo lo de este equipo está en la nube"} · automáticas cada 30 min</div>
               </div>
               <button onClick={onBackup} style={{ ...S.btnPrimary, width: "auto", padding: "0 16px", minHeight: 42 }}>Hacer copia ahora</button>
             </div>
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-              <button onClick={() => { const v = !showBackups; setShowBackups(v); if (v) loadBk(); }} style={{ ...S.btnGhost, flex: "1 1 160px" }}>{showBackups ? "Ocultar historial" : "🕒 Ver historial de copias"}</button>
-              <button onClick={downloadEmergency} style={{ ...S.btnGhost, flex: "1 1 160px" }}>💾 Descargar copia de emergencia</button>
-              <button onClick={() => fileRef.current && fileRef.current.click()} style={{ ...S.btnGhost, flex: "1 1 160px" }}>📂 Importar copia</button>
+              <button onClick={() => { const v = !showBackups; setShowBackups(v); if (v) loadBk(); }} style={{ ...S.btnGhost, flex: "1 1 160px" }}>{showBackups ? "Ocultar historial" : "Ver historial de copias"}</button>
+              <button onClick={downloadEmergency} style={{ ...S.btnGhost, flex: "1 1 160px" }}><Ic n="download" s={15} style={II} />Descargar copia de emergencia</button>
+              <button onClick={() => fileRef.current && fileRef.current.click()} style={{ ...S.btnGhost, flex: "1 1 160px" }}><Ic n="folder" s={15} style={II} />Importar copia</button>
               <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; if (f) importEmergency(f); e.target.value = ""; }} />
             </div>
             <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>¿El equipo va a apagarse sin internet? Descarga la copia de emergencia a un USB e impórtala en el otro ordenador. Nunca se duplica ninguna venta.</div>
@@ -2832,13 +2839,13 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 10 }}>
           {byPunto.map(b => (
             <div key={b.punto.id} style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: 14 }}>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>📍 {b.punto.name}</div>
+              <div style={{ fontWeight: 700, fontSize: 14 }}><Ic n="store" s={15} style={II} />{b.punto.name}</div>
               <EstadoChip p={b.punto} />
               <div style={{ fontSize: 22, fontWeight: 800, color: "var(--green)", marginTop: 4 }}>{money(b.revenue)}</div>
               <div style={{ fontSize: 12, color: "var(--muted)" }}>{b.count} tickets · {b.voids} anul.</div>
-              {gTurnoDe(b.punto.id) > 0 && <div style={{ fontSize: 12, color: "var(--amber)", marginTop: 4, fontWeight: 700 }}>💸 Gastos del turno: -{money(gTurnoDe(b.punto.id))}</div>}
-              {eTurnoDe(b.punto.id) > 0 && <div style={{ fontSize: 12, color: "var(--green)", marginTop: 4, fontWeight: 700 }}>➕ Cambio añadido: +{money(eTurnoDe(b.punto.id))}</div>}
-              {(ev.advanced || ev.pedirFondo !== false) && b.punto.estado === "abierta" && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>💰 Fondo: <b style={{ color: b.punto.fondo != null ? "var(--green)" : "var(--amber)" }}>{b.punto.fondo != null ? money(b.punto.fondo) : "sin declarar"}</b>{db.pendingPunto(b.punto.id) && <span style={{ color: "var(--amber)" }}> · ⏳ subiendo…</span>}</div>}
+              {gTurnoDe(b.punto.id) > 0 && <div style={{ fontSize: 12, color: "var(--amber)", marginTop: 4, fontWeight: 700 }}><Ic n="cash" s={15} style={II} />Gastos del turno: -{money(gTurnoDe(b.punto.id))}</div>}
+              {eTurnoDe(b.punto.id) > 0 && <div style={{ fontSize: 12, color: "var(--green)", marginTop: 4, fontWeight: 700 }}><Ic n="plus" s={15} style={II} />Cambio añadido: +{money(eTurnoDe(b.punto.id))}</div>}
+              {(ev.advanced || ev.pedirFondo !== false) && b.punto.estado === "abierta" && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}><Ic n="cash" s={15} style={II} />Fondo: <b style={{ color: b.punto.fondo != null ? "var(--green)" : "var(--amber)" }}>{b.punto.fondo != null ? money(b.punto.fondo) : "sin declarar"}</b>{db.pendingPunto(b.punto.id) && <span style={{ color: "var(--amber)" }}> · ⏳ subiendo…</span>}</div>}
               {(role === "admin" || role === "supervisor") && (b.punto.estado === "abierta" || evSales.some(x => x.puntoId === b.punto.id && !x.closureId)) && <button onClick={() => {
                 const abiertas = evSales.filter(s => s.puntoId === b.punto.id && !s.voided && !s.closureId && !isInvite(s));
                 const efe = round2(abiertas.filter(s => s.pago === "efectivo").reduce((t, s) => t + s.price, 0));
@@ -2847,10 +2854,10 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
                 const gas = gTurnoDe(b.punto.id), ent = eTurnoDe(b.punto.id);
                 const base = ev.advanced ? efe : fact;
                 setCountZ({ punto: b.punto, advanced: !!ev.advanced, fondo, efectivo: base, gastos: gas, entradas: ent, esperado: round2(fondo + base + ent - gas), valor: "" });
-              }} style={{ ...S.smallBtn, marginTop: 8, width: "100%", color: "var(--accent)", borderColor: "var(--accent)" }}>Cierre Z 🧾</button>}
+              }} style={{ ...S.smallBtn, marginTop: 8, width: "100%", color: "var(--accent)", borderColor: "var(--accent)" }}>Cierre Z</button>}
               {role === "admin" && onPasarPrueba && b.punto.estado !== "prueba" && !(b.punto.estado === "abierta" && evSales.some(x => x.puntoId === b.punto.id && !x.closureId && !x.voided)) && (confirmPrueba === b.punto.id
                 ? <div style={{ display: "flex", gap: 6, marginTop: 8 }}><button onClick={() => { onPasarPrueba(b.punto); setConfirmPrueba(null); }} style={{ ...S.smallBtn, flex: 1, color: "var(--amber)", borderColor: "var(--amber)" }}>✓ Sí, a prueba</button><button onClick={() => setConfirmPrueba(null)} style={S.smallBtn}>✗</button></div>
-                : <button onClick={() => setConfirmPrueba(b.punto.id)} style={{ ...S.smallBtn, marginTop: 8, width: "100%" }}>{b.punto.estado === "cerrada" ? "↺ Reabrir barra (vuelve a prueba)" : "🧪 Volver a modo prueba"}</button>)}
+                : <button onClick={() => setConfirmPrueba(b.punto.id)} style={{ ...S.smallBtn, marginTop: 8, width: "100%" }}>{b.punto.estado === "cerrada" ? "↺ Reabrir barra (vuelve a prueba)" : "Volver a modo prueba"}</button>)}
             </div>
           ))}
         </div>
@@ -2861,7 +2868,7 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
       {/* Gastos / retiradas de caja (no cambian la facturación; se restan de lo que debe haber) */}
       {evGastos.length > 0 && (
         <div style={{ ...S.panel, marginBottom: 16 }}>
-          <div style={{ fontWeight: 800, marginBottom: 4 }}>💰 Movimientos de caja</div>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}><Ic n="cash" s={15} style={II} />Movimientos de caja</div>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>Gastos (dinero que sale) y cambio añadido (dinero que entra). La facturación no cambia; el cierre lo tiene en cuenta.</div>
           <div style={{ background: "var(--surface2)", borderRadius: 14, padding: 14, marginBottom: 12, fontSize: 14, maxWidth: 460 }}>
             <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Facturado</span><b>{money(grandRevenue)}</b></div>
@@ -2877,7 +2884,7 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
             return (
               <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5, opacity: g.voided ? .45 : 1 }}>
                 <span style={{ color: "var(--muted)", flexShrink: 0 }}>{new Date(g.ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</span>
-                <span style={{ flex: 1, minWidth: 0 }}><b>{isEntrada(g) ? "➕ " : "💸 "}{g.concepto || (isEntrada(g) ? "Cambio añadido" : "Gasto")}</b> <span style={{ color: "var(--muted)" }}>· 📍 {pn}{g.por && g.por !== pn ? ` · ${g.por}` : ""}{g.closureId ? " · cerrado en Z" : ""}{!g.synced ? " · ⏳" : ""}</span></span>
+                <span style={{ flex: 1, minWidth: 0 }}><b>{isEntrada(g) ? "" : ""}{g.concepto || (isEntrada(g) ? "Cambio añadido" : "Gasto")}</b> <span style={{ color: "var(--muted)" }}>· 📍 {pn}{g.por && g.por !== pn ? ` · ${g.por}` : ""}{g.closureId ? " · cerrado en Z" : ""}{!g.synced ? " · ⏳" : ""}</span></span>
                 <b style={{ flexShrink: 0, textDecoration: g.voided ? "line-through" : "none", color: g.voided ? "var(--muted)" : isEntrada(g) ? "var(--green)" : "var(--amber)" }}>{isEntrada(g) ? "+" : "-"}{money(g.importe)}</b>
                 {g.voided ? <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0 }}>Anulado</span>
                   : (role === "admin" || role === "supervisor") && !g.closureId && onVoidGasto ? (confirmGasto === g.id
@@ -2892,7 +2899,7 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
       {/* Invitaciones (solo control: no suman a la facturación) */}
       {inv.n > 0 && (
         <div style={{ ...S.panel, marginBottom: 16 }}>
-          <div style={{ fontWeight: 800, marginBottom: 4 }}>🎁 Invitaciones</div>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}><Ic n="gift" s={15} style={II} />Invitaciones</div>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>No suman a la facturación ni a la caja. Valor = precio normal del producto.</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginBottom: 14 }}>
             <div style={S.statBox}><div style={S.miniLabel}>Invitaciones dadas</div><div style={{ fontSize: 22, fontWeight: 800, color: "#c084fc" }}>{inv.n}</div></div>
@@ -2906,7 +2913,7 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
       {/* Liquidación de proveedores (solo informativo: no cambia la facturación) */}
       {liq.list.length > 0 && (
         <div style={{ ...S.panel, marginBottom: 16 }}>
-          <div style={{ fontWeight: 800, marginBottom: 4 }}>🤝 Proveedores · Liquidación</div>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}><Ic n="users" s={15} style={II} />Proveedores · Liquidación</div>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>Ya incluido en la facturación de arriba. Esto solo separa qué es del proveedor y qué os queda.</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginBottom: 14 }}>
             <div style={S.statBox}><div style={S.miniLabel}>Vendido de proveedores</div><div style={{ fontSize: 22, fontWeight: 800 }}>{money(liq.vendido)}</div></div>
@@ -2955,7 +2962,7 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
         const max = Math.max(1, ...b.punto.products.map(p => b.perProduct[p.id] || 0));
         return (
           <div key={b.punto.id} style={{ ...S.panel, marginBottom: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14, borderBottom: "1px solid var(--line)", paddingBottom: 10 }}><div style={{ fontWeight: 800, fontSize: 16 }}>📍 {b.punto.name}</div><div style={{ fontSize: 13, color: "var(--muted)" }}><b style={{ color: "var(--text)" }}>{b.count}</b> tickets · <b style={{ color: "var(--green)" }}>{money(b.revenue)}</b></div></div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14, borderBottom: "1px solid var(--line)", paddingBottom: 10 }}><div style={{ fontWeight: 800, fontSize: 16 }}><Ic n="store" s={15} style={II} />{b.punto.name}</div><div style={{ fontSize: 13, color: "var(--muted)" }}><b style={{ color: "var(--text)" }}>{b.count}</b> tickets · <b style={{ color: "var(--green)" }}>{money(b.revenue)}</b></div></div>
             {b.punto.products.length === 0 && <div style={{ color: "var(--muted)", fontSize: 13 }}>Sin productos.</div>}
             {b.punto.products.map(p => { const q = b.perProduct[p.id] || 0; return (
               <div key={p.id} style={{ marginBottom: 12 }}>
@@ -3001,7 +3008,7 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
         <div style={S.overlay} onClick={() => setCountZ(null)}>
           <div style={{ ...S.payCard, maxWidth: 420, alignSelf: "center" }} onClick={e => e.stopPropagation()}>
             <div style={{ textAlign: "center", marginBottom: 14 }}>
-              <div style={{ fontSize: 34 }}>🧾</div>
+              <div style={{ display: "flex", justifyContent: "center", color: "var(--amber)" }}><Ic n="receipt" s={40} /></div>
               <div style={{ fontWeight: 900, fontSize: 19 }}>Cierre Z · {countZ.punto.name}</div>
               <div style={{ color: "var(--muted)", fontSize: 13 }}>{countZ.advanced ? "Cuenta el dinero del cajón" : "Cuenta el dinero del cajón y súmale el total del datáfono"}</div>
             </div>

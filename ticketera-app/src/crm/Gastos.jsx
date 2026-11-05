@@ -60,9 +60,9 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
       <section style={{ ...C.hero, padding: isMobile ? 16 : 22 }}>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.1fr 1fr", gap: isMobile ? 14 : 28, alignItems: "center" }}>
           <div>
-            <div style={C.label}>Beneficio estimado · {ev.name}</div>
+            <div style={C.label}>Resultado previsto · {ev.name}</div>
             <div style={{ fontSize: isMobile ? 38 : 50, fontWeight: 900, letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4, color: beneficio >= 0 ? "var(--green)" : "var(--red)" }}>{money(beneficio)}</div>
-            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{ivaOn ? "Sin IVA: ya descuenta el IVA a pagar a Hacienda." : "Cada gasto cuenta por su importe real; si aún no lo tiene, por el previsto."}</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{ivaOn ? "Sin IVA: ya descuenta el IVA a pagar a Hacienda." : "Cuenta todos los ingresos, también los pendientes de cobrar. Cada gasto, por su importe real; si aún no lo tiene, por el previsto."}</div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <Barra t="Ingresos" v={ingresosTotal} max={maxRes} c="var(--green)" i="wallet" />

@@ -101,18 +101,18 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
   const wrap = { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--text)" };
   return (
     <div style={wrap}>
-      {/* ===== Cabecera del CRM (distinta del TPV) ===== */}
+      {/* ===== Cabecera del CRM: oscura como la del TPV, naranja solo en lo activo ===== */}
       <header style={{ ...C.head, padding: isMobile ? "10px 12px" : "12px 22px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
           <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width={isMobile ? 30 : 36} height={isMobile ? 30 : 36} style={{ flexShrink: 0 }} />
           <span style={C.crmPill}>CRM</span>
-          {!isMobile && <span style={{ color: "rgba(255,255,255,.85)", fontWeight: 700, fontSize: 13 }}>Organización del evento</span>}
+          {!isMobile && <span style={{ color: "var(--muted)", fontWeight: 700, fontSize: 13 }}>Organización del evento</span>}
         </div>
         <select value={ev.id} onChange={e => onSelectEvent(e.target.value)} style={{ ...C.headSelect, maxWidth: isMobile ? 130 : 280 }} aria-label="Evento">
           {events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
         </select>
         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-          <button onClick={() => (tab === "ajustes" ? setTab(volverA) : abrirAjustes())} aria-label="Ajustes" title="Ajustes" style={{ ...C.backBtn, padding: isMobile ? "9px 10px" : "9px 12px", display: "inline-flex", alignItems: "center", gap: 6, background: tab === "ajustes" ? "#1a1205" : "rgba(255,255,255,.95)", color: tab === "ajustes" ? "#fff" : "#1a1205" }}><Icon n="gear" s={18} w={2} />{!isMobile && "Ajustes"}</button>
+          <button onClick={() => (tab === "ajustes" ? setTab(volverA) : abrirAjustes())} aria-label="Ajustes" title="Ajustes" style={{ ...C.backBtn, padding: isMobile ? "9px 10px" : "9px 12px", display: "inline-flex", alignItems: "center", gap: 6, background: tab === "ajustes" ? "rgba(255,90,60,.14)" : "var(--surface2)", color: tab === "ajustes" ? "var(--accent)" : "var(--text)", borderColor: tab === "ajustes" ? "rgba(255,90,60,.45)" : "var(--line)" }}><Icon n="gear" s={18} w={2} />{!isMobile && "Ajustes"}</button>
           <button onClick={onExit} style={C.backBtn}>{isMobile ? "← TPV" : "← Volver al TPV"}</button>
         </div>
       </header>
@@ -126,7 +126,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
       <main style={{ flex: 1, overflow: "auto", padding: isMobile ? 12 : 22, WebkitOverflowScrolling: "touch" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
           {error && <div style={{ ...C.panel, borderColor: "var(--amber)", color: "var(--amber)", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}><span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon n="alert" s={18} />{error}</span><button onClick={cargar} style={C.ghost}>Reintentar</button></div>}
-          {!data && !error && <div style={{ color: "var(--muted)", padding: 30, textAlign: "center" }}>Cargando…</div>}
+          {!data && !error && <Esqueleto />}
           {data && tab === "dashboard" && (
             <Dashboard ev={ev} events={events} sales={sales} gastosCaja={gastosCaja} ajustes={data.ajustes} onSelectEvent={onSelectEvent} refreshKey={data} />
           )}
@@ -283,3 +283,15 @@ function Socios({ ev, data, T, G, isMobile, busy, onGuardarSocio, onActivo, onRe
   );
 }
 
+/* Carga: bloques grises con la forma de lo que va a salir (la pantalla no «salta») */
+function Esqueleto() {
+  const b = (h, w = "100%") => <div style={{ height: h, width: w, borderRadius: 14, background: "linear-gradient(90deg, var(--surface) 0%, var(--surface2) 50%, var(--surface) 100%)", backgroundSize: "200% 100%", animation: "crmShimmer 1.2s ease-in-out infinite" }} />;
+  return (
+    <div aria-busy="true" aria-label="Cargando" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <style>{"@keyframes crmShimmer{0%{background-position:100% 0}100%{background-position:-100% 0}}"}</style>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10 }}>{b(92)}{b(92)}{b(92)}{b(92)}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 12 }}>{b(220)}{b(220)}</div>
+      {b(160)}
+    </div>
+  );
+}

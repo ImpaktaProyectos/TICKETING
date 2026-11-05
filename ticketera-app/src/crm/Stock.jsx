@@ -95,8 +95,14 @@ function Resumen({ ev, d, S, isMobile, ir, alm }) {
           : <><div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: isMobile ? 34 : 44, fontWeight: 900, lineHeight: 1.05, marginTop: 4, color: "var(--green)" }}><Icon n="check" s={isMobile ? 32 : 40} w={2.6} />Todo cuadra</div><div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>Lo que falta en la barra coincide con lo vendido en el TPV.</div></>}
       </>) : (<>
         <div style={C.label}>Stock de {ev.name}</div>
-        <div style={{ fontSize: isMobile ? 38 : 50, fontWeight: 900, letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4 }}>{money(S.valorEntrada)}</div>
-        <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>en mercancía a precio de coste, sin IVA. Al cerrar, haz el recuento final para ver si cuadra con lo vendido.</div>
+        {S.nMovs > 0 || S.valorEntrada > 0 ? (<>
+          <div style={{ fontSize: isMobile ? 38 : 50, fontWeight: 900, letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4 }}>{money(S.valorEntrada)}</div>
+          <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>en mercancía a precio de coste, sin IVA. Al cerrar, haz el recuento final para ver si cuadra con lo vendido.</div>
+        </>) : (<>
+          {/* Sin nada apuntado: en vez de un «0,00 €» enorme, el primer paso */}
+          <div style={{ fontSize: isMobile ? 26 : 32, fontWeight: 900, letterSpacing: "-.01em", lineHeight: 1.15, marginTop: 4 }}>{activos.length ? "Apunta la primera entrada de mercancía" : "Empieza por el catálogo"}</div>
+          <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>{activos.length ? "Lo que pone la factura o el albarán. Aquí verás el valor del stock a precio de coste." : "Son los artículos que compras (botellas, latas, hielo…). El paso 1 está marcado abajo."}</div>
+        </>)}
       </>)}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
         {(S.nMovs > 0 || sellado) && <Badge c={nv.c}><Icon n="shield" s={12} w={2.2} />{nv.t}</Badge>}
