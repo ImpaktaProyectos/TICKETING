@@ -81,6 +81,10 @@ export const ICONS = {
   link: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1", refresh: "M20 11a8 8 0 0 0-14.9-3M4 4v4h4M4 13a8 8 0 0 0 14.9 3M20 20v-4h-4",
   upload: "M12 16V4M7 9l5-5 5 5M4 16v4h16v-4", key: "M8 15a4 4 0 1 1 3.5-6H21v3h-2v3h-3v-3h-4.5A4 4 0 0 1 8 15z", percent: "M19 5L5 19M7 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM17 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
   up: "M6 15l6-6 6 6", mail: "M3 6h18v12H3zM3 7l9 6 9-6",
+  soda: "M8 3h8l1 3v14a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V6zM7 6h10M7 17h10", beer: "M6 8h9v12H6zM15 11h2a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-2M6 8a3 3 0 0 1 3-4h3a3 3 0 0 1 3 4M9 12v5M12 12v5",
+  drop: "M12 3c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-6 6-11z", bolt: "M13 3L5 14h6l-1 7 8-11h-6z", cup: "M6 4h12l-1.5 16h-9zM6.5 9h11",
+  crate: "M3 8h18v12H3zM3 8l2-4h14l2 4M8 12v4M12 12v4M16 12v4", box: "M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10",
+  clipboard: "M9 4h6v3H9zM7 5H5v16h14V5h-2M8 13l2.5 2.5L16 10", minus: "M5 12h14", search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-5-5",
   trend: "M3 17l6-6 4 4 8-8M15 7h6v6", filter: "M4 5h16l-6 8v6l-4-2v-4z", whatsapp: "M4 20l1.3-4A8 8 0 1 1 8 18.7zM9 9c0 3 3 6 6 6l1-1.5-2-1-1 .8c-1-.5-1.8-1.3-2.3-2.3l.8-1-1-2z",
 };
 export const Icon = ({ n, s = 18, w = 1.9, c = "currentColor", style }) => (

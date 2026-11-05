@@ -217,3 +217,88 @@ export async function importarCSV(eventoId, ticketera, categoria, grupos) {
   if (sobran.length) ok(await supabase.from("ticket_crm_ingresos").delete().in("id", sobran));
   return filas.length;
 }
+
+/* =====================================================================
+   STOCK (fase 1): catálogo, libro de movimientos (solo se añade), recetas y recuento final
+   ===================================================================== */
+const artFrom = (a) => ({ id: a.id, nombre: a.nombre, familia: a.familia, unidad: a.unidad, ml: a.ml, porCaja: a.por_caja || 1, retornable: !!a.retornable,
+  coste: a.coste != null ? n(a.coste) : null, proveedor: a.proveedor || "", codigo: a.codigo || "", envaseCodigo: a.envase_codigo || "", confirmar: !!a.confirmar, activo: a.activo !== false, orden: a.orden || 0 });
+const artTo = (x) => ({
+  nombre: String(x.nombre || "").trim().slice(0, 80), familia: x.familia, unidad: x.unidad || "botella",
+  ml: x.ml ? Math.max(1, Math.min(100000, Math.round(n(x.ml)))) : null, por_caja: Math.max(1, Math.min(1000, Math.round(n(x.porCaja) || 1))),
+  retornable: !!x.retornable, coste: x.coste === "" || x.coste == null ? null : Math.round(n(x.coste) * 10000) / 10000,
+  proveedor: String(x.proveedor || "").trim().slice(0, 80) || null, codigo: String(x.codigo || "").trim().slice(0, 40) || null,
+  envase_codigo: String(x.envaseCodigo || "").trim().slice(0, 40) || null, confirmar: !!x.confirmar, activo: x.activo !== false,
+  orden: Math.round(n(x.orden)), actualizado_en: new Date().toISOString(),
+});
+const movFrom = (m) => ({ id: m.id, eventoId: m.evento_id, articuloId: m.articulo_id, tipo: m.tipo, cantidad: m.cantidad != null ? n(m.cantidad) : 0, cajas: m.cajas != null ? n(m.cajas) : null,
+  sueltas: m.sueltas != null ? n(m.sueltas) : null, costeUnidad: m.coste_unidad != null ? n(m.coste_unidad) : null, documento: m.documento || "", nota: m.nota || "", anulaId: m.anula_id || null, creadoPor: m.creado_por || "", creadoEn: m.creado_en });
+const lineaFrom = (l) => ({ id: l.id, articuloId: l.articulo_id, cajas: n(l.cajas), sueltas: n(l.sueltas), abierta: n(l.abierta), total: n(l.total), contadoPor: l.contado_por || "", actualizadoEn: l.actualizado_en });
+const claveNueva = () => (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+export async function loadStock(eventoId) {
+  const [as, ms, rs, cs] = await Promise.all([
+    supabase.from("ticket_crm_stock_articulos").select("*").order("orden", { ascending: true }).order("nombre", { ascending: true }),
+    supabase.from("ticket_crm_stock_movimientos").select("*").eq("evento_id", eventoId).order("creado_en", { ascending: false }),
+    supabase.from("ticket_crm_stock_recetas").select("*"),
+    supabase.from("ticket_crm_stock_conteos").select("*").eq("evento_id", eventoId).maybeSingle(),
+  ]);
+  const conteo = ok(cs);
+  const lineas = conteo ? ok(await supabase.from("ticket_crm_stock_conteo_lineas").select("*").eq("conteo_id", conteo.id)).map(lineaFrom) : [];
+  return {
+    articulos: ok(as).map(artFrom), movimientos: ok(ms).map(movFrom).sort((x, y) => String(y.creadoEn).localeCompare(String(x.creadoEn))),
+    recetas: ok(rs).map(r => ({ id: r.id, producto: r.producto, items: Array.isArray(r.items) ? r.items : [] })),
+    conteo: conteo ? { id: conteo.id, estado: conteo.estado, empezadoEn: conteo.empezado_en, selladoEn: conteo.sellado_en, selladoPor: conteo.sellado_por || "" } : null,
+    lineas,
+  };
+}
+export async function saveArticulo(x) {
+  const row = artTo(x);
+  if (!row.nombre) throw new Error("Falta el nombre");
+  if (x.id) return artFrom(ok(await supabase.from("ticket_crm_stock_articulos").update(row).eq("id", x.id).select().single()));
+  return artFrom(ok(await supabase.from("ticket_crm_stock_articulos").insert(row).select().single()));
+}
+export async function sembrarCatalogo(lista) {
+  if (!lista.length) return 0;
+  ok(await supabase.from("ticket_crm_stock_articulos").insert(lista.map(artTo)));
+  return lista.length;
+}
+// Movimiento nuevo (entrada, devolución, merma, consumo interno). La clave evita duplicados si se pulsa dos veces o se reintenta.
+export async function addMovimiento(x) {
+  const row = {
+    evento_id: x.eventoId, articulo_id: x.articuloId, tipo: x.tipo, cantidad: Math.round(n(x.cantidad) * 1000) / 1000,
+    cajas: x.cajas != null ? Math.round(n(x.cajas) * 1000) / 1000 : null, sueltas: x.sueltas != null ? Math.round(n(x.sueltas) * 1000) / 1000 : null,
+    coste_unidad: x.costeUnidad === "" || x.costeUnidad == null ? null : Math.round(n(x.costeUnidad) * 10000) / 10000,
+    documento: String(x.documento || "").trim().slice(0, 60) || null, nota: String(x.nota || "").trim().slice(0, 300) || null,
+    creado_por: String(x.creadoPor || "").slice(0, 40) || null, clave: x.clave || claveNueva(),
+  };
+  if (!(row.cantidad > 0)) throw new Error("Cantidad no válida");
+  const r = await supabase.from("ticket_crm_stock_movimientos").insert(row);
+  if (r.error && r.error.code === "23505") return; // ya estaba guardado (reintento)
+  ok(r);
+}
+export async function anularMovimiento(m, creadoPor) {
+  const r = await supabase.from("ticket_crm_stock_movimientos").insert({ evento_id: m.eventoId, articulo_id: m.articuloId, tipo: "anulacion", anula_id: m.id, creado_por: creadoPor || null, clave: `anula-${m.id}` });
+  if (r.error && r.error.code === "23505") return;
+  ok(r);
+}
+export async function saveReceta(producto, items) {
+  const limpio = (items || []).slice(0, 10).map(it => ({ familia: it.familia, cantidad: Math.round(n(it.cantidad) * 1000) / 1000, ...(it.articuloId ? { articuloId: it.articuloId } : {}) })).filter(it => it.familia && it.cantidad > 0);
+  ok(await supabase.from("ticket_crm_stock_recetas").upsert({ producto: String(producto).trim().toUpperCase().slice(0, 80), items: limpio, actualizado_en: new Date().toISOString() }, { onConflict: "owner_id,producto" }));
+}
+export async function saveRecetas(lista) {
+  if (!lista.length) return;
+  ok(await supabase.from("ticket_crm_stock_recetas").upsert(lista.map(r => ({ producto: String(r.producto).trim().toUpperCase().slice(0, 80), items: r.items, actualizado_en: new Date().toISOString() })), { onConflict: "owner_id,producto" }));
+}
+export async function borrarReceta(producto) { ok(await supabase.from("ticket_crm_stock_recetas").delete().eq("producto", producto)); }
+export async function empezarConteo(eventoId) {
+  const r = await supabase.from("ticket_crm_stock_conteos").insert({ evento_id: eventoId });
+  if (r.error && r.error.code === "23505") return;
+  ok(r);
+}
+export async function saveLinea(conteoId, articuloId, { cajas, sueltas, abierta, total }, contadoPor) {
+  ok(await supabase.from("ticket_crm_stock_conteo_lineas").upsert({ conteo_id: conteoId, articulo_id: articuloId, cajas: n(cajas), sueltas: n(sueltas), abierta: n(abierta), total: Math.round(n(total) * 1000) / 1000, contado_por: contadoPor || null, actualizado_en: new Date().toISOString() }, { onConflict: "conteo_id,articulo_id" }));
+}
+export async function borrarLinea(conteoId, articuloId) { ok(await supabase.from("ticket_crm_stock_conteo_lineas").delete().eq("conteo_id", conteoId).eq("articulo_id", articuloId)); }
+export async function sellarConteo(conteoId, por) { ok(await supabase.from("ticket_crm_stock_conteos").update({ estado: "sellado", sellado_en: new Date().toISOString(), sellado_por: por || null }).eq("id", conteoId)); }
+export async function reabrirConteo(conteoId) { ok(await supabase.from("ticket_crm_stock_conteos").update({ estado: "abierto", sellado_en: null, sellado_por: null }).eq("id", conteoId)); }
