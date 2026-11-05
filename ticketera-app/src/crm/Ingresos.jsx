@@ -1,7 +1,7 @@
 // ===================== CRM · INGRESOS =====================
 // De un vistazo: total, de dónde viene, qué tienen los socios, ventas del TPV en directo y lo apuntado a mano.
 import React, { useState } from "react";
-import { money, r2, hoy, fechaCorta, parseImporte, useIsMobile, C, Icon, Tile, Avatar, Badge, Seg, Head, Sheet, Field, IconGrid, MoneyInput } from "./ui";
+import { money, r2, hoy, fechaCorta, parseImporte, useIsMobile, C, Icon, Tile, Avatar, Badge, Seg, Head, Sheet, Field, IconGrid, MoneyInput, Seccion, Grupo } from "./ui";
 import { GRUPOS, catInfo, grupoInfo, catsIngreso, TICKETERA_CAT } from "./categorias";
 
 const METODOS = [{ k: "efectivo", t: "Efectivo", tm: "Efectivo", i: "cash" }, { k: "transferencia", t: "Transferencia", tm: "Transf.", i: "bank" }, { k: "bizum", t: "Bizum", tm: "Bizum", i: "phone" }, { k: "tarjeta", t: "Tarjeta", tm: "Tarjeta", i: "card" }, { k: "otro", t: "Otro", tm: "Otro", i: "dots" }];
@@ -59,8 +59,8 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
 
       {/* ===== Dinero en manos de socios ===== */}
       {enSocios.length > 0 && (
-        <section style={{ ...C.panel, borderColor: "color-mix(in srgb, var(--amber) 55%, transparent)" }}>
-          <Head i="wallet" c="var(--amber)" t="En manos de socios" sub="Ya cuenta como ingreso. Márcalo cuando lo entreguen a la caja." />
+        <Seccion id="ing-socios" i="wallet" c="var(--amber)" aviso="var(--amber)" t="En manos de socios" sub="Ya cuenta como ingreso. Márcalo cuando lo entreguen a la caja."
+          total={money(enSocios.reduce((t, [, v]) => t + v, 0))} totalColor="var(--amber)">
           {enSocios.map(([sid, v]) => { const s = socioById(sid); return (
             <div key={sid} style={C.row}>
               <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}><Avatar nombre={s?.nombre} c={s?.color} s={30} /><b style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s?.nombre || "Socio"}</b></span>
@@ -69,12 +69,11 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
                 <button onClick={() => onEntregar(sid)} style={C.btnSm}><Icon n="check" s={15} />Entregado</button>
               </span>
             </div>); })}
-        </section>
+        </Seccion>
       )}
 
       {/* ===== Ventas del TPV ===== */}
-      <section style={C.panel}>
-        <Head i="pos" t="Ventas del TPV" sub="En directo. Las invitaciones no cuentan." right={<b style={{ fontSize: 18 }}>{money(T.tpv)}</b>} />
+      <Seccion id="ing-tpv" i="pos" t="Ventas del TPV" sub="En directo. Las invitaciones no cuentan." total={money(T.tpv)}>
         {barras.length === 0 && <Vacio i="store" t="Este evento no tiene barras." />}
         {barras.map(b => { const g = grupoInfo(b.fuente); return (
           <div key={b.punto.id} style={{ ...C.row, alignItems: isMobile ? "flex-start" : "center" }}>
@@ -92,13 +91,12 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
             {!isMobile && <TipoSelect value={b.fuente} onChange={(f) => onFuente(b.punto.id, f)} />}
             <b style={{ minWidth: 96, textAlign: "right", fontSize: 16, flexShrink: 0 }}>{money(b.total)}</b>
           </div>); })}
-      </section>
+      </Seccion>
 
       {/* ===== Ticketera online ===== */}
-      <section style={C.panel}>
-        <Head i="globe" c="#a855f7" t="Ticketera online"
+      <Seccion id="ing-online" i="globe" c="#a855f7" t="Ticketera online"
           sub={vinculo ? `Fourvenues · ${vinculo.extNombre || vinculo.extId} · actualizado ${haceTxt(vinculo.ultimaSync)}` : "Las entradas vendidas online entran solas o desde un CSV."}
-          right={externos.length > 0 ? <b style={{ fontSize: 18 }}>{money(totalExt)}</b> : null} />
+          total={money(totalExt)}>
         {vinculo?.error && <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--amber)", fontWeight: 700, fontSize: 13, marginBottom: 10 }}><Icon n="alert" s={16} />{vinculo.error}</div>}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: externos.length ? 6 : 0 }}>
           {vinculo && conexion
@@ -119,12 +117,12 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
             </span>
           </div>))}
         {externos.length > 0 && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>{udsExt} entradas. Importe sin gastos de gestión ni devoluciones.</div>}
-      </section>
+      </Seccion>
 
-      {/* ===== Otros ingresos ===== */}
-      <section style={C.panel}>
-        <Head i="edit" t="Otros ingresos" sub="Entradas anticipadas, patrocinios, merch, subvenciones…"
-          right={<button onClick={onNuevo} style={{ ...C.btnPrimary, ...(isMobile ? { width: "100%" } : {}) }}><Icon n="plus" s={17} w={2.4} />Añadir ingreso</button>} />
+      {/* ===== Otros ingresos (agrupados por categoría, cada una plegable) ===== */}
+      <Seccion id="ing-otros" i="edit" t="Otros ingresos" sub="Entradas anticipadas, patrocinios, merch, subvenciones…"
+          total={money(ingresos.reduce((t, i) => t + i.importe, 0))}
+          acciones={<button onClick={onNuevo} style={{ ...C.btnPrimary, ...(isMobile ? { width: "100%" } : {}) }}><Icon n="plus" s={17} w={2.4} />Añadir ingreso</button>}>
         {ingresos.length > 0 && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
             <Seg size="sm" valor={filtro} onChange={setFiltro} opciones={[{ k: "todos", t: `Todos · ${ingresos.length}` }, { k: "pendientes", t: `Pendientes · ${nPend}`, c: "var(--amber)", ink: "#1a1205" }, { k: "socios", t: `En socios · ${nSoc}`, c: "var(--amber)", ink: "#1a1205" }]} />
@@ -133,7 +131,9 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
         )}
         {ingresos.length === 0 && <Vacio i="wallet" t="Aún no hay ingresos apuntados a mano." sub="Por ejemplo, las entradas que ha vendido un socio o un patrocinio." />}
         {ingresos.length > 0 && lista.length === 0 && <Vacio i="filter" t="Nada con este filtro." />}
-        {lista.map(i => { const ci = catInfo(i.categoria), s = i.cobradoPor ? socioById(i.cobradoPor) : null, m = metodo(i.metodo); return (
+        {Array.from(new Set(lista.map(i => i.categoria))).map(k => { const del = lista.filter(i => i.categoria === k), ck = catInfo(k); return (
+          <Grupo key={k} id={"ing-cat-" + k} i={ck.i} c={ck.c} t={k} n={del.length} total={money(del.reduce((t, i) => t + i.importe, 0))}>
+        {del.map(i => { const ci = catInfo(i.categoria), s = i.cobradoPor ? socioById(i.cobradoPor) : null, m = metodo(i.metodo); return (
           <button key={i.id} onClick={() => onEditar(i)} style={C.listBtn}>
             <Tile n={ci.i} c={ci.c} />
             <span style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
@@ -149,7 +149,8 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
                 : <Badge>Empresa</Badge>}
             </span>
           </button>); })}
-      </section>
+          </Grupo>); })}
+      </Seccion>
     </div>
   );
 }

@@ -155,6 +155,63 @@ export const Head = ({ i, t, sub, right, c }) => (
     {right}
   </div>
 );
+/* ===================== SECCIÓN CON FRANJA DE MARCA (plegable) =====================
+   Título con un degradado suave del coral de TIXFAST y el total a la derecha.
+   Al tocar la franja se pliega: queda solo el título y su total (modo resumen).
+   Se recuerda en cada dispositivo (clave por sección). */
+const K_PLEG = "tixfast_crm_plegado_";
+export function usePlegado(id, inicial = false) {
+  const [p, setP] = useState(() => { try { const v = localStorage.getItem(K_PLEG + id); return v == null ? inicial : v === "1"; } catch { return inicial; } });
+  const toggle = () => setP(v => { const n = !v; try { localStorage.setItem(K_PLEG + id, n ? "1" : "0"); } catch {} return n; });
+  return [p, toggle];
+}
+const FRANJA = "linear-gradient(90deg, color-mix(in srgb, #ff5a3c 15%, var(--surface)) 0%, color-mix(in srgb, #ff7a3c 6%, var(--surface)) 55%, var(--surface) 100%)";
+const BARRA = "linear-gradient(180deg, #ff5a3c, #ff8a3c)";
+export function Seccion({ id, i, c, t, sub, total, totalColor, acciones, children, inicial = false, aviso }) {
+  const [plegado, toggle] = usePlegado(id, inicial);
+  const isMobile = useIsMobile();
+  return (
+    <section style={{ ...C.panel, padding: 0, overflow: "hidden", ...(aviso ? { borderColor: `color-mix(in srgb, ${aviso} 55%, transparent)` } : {}) }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, background: FRANJA, borderBottom: plegado ? "none" : "1px solid var(--line)", position: "relative" }}>
+        <span aria-hidden="true" style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 4, background: BARRA }} />
+        <button type="button" onClick={toggle} aria-expanded={!plegado} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, padding: isMobile ? "13px 12px 13px 16px" : "14px 16px 14px 20px", background: "transparent", border: "none", color: "var(--text)", cursor: "pointer", textAlign: "left", font: "inherit" }}>
+          {i && <Tile n={i} c={c || "var(--accent)"} s={34} />}
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontWeight: 900, fontSize: 16.5, letterSpacing: "-.01em" }}>{t}</span>
+            {sub && !plegado && <span style={{ display: "block", fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>{sub}</span>}
+          </span>
+          {total != null && <b style={{ fontSize: isMobile ? 17 : 19, flexShrink: 0, color: totalColor || "var(--text)" }}>{total}</b>}
+          <span style={{ color: "var(--muted)", flexShrink: 0, transition: "transform .18s", transform: plegado ? "rotate(-90deg)" : "none" }}><Icon n="chev" s={20} w={2.2} /></span>
+        </button>
+        {acciones && !plegado && !isMobile && <div style={{ paddingRight: 14, flexShrink: 0 }}>{acciones}</div>}
+      </div>
+      {!plegado && (
+        <div style={{ padding: isMobile ? "12px 14px 14px" : "14px 18px 16px" }}>
+          {acciones && isMobile && <div style={{ marginBottom: 10 }}>{acciones}</div>}
+          {children}
+        </div>
+      )}
+    </section>
+  );
+}
+// Subtítulo de categoría dentro de una sección: franja fina, plegable, con su total
+export function Grupo({ id, i, c, t, n, total, totalColor, children }) {
+  const [plegado, toggle] = usePlegado(id);
+  return (
+    <div style={{ marginTop: 10 }}>
+      <button type="button" onClick={toggle} aria-expanded={!plegado} style={{ width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "9px 10px 9px 12px", borderRadius: 10, border: "none", cursor: "pointer", font: "inherit", textAlign: "left", color: "var(--text)", position: "relative", overflow: "hidden",
+        background: "linear-gradient(90deg, color-mix(in srgb, #ff5a3c 10%, var(--surface2)) 0%, var(--surface2) 70%)" }}>
+        <span aria-hidden="true" style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: BARRA }} />
+        {i && <span style={{ color: c || "var(--accent)", display: "flex" }}><Icon n={i} s={16} w={2.1} /></span>}
+        <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 900, textTransform: "uppercase", letterSpacing: .8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t}{n != null && <span style={{ color: "var(--muted)", fontWeight: 700, letterSpacing: 0, textTransform: "none" }}> · {n}</span>}</span>
+        {total != null && <b style={{ fontSize: 14.5, flexShrink: 0, color: totalColor || "var(--text)" }}>{total}</b>}
+        <span style={{ color: "var(--muted)", flexShrink: 0, transition: "transform .18s", transform: plegado ? "rotate(-90deg)" : "none" }}><Icon n="chev" s={17} w={2.2} /></span>
+      </button>
+      {!plegado && <div>{children}</div>}
+    </div>
+  );
+}
+
 // Hoja/modal con pie fijo (el botón de guardar siempre a mano en el móvil)
 export function Sheet({ title, onClose, children, footer }) {
   const isMobile = useIsMobile();

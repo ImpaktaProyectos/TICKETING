@@ -2,7 +2,7 @@
 // Presupuesto vivo: cada gasto tiene importe previsto y real, quién lo pagó y su estado.
 // Los gastos de caja del TPV se muestran aquí en solo lectura (se registran en la barra).
 import React, { useMemo, useState } from "react";
-import { money, r2, fechaCorta, parseImporte, useIsMobile, C, Icon, Tile, Avatar, Badge, Seg, Head, Sheet, Field, IconGrid, MoneyInput } from "./ui";
+import { money, r2, fechaCorta, parseImporte, useIsMobile, C, Icon, Tile, Avatar, Badge, Seg, Head, Sheet, Field, IconGrid, MoneyInput, Seccion, Grupo } from "./ui";
 import { Vacio, Pill } from "./Ingresos";
 import { GCATS, CAJA_CAT, COMIS_CAT, IVA_CAT, gcatInfo, catsGasto, esAuto } from "./categorias";
 import { importe, ivaGasto, ivaDe, TIPOS_IVA } from "./fiscal";
@@ -93,9 +93,8 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
       </div>
 
       {/* ===== Por categoría (toca para filtrar) ===== */}
-      <section style={C.panel}>
-        <Head i="chart" t="En qué se va el dinero" sub="Toca una categoría para ver solo sus gastos"
-          right={<span style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--muted)" }}><Ley c="var(--accent)" t="Cuenta" /><Ley c="#fff" t="Previsto" marca /></span>} />
+      <Seccion id="gas-resumen" i="chart" t="En qué se va el dinero" sub="Toca una categoría para ver solo sus gastos" total={money(G.total)}
+          acciones={<span style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--muted)" }}><Ley c="var(--accent)" t="Cuenta" /><Ley c="var(--text)" t="Previsto" marca /></span>}>
         {cats.length === 0 && <Vacio i="receipt" t="Aún no hay gastos." sub={otrosEventos.length ? "Añade el primero o copia el presupuesto de otro evento." : "Añade el primero con los botones de arriba."} />}
         {cats.map(([k, v]) => { const ci = gcatInfo(k), on = filtro === k, pasa = v.previsto && v.total > v.previsto + 0.005; return (
           <button key={k} onClick={() => setFiltro(on ? null : k)} style={{ ...C.listBtn, padding: "10px 8px", borderRadius: on ? 12 : 0, background: on ? "color-mix(in srgb, var(--accent) 10%, transparent)" : "transparent", outline: on ? "2px solid var(--accent)" : "none", outlineOffset: -2 }}>
@@ -107,26 +106,22 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
               </span>
               <span style={{ display: "block", position: "relative", height: 8, borderRadius: 4, background: "var(--surface2)" }}>
                 <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.abs(v.total) / maxCat * 100}%`, borderRadius: 4, background: pasa ? "var(--red)" : ci.c }} />
-                {v.previsto > 0 && <span style={{ position: "absolute", top: -3, bottom: -3, width: 2, left: `calc(${Math.min(100, v.previsto / maxCat * 100)}% - 1px)`, background: "#fff", borderRadius: 1 }} />}
+                {v.previsto > 0 && <span style={{ position: "absolute", top: -3, bottom: -3, width: 2, left: `calc(${Math.min(100, v.previsto / maxCat * 100)}% - 1px)`, background: "var(--text)", borderRadius: 1 }} />}
               </span>
             </span>
           </button>); })}
-      </section>
+      </Seccion>
 
-      {/* ===== Lista de gastos agrupada ===== */}
-      <section style={C.panel}>
-        <Head i="receipt" t={filtro || "Todos los gastos"} sub={filtro ? null : `${gastos.length} gastos${G.caja.length ? ` · ${G.caja.length} de caja` : ""}`}
-          right={<span style={{ display: "flex", gap: 6 }}>
+      {/* ===== Lista de gastos agrupada (cada categoría plegable) ===== */}
+      <Seccion id="gas-lista" i="receipt" t={filtro || "Todos los gastos"} sub={filtro ? null : `${gastos.length} gastos${G.caja.length ? ` · ${G.caja.length} de caja` : ""}`}
+          total={money(filtro ? (G.porCat[filtro]?.total || 0) : G.total)}
+          acciones={(filtro || otrosEventos.length > 0) ? <span style={{ display: "flex", gap: 6 }}>
             {filtro && <button onClick={() => setFiltro(null)} style={C.btnSm}><Icon n="x" s={14} />Quitar filtro</button>}
             {!filtro && otrosEventos.length > 0 && <button onClick={() => setCopiar(true)} style={C.btnSm}><Icon n="copy" s={14} />Copiar presupuesto</button>}
-          </span>} />
+          </span> : null}>
         {grupos.length === 0 && <Vacio i="receipt" t="Sin gastos todavía." />}
         {grupos.map(({ k, v, items }) => { const ci = gcatInfo(k); return (
-          <div key={k} style={{ marginBottom: 10 }}>
-            {!filtro && <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "10px 4px 6px", borderTop: "1px solid var(--line)" }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 900, textTransform: "uppercase", letterSpacing: 1, color: ci.c }}><Icon n={ci.i} s={15} />{k}</span>
-              <b style={{ fontSize: 13 }}>{money(v.total)}</b>
-            </div>}
+          <Grupo key={k} id={"gas-cat-" + k} i={ci.i} c={ci.c} t={k} n={v.n} total={money(v.total)}>
             {k === CAJA_CAT && G.caja.map(g => (
               <div key={g.id} style={{ ...C.listBtn, cursor: "default" }}>
                 <Tile n="cash" c="#ffb400" s={34} />
@@ -137,16 +132,16 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
             {items.map(g => g.tipo === "artista"
               ? <Artista key={g.id} a={g} ivaOn={ivaOn} hijos={hijosDe(g.id)} total={totalArtista(g)} socioById={socioById} onEdit={(x, padre) => setForm(padre ? { tipo: "normal", gasto: x, padre } : { tipo: "artista", gasto: x })} onAdd={() => setForm({ tipo: "normal", gasto: { categoria: "Artistas" }, padre: g })} />
               : <Fila key={g.id} g={g} ivaOn={ivaOn} socioById={socioById} onClick={() => setForm({ tipo: g.tipo, gasto: g })} />)}
-          </div>); })}
-      </section>
+          </Grupo>); })}
+      </Seccion>
 
       {/* ===== Adelantos de socios ===== */}
       {adelantos.length > 0 && (
-        <section style={{ ...C.panel, borderColor: "color-mix(in srgb, #3b82f6 55%, transparent)" }}>
-          <Head i="hand" c="#3b82f6" t="Pagado de su bolsillo por socios" sub="Cuenta como gasto y se les devuelve en la liquidación." />
+        <Seccion id="gas-adelantos" i="hand" c="#3b82f6" aviso="#3b82f6" t="Pagado de su bolsillo por socios" sub="Cuenta como gasto y se les devuelve en la liquidación."
+          total={money(adelantos.reduce((t, [, v]) => t + v, 0))} totalColor="var(--blue)">
           {adelantos.map(([sid, v]) => { const s = socioById(sid); return (
             <div key={sid} style={C.row}><span style={{ display: "flex", alignItems: "center", gap: 10 }}><Avatar nombre={s?.nombre} c={s?.color} s={30} /><b>{s?.nombre || "Socio"}</b></span><b style={{ color: "var(--blue)", fontSize: 17 }}>{money(v)}</b></div>); })}
-        </section>
+        </Seccion>
       )}
 
       {copiar && (
