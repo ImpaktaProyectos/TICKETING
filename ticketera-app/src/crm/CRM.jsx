@@ -3,7 +3,7 @@
 // Lo vendido en las barras se LEE de las ventas que ya tiene la app (nunca se copia ni se modifica).
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as crm from "./crmdb";
-import { money, r2, hoy, fechaCorta, parseImporte, isInvite, useIsMobile, Dot, C, Icon, Avatar, Head, Tile } from "./ui";
+import { money, r2, hoy, fechaCorta, parseImporte, isInvite, useIsMobile, Dot, C, Icon, Avatar, Head, Tile, TEMAS, useTema } from "./ui";
 import { Gastos, totalesGastos } from "./Gastos";
 import { Liquidacion, calcularLiquidacion } from "./Liquidacion";
 import { GRUPOS, catInfo, fuenteAuto, setCategorias, TICKETERA_CAT } from "./categorias";
@@ -98,20 +98,26 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
   const G = useMemo(() => totalesGastos(ev, data?.gastos || [], gastosCaja, F.auto), [ev, data?.gastos, gastosCaja, F]);
   const L = useMemo(() => calcularLiquidacion({ ev, tpv: T.tpv, ingresos, G, participacion: data?.participacion || [], socios }), [ev, T.tpv, ingresos, G, data?.participacion, socios]);
 
-  const wrap = { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--text)" };
+  const [tema, cambiarTema] = useTema();
+  // Las variables de color del tema se aplican a todo el CRM (y a sus ventanas, que cuelgan de aquí)
+  const wrap = { position: "absolute", inset: 0, display: "flex", flexDirection: "column", ...TEMAS[tema], background: "var(--bg)", color: "var(--text)" };
   return (
     <div style={wrap}>
       {/* ===== Cabecera del CRM: oscura como la del TPV, naranja solo en lo activo ===== */}
       <header style={{ ...C.head, padding: isMobile ? "10px 12px" : "12px 22px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
           <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width={isMobile ? 30 : 36} height={isMobile ? 30 : 36} style={{ flexShrink: 0 }} />
-          <span style={C.crmPill}>CRM</span>
+          {!isMobile && <span style={C.crmPill}>CRM</span>}
           {!isMobile && <span style={{ color: "var(--muted)", fontWeight: 700, fontSize: 13 }}>Organización del evento</span>}
         </div>
-        <select value={ev.id} onChange={e => onSelectEvent(e.target.value)} style={{ ...C.headSelect, maxWidth: isMobile ? 130 : 280 }} aria-label="Evento">
+        <select value={ev.id} onChange={e => onSelectEvent(e.target.value)} style={{ ...C.headSelect, maxWidth: isMobile ? "none" : 280 }} aria-label="Evento">
           {events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
         </select>
         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <button onClick={cambiarTema} role="switch" aria-checked={tema === "claro"} aria-label={tema === "claro" ? "Cambiar a colores oscuros" : "Cambiar a colores claros"} title={tema === "claro" ? "Pasar a oscuro" : "Pasar a claro"}
+            style={{ ...C.backBtn, padding: isMobile ? "9px 10px" : "9px 12px", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Icon n={tema === "claro" ? "moon" : "sun"} s={18} w={2} />{!isMobile && (tema === "claro" ? "Oscuro" : "Claro")}
+          </button>
           <button onClick={() => (tab === "ajustes" ? setTab(volverA) : abrirAjustes())} aria-label="Ajustes" title="Ajustes" style={{ ...C.backBtn, padding: isMobile ? "9px 10px" : "9px 12px", display: "inline-flex", alignItems: "center", gap: 6, background: tab === "ajustes" ? "rgba(255,90,60,.14)" : "var(--surface2)", color: tab === "ajustes" ? "var(--accent)" : "var(--text)", borderColor: tab === "ajustes" ? "rgba(255,90,60,.45)" : "var(--line)" }}><Icon n="gear" s={18} w={2} />{!isMobile && "Ajustes"}</button>
           <button onClick={onExit} style={C.backBtn}>{isMobile ? "← TPV" : "← Volver al TPV"}</button>
         </div>
@@ -228,7 +234,7 @@ function Socios({ ev, data, T, G, isMobile, busy, onGuardarSocio, onActivo, onRe
             <span style={{ flex: 1, minWidth: 0 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800 }}><Avatar nombre={s.nombre} c={s.color} s={26} />{s.nombre}</span>
               {tiene > 0 && <span style={{ display: "block", fontSize: 12, color: "var(--amber)", fontWeight: 700, marginTop: 2 }}>Tiene {money(tiene)} del evento</span>}
-              {pago > 0 && <span style={{ display: "block", fontSize: 12, color: "#60a5fa", fontWeight: 700, marginTop: 2 }}>Ha adelantado {money(pago)} de su bolsillo</span>}
+              {pago > 0 && <span style={{ display: "block", fontSize: 12, color: "var(--blue)", fontWeight: 700, marginTop: 2 }}>Ha adelantado {money(pago)} de su bolsillo</span>}
             </span>
             {on && <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
               <input inputMode="decimal" value={rep[s.id]} onChange={e => setRep(r => ({ ...r, [s.id]: e.target.value.replace(/[^\d.,]/g, "").slice(0, 7) }))} style={{ ...C.input, width: 82, textAlign: "right", fontWeight: 900, fontSize: 16, padding: "8px 10px" }} aria-label={`Porcentaje de ${s.nombre}`} />

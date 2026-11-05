@@ -282,7 +282,7 @@ function Fiscal({ ajustes, busy, preview, ev, onGuardar }) {
           <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: isMobile ? "1 1 100%" : 1 }}><Tile n={c.i} c="#f43f5e" s={34} /><span style={{ minWidth: 0 }}><b style={{ display: "block" }}>{c.t}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>{c.sub}</span></span></span>
           <span style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, marginLeft: isMobile ? 44 : 0 }}>
             <PctInput v={f.comisiones[c.k]} onChange={(v) => setC(c.k, v)} />
-            <span style={{ minWidth: 92, textAlign: "right", fontSize: 13, color: l ? "#fb7185" : "var(--muted)", fontWeight: 800 }}>{l ? "−" + money(l.importe) : "—"}</span>
+            <span style={{ minWidth: 92, textAlign: "right", fontSize: 13, color: l ? "var(--rose)" : "var(--muted)", fontWeight: 800 }}>{l ? "−" + money(l.importe) : "—"}</span>
           </span>
         </div>); })}
       <div style={{ ...C.row, flexWrap: "wrap" }}>
@@ -291,7 +291,7 @@ function Fiscal({ ajustes, busy, preview, ev, onGuardar }) {
           <PctInput v={f.comisiones.ticketeraPct} onChange={(v) => setC("ticketeraPct", v)} />
           <b style={{ color: "var(--muted)" }}>+</b>
           <span style={{ display: "flex", alignItems: "center", gap: 6 }}><input inputMode="decimal" value={f.comisiones.ticketeraFijo} onChange={e => setC("ticketeraFijo", e.target.value)} placeholder="0" style={{ ...C.input, width: 70, textAlign: "right", fontWeight: 900, padding: "8px 10px" }} aria-label="Euros por entrada" /><span style={{ fontSize: 12.5, color: "var(--muted)", fontWeight: 700 }}>€/entrada</span></span>
-          <span style={{ minWidth: 92, textAlign: "right", fontSize: 13, color: lineaDe("ticketera") ? "#fb7185" : "var(--muted)", fontWeight: 800 }}>{lineaDe("ticketera") ? "−" + money(lineaDe("ticketera").importe) : "—"}</span>
+          <span style={{ minWidth: 92, textAlign: "right", fontSize: 13, color: lineaDe("ticketera") ? "var(--rose)" : "var(--muted)", fontWeight: 800 }}>{lineaDe("ticketera") ? "−" + money(lineaDe("ticketera").importe) : "—"}</span>
         </span>
       </div>
       <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>Las cifras de la derecha son de {ev.name}. Total comisiones: <b style={{ color: "var(--text)" }}>{money(P.comisionTotal)}</b>.</div>

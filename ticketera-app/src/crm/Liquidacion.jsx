@@ -128,14 +128,14 @@ export function Liquidacion({ L, guardada, busy, onCerrar, onReabrir, onMarcarPa
             </div>
             <Linea l={V.beneficio < 0 ? "Su parte de la pérdida" : "Su parte del resultado"} v={money(f.parte)} />
             {f.tiene > 0 && <Linea l="− Dinero del evento que tiene" v={"−" + money(f.tiene)} c="var(--amber)" />}
-            {f.adelanto > 0 && <Linea l="+ Pagó de su bolsillo" v={"+" + money(f.adelanto)} c="#60a5fa" />}
+            {f.adelanto > 0 && <Linea l="+ Pagó de su bolsillo" v={"+" + money(f.adelanto)} c="var(--blue)" />}
             <div style={{ marginTop: 10, padding: "12px 14px", borderRadius: 12, background: recibe ? "rgba(34,211,166,.12)" : "rgba(255,180,0,.12)", border: `2px solid ${recibe ? "var(--green)" : "var(--amber)"}`, textAlign: "center" }}>
               <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase", color: recibe ? "var(--green)" : "var(--amber)" }}>{recibe ? "Le toca recibir" : "Tiene que entregar"}</div>
               <div style={{ fontSize: 30, fontWeight: 900, color: recibe ? "var(--green)" : "var(--amber)" }}>{money(Math.abs(f.resultado))}</div>
               {recibe && V.beneficio < 0 && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>de lo que adelantó, menos su parte de la pérdida</div>}
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <a href={waLink(V, f)} target="_blank" rel="noopener noreferrer" style={{ ...C.ghost, flex: 1, textAlign: "center", textDecoration: "none", background: "rgba(37,211,102,.14)", borderColor: "rgba(37,211,102,.55)", color: "#4ade80", fontWeight: 900 }}><Icon n="whatsapp" s={16} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />WhatsApp</a>
+              <a href={waLink(V, f)} target="_blank" rel="noopener noreferrer" style={{ ...C.ghost, flex: 1, textAlign: "center", textDecoration: "none", background: "rgba(37,211,102,.14)", borderColor: "rgba(37,211,102,.55)", color: "var(--wa)", fontWeight: 900 }}><Icon n="whatsapp" s={16} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />WhatsApp</a>
               {cerrada && <button disabled={busy} onClick={() => onMarcarPagado(f.socioId, !f.pagado)} style={{ ...C.ghost, flex: 1, fontWeight: 900, ...(f.pagado ? { background: "var(--green)", color: "#04241b", borderColor: "var(--green)" } : {}) }}>{f.pagado ? <><Icon n="check" s={15} w={2.6} style={{ verticalAlign: "-3px", marginRight: 6 }} />Hecho</> : recibe ? "Marcar pagado" : "Marcar recibido"}</button>}
             </div>
             {!f.telefono && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6, textAlign: "center" }}>Sin teléfono: WhatsApp te dejará elegir el contacto.</div>}

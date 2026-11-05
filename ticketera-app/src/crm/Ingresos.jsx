@@ -52,7 +52,7 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
           {T.ticketera > 0 && <Stat i="globe" t="Ticketera online" v={money(T.ticketera)} />}
           <Stat i="edit" t="Apuntado a mano" v={money(T.manual)} />
           {T.pendiente > 0 && <Stat i="clock" t="Pendiente de cobrar" v={money(T.pendiente)} c="var(--amber)" />}
-          {F?.comisionTotal > 0 && <Stat i="percent" t="Comisiones" v={"−" + money(F.comisionTotal)} c="#fb7185" />}
+          {F?.comisionTotal > 0 && <Stat i="percent" t="Comisiones" v={"−" + money(F.comisionTotal)} c="var(--rose)" />}
           {F?.iva?.activo && <Stat i="bank" t="IVA incluido en ventas" v={money(F.iva.repercutido)} />}
         </div>
       </section>

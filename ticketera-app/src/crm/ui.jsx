@@ -18,6 +18,37 @@ export function useIsMobile(bp = 720) {
 
 export const Dot = ({ c }) => <span style={{ width: 10, height: 10, borderRadius: "50%", background: c || "var(--muted)", display: "inline-block", flexShrink: 0 }} />;
 
+/* ===================== TEMA CLARO / OSCURO =====================
+   Cada persona elige cómo trabajar; se recuerda en su dispositivo. El claro sigue el estilo de la landing:
+   fondo casi blanco, tarjetas blancas con sombra suave y el coral solo en lo activo. */
+export const TEMAS = {
+  oscuro: {
+    "--bg": "#0b0c10", "--surface": "#14161d", "--surface2": "#1c1f29", "--line": "#2a2e3a", "--text": "#eceef5", "--muted": "#838aa0",
+    "--accent": "#ff5a3c", "--green": "#22d3a6", "--amber": "#ffb400", "--red": "#ff4d4d",
+    "--blue": "#60a5fa", "--wa": "#4ade80", "--teal": "#2dd4bf", "--rose": "#fb7185",
+    "--shadow": "none", "--overlay": "rgba(0,0,0,.72)",
+    "--hero": "radial-gradient(120% 140% at 0% 0%, rgba(255,90,60,.22), transparent 60%), #14161d",
+    "--head": "#14161d", colorScheme: "dark",
+  },
+  claro: {
+    "--bg": "#fafafb", "--surface": "#ffffff", "--surface2": "#f4f5f7", "--line": "#e6e8eb", "--text": "#15171a", "--muted": "#6f747d",
+    "--accent": "#ff5a3c", "--green": "#0e9f75", "--amber": "#a16207", "--red": "#dc2626",
+    "--blue": "#2563eb", "--wa": "#15803d", "--teal": "#0f766e", "--rose": "#e11d48",
+    "--shadow": "0 1px 2px rgba(15,17,22,.04), 0 10px 28px -16px rgba(15,17,22,.14)", "--overlay": "rgba(21,23,26,.38)",
+    "--hero": "radial-gradient(120% 140% at 0% 0%, rgba(255,90,60,.09), transparent 60%), #ffffff",
+    "--head": "rgba(250,250,251,.9)", colorScheme: "light",
+  },
+};
+const K_TEMA = "tixfast_crm_tema";
+export function useTema() {
+  const [tema, setTema] = useState(() => {
+    try { const t = localStorage.getItem(K_TEMA); if (t === "claro" || t === "oscuro") return t; } catch {}
+    try { return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "claro" : "oscuro"; } catch { return "oscuro"; }
+  });
+  const cambiar = () => setTema(t => { const n = t === "claro" ? "oscuro" : "claro"; try { localStorage.setItem(K_TEMA, n); } catch {} return n; });
+  return [tema, cambiar];
+}
+
 /* ===================== ESTILOS DEL CRM ===================== */
 export const C = {
   btnPrimary: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, background: "var(--accent)", color: "#fff", border: "none", borderRadius: 12, padding: "11px 18px", fontWeight: 900, fontSize: 14.5, cursor: "pointer", whiteSpace: "nowrap" },
@@ -25,18 +56,18 @@ export const C = {
   btnSm: { display: "inline-flex", alignItems: "center", gap: 6, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "7px 11px", fontWeight: 800, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" },
   listBtn: { display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "11px 4px", background: "transparent", border: "none", borderTop: "1px solid var(--line)", color: "var(--text)", cursor: "pointer", textAlign: "left", font: "inherit" },
   miniSelect: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "7px 28px 7px 10px", fontWeight: 800, fontSize: 12.5, outline: "none", cursor: "pointer", maxWidth: "100%" },
-  head: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "var(--surface)", borderBottom: "1px solid var(--line)", color: "var(--text)", flexShrink: 0, paddingTop: "max(10px, env(safe-area-inset-top))" },
+  head: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "var(--head)", backdropFilter: "saturate(1.6) blur(14px)", WebkitBackdropFilter: "saturate(1.6) blur(14px)", borderBottom: "1px solid var(--line)", color: "var(--text)", flexShrink: 0, paddingTop: "max(10px, env(safe-area-inset-top))" },
   crmPill: { background: "rgba(255,90,60,.14)", color: "var(--accent)", fontWeight: 900, letterSpacing: 2, fontSize: 13, borderRadius: 8, padding: "4px 10px" },
   headSelect: { flex: 1, minWidth: 0, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "9px 10px", fontWeight: 800, outline: "none" },
   backBtn: { flexShrink: 0, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "9px 14px", fontWeight: 900, fontSize: 14, cursor: "pointer" },
   tabs: { display: "flex", gap: 4, background: "var(--surface)", borderBottom: "1px solid var(--line)", flexShrink: 0, overflowX: "auto" },
-  tab: { background: "transparent", border: "none", borderBottom: "3px solid transparent", color: "var(--muted)", padding: "13px 14px 11px", fontWeight: 800, fontSize: 15, cursor: "pointer", whiteSpace: "nowrap" },
+  tab: { background: "transparent", border: "none", borderBottomWidth: 3, borderBottomStyle: "solid", borderBottomColor: "transparent", color: "var(--muted)", padding: "13px 14px 11px", fontWeight: 800, fontSize: 15, cursor: "pointer", whiteSpace: "nowrap" },
   tabOn: { color: "var(--text)", borderBottomColor: "var(--accent)" },
-  hero: { background: "radial-gradient(120% 140% at 0% 0%, rgba(255,90,60,.22), transparent 60%), var(--surface)", border: "1px solid var(--line)", borderRadius: 18 },
+  hero: { background: "var(--hero)", border: "1px solid var(--line)", borderRadius: 18, boxShadow: "var(--shadow)" },
   label: { fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: 800, marginBottom: 6 },
   tag: { display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 700, border: "1px solid var(--line)", borderRadius: 20, padding: "4px 10px", background: "var(--surface2)" },
-  card: { background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: 14, minWidth: 0 },
-  panel: { background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 16 },
+  card: { background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: 14, minWidth: 0, boxShadow: "var(--shadow)" },
+  panel: { background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 16, boxShadow: "var(--shadow)" },
   row: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 0", borderTop: "1px solid var(--line)" },
   ingRow: { display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "11px 8px", borderTop: "1px solid var(--line)", background: "transparent", border: "none", borderTopStyle: "solid", borderTopWidth: 1, borderTopColor: "var(--line)", color: "var(--text)", cursor: "pointer", borderRadius: 0 },
   live: { fontSize: 12, color: "var(--green)", fontWeight: 800, marginLeft: 6 },
@@ -47,7 +78,7 @@ export const C = {
   small: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" },
   input: { width: "100%", boxSizing: "border-box", background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "11px 13px", fontSize: 15, outline: "none" },
   empty: { textAlign: "center", padding: "22px 12px", color: "var(--muted)", border: "2px dashed var(--line)", borderRadius: 14, fontSize: 13.5 },
-  modalWrap: { position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,.72)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center" },
+  modalWrap: { position: "fixed", inset: 0, zIndex: 90, background: "var(--overlay)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center" },
   modal: { width: "100%", maxWidth: 520, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 22, padding: 20, paddingBottom: "calc(20px + env(safe-area-inset-bottom))", maxHeight: "92dvh", overflow: "auto", boxSizing: "border-box", alignSelf: "center", margin: "0 auto" },
   toggleRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, fontSize: 14, fontWeight: 700 },
   switch: { width: 44, height: 24, borderRadius: 20, border: "none", position: "relative", cursor: "pointer", flexShrink: 0, padding: 0 },
@@ -58,6 +89,8 @@ export const C = {
 
 /* ===================== ICONOS (mismo trazo que el TPV) ===================== */
 export const ICONS = {
+  sun: "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4",
+  moon: "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z",
   plus: "M12 5v14M5 12h14", check: "M5 12l4 4 10-10", x: "M6 6l12 12M18 6L6 18", chev: "M6 9l6 6 6-6", right: "M9 6l6 6-6 6",
   edit: "M4 20h4L19 9l-4-4L4 16zM13 7l4 4", trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3", copy: "M8 8h12v12H8zM4 16V4h12",
   lock: "M6 11h12v9H6zM8 11V7a4 4 0 0 1 8 0v4", clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2", user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0",
@@ -88,7 +121,7 @@ export const ICONS = {
   trend: "M3 17l6-6 4 4 8-8M15 7h6v6", filter: "M4 5h16l-6 8v6l-4-2v-4z", whatsapp: "M4 20l1.3-4A8 8 0 1 1 8 18.7zM9 9c0 3 3 6 6 6l1-1.5-2-1-1 .8c-1-.5-1.8-1.3-2.3-2.3l.8-1-1-2z",
 };
 export const Icon = ({ n, s = 18, w = 1.9, c = "currentColor", style }) => (
-  <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, display: "block", ...style }} aria-hidden="true"><path d={ICONS[n] || ICONS.dots} /></svg>
+  <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, display: style && style.verticalAlign != null ? "inline-block" : "block", ...style }} aria-hidden="true"><path d={ICONS[n] || ICONS.dots} /></svg>
 );
 // Icono dentro de un cuadrado de color suave (identifica la categoría de un vistazo)
 export const Tile = ({ n, c = "var(--accent)", s = 38, i }) => (

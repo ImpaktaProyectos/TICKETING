@@ -359,8 +359,8 @@ export function Sobrante({ ev, d, busy, run, isMobile, ir }) {
         <div style={C.label}>Lo que sobró cerrado · {ev.name}</div>
         <div style={{ fontSize: 14, color: "var(--muted)", marginTop: 4, lineHeight: 1.5 }}>Sale del recuento final. Decide qué se devuelve a {filas[0].a.proveedor || "proveedor"} y qué se guarda en el almacén para el próximo evento. Las botellas abiertas no cuentan.</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
-          <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)" }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Se devuelve</div><div style={{ fontWeight: 900, fontSize: 19, color: "#60a5fa" }}>{money(estimado)}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>abono estimado, sin IVA</div></div>
-          <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)" }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Se guarda</div><div style={{ fontWeight: 900, fontSize: 19, color: "#2dd4bf" }}>{money(valorAlm)}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>en el almacén, a coste</div></div>
+          <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)" }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Se devuelve</div><div style={{ fontWeight: 900, fontSize: 19, color: "var(--blue)" }}>{money(estimado)}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>abono estimado, sin IVA</div></div>
+          <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)" }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Se guarda</div><div style={{ fontWeight: 900, fontSize: 19, color: "var(--teal)" }}>{money(valorAlm)}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>en el almacén, a coste</div></div>
         </div>
       </section>
       <section style={C.panel}>
@@ -381,7 +381,7 @@ export function Sobrante({ ev, d, busy, run, isMobile, ir }) {
         </section>
       )}
       <div style={{ position: "sticky", bottom: 0, paddingTop: 12, paddingBottom: 4, background: "linear-gradient(transparent, var(--bg) 30%)", display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {aDevolver.length > 0 && <a href={`https://wa.me/?text=${encodeURIComponent(mensaje())}`} target="_blank" rel="noopener noreferrer" style={{ ...C.btnGhost, flex: "1 1 180px", textDecoration: "none", background: "rgba(37,211,102,.14)", borderColor: "rgba(37,211,102,.55)", color: "#4ade80", minHeight: 50 }}><Icon n="whatsapp" s={18} />Enviar la lista por WhatsApp</a>}
+        {aDevolver.length > 0 && <a href={`https://wa.me/?text=${encodeURIComponent(mensaje())}`} target="_blank" rel="noopener noreferrer" style={{ ...C.btnGhost, flex: "1 1 180px", textDecoration: "none", background: "rgba(37,211,102,.14)", borderColor: "rgba(37,211,102,.55)", color: "var(--wa)", minHeight: 50 }}><Icon n="whatsapp" s={18} />Enviar la lista por WhatsApp</a>}
         <button disabled={busy || (!aDevolver.length && !aAlmacen.length && !nVacios)} onClick={confirmar} style={{ ...C.btnPrimary, flex: "2 1 220px", minHeight: 50, opacity: busy || (!aDevolver.length && !aAlmacen.length && !nVacios) ? .45 : 1 }}><Icon n="check" s={18} w={2.4} />{aDevolver.length && aAlmacen.length ? "Confirmar: entregado y guardado" : aAlmacen.length ? "Guardar en el almacén" : "Marcar como entregado"}</button>
       </div>
     </>)}

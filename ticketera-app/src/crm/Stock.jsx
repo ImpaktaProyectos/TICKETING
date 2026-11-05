@@ -190,7 +190,7 @@ function FamiliaCard({ f, conRecuento }) {
       {f.dif != null && f.estado !== "sinreceta" && f.estado !== "incompleto" && (
         <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: "2px 8px", fontSize: 13.5, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 800, color: f.estado === "cuadra" ? "var(--green)" : f.estado === "falta" ? "var(--amber)" : "#60a5fa" }}>{f.estado === "cuadra" ? (Math.abs(f.dif) < 0.005 ? "Sin diferencia" : "Diferencia pequeña") : f.dif > 0 ? "Falta sin justificar" : "Se vendió más de lo que salió"}</span>
+            <span style={{ fontWeight: 800, color: f.estado === "cuadra" ? "var(--green)" : f.estado === "falta" ? "var(--amber)" : "var(--blue)" }}>{f.estado === "cuadra" ? (Math.abs(f.dif) < 0.005 ? "Sin diferencia" : "Diferencia pequeña") : f.dif > 0 ? "Falta sin justificar" : "Se vendió más de lo que salió"}</span>
             <b style={{ whiteSpace: "nowrap" }}>{f.dif > 0 ? "−" : f.dif < 0 ? "+" : ""}{medidaTxt(f.k, Math.abs(f.dif))}{botellas(Math.abs(f.dif))}</b>
           </div>
           {Math.abs(f.difCoste) >= 0.01 && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{money(Math.abs(f.difCoste))} a precio de coste{f.estado === "cuadra" ? " · dentro de lo normal" : ""}</div>}

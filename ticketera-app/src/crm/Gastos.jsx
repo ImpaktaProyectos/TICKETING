@@ -77,7 +77,7 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
         </div>
         {(ivaOn || F?.comisionTotal > 0) && (
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,minmax(0,1fr))", gap: 8, marginTop: 8 }}>
-            {F.comisionTotal > 0 && <Mini l="Comisiones" v={money(F.comisionTotal)} c="#fb7185" />}
+            {F.comisionTotal > 0 && <Mini l="Comisiones" v={money(F.comisionTotal)} c="var(--rose)" />}
             {ivaOn && <Mini l={F.iva.neto >= 0 ? "IVA a Hacienda" : "IVA a devolver"} v={money(Math.abs(F.iva.neto))} sub="estimado" />}
             {ivaOn && <Mini l="Con factura" v={money(F.iva.conFactura)} sub={`${F.iva.nConFactura} ${F.iva.nConFactura === 1 ? "gasto" : "gastos"} · IVA ${money(F.iva.soportado)}`} />}
             {ivaOn && <Mini l="Sin factura" v={money(F.iva.sinFactura)} sub={`${F.iva.nSinFactura} ${F.iva.nSinFactura === 1 ? "gasto" : "gastos"}`} c={F.iva.sinFactura > 0 ? "var(--amber)" : undefined} />}
@@ -145,7 +145,7 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
         <section style={{ ...C.panel, borderColor: "color-mix(in srgb, #3b82f6 55%, transparent)" }}>
           <Head i="hand" c="#3b82f6" t="Pagado de su bolsillo por socios" sub="Cuenta como gasto y se les devuelve en la liquidación." />
           {adelantos.map(([sid, v]) => { const s = socioById(sid); return (
-            <div key={sid} style={C.row}><span style={{ display: "flex", alignItems: "center", gap: 10 }}><Avatar nombre={s?.nombre} c={s?.color} s={30} /><b>{s?.nombre || "Socio"}</b></span><b style={{ color: "#60a5fa", fontSize: 17 }}>{money(v)}</b></div>); })}
+            <div key={sid} style={C.row}><span style={{ display: "flex", alignItems: "center", gap: 10 }}><Avatar nombre={s?.nombre} c={s?.color} s={30} /><b>{s?.nombre || "Socio"}</b></span><b style={{ color: "var(--blue)", fontSize: 17 }}>{money(v)}</b></div>); })}
         </section>
       )}
 
@@ -227,7 +227,7 @@ function Fila({ g, socioById, onClick, ivaOn }) {
         <span style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
           {meta && <span>{meta}</span>}
           <FacturaBadge g={g} ivaOn={ivaOn} />
-          {s && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#60a5fa", fontWeight: 800 }}><Avatar nombre={s.nombre} c={s.color} s={16} />pagó {s.nombre}</span>}
+          {s && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--blue)", fontWeight: 800 }}><Avatar nombre={s.nombre} c={s.color} s={16} />pagó {s.nombre}</span>}
         </span>
       </span>
       <Importe g={g} />
