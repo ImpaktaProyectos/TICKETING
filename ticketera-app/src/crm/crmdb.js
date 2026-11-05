@@ -375,3 +375,12 @@ export async function ajustarAlmacen(articuloId, diferencia, nota, creadoPor) {
   if (!cant) return;
   ok(await supabase.from("ticket_crm_stock_almacen_ajustes").insert({ articulo_id: articuloId, cantidad: cant, nota: nota ? String(nota).slice(0, 300) : null, creado_por: creadoPor || null, clave: claveNueva() }));
 }
+
+/* ---------- Previsión (una por evento: tramos, gastos simulados, escenarios y configuración) ---------- */
+export async function loadPrevision(eventoId) {
+  const r = ok(await supabase.from("ticket_crm_previsiones").select("datos, actualizado_en").eq("evento_id", eventoId).maybeSingle());
+  return r ? { datos: r.datos || {}, actualizadoEn: r.actualizado_en } : null;
+}
+export async function savePrevision(eventoId, datos) {
+  ok(await supabase.from("ticket_crm_previsiones").upsert({ evento_id: eventoId, datos, actualizado_en: new Date().toISOString() }, { onConflict: "evento_id" }));
+}

@@ -11,6 +11,7 @@ import { fiscalEvento } from "./fiscal";
 import { Dashboard } from "./Dashboard";
 import { Ingresos, IngresoForm, esExterno } from "./Ingresos";
 import { Ajustes, ImportarCSV } from "./Ajustes";
+import { Prevision } from "./Prevision";
 import { Stock } from "./Stock";
 
 const COLORES = ["#ff5a3c", "#a855f7", "#3b82f6", "#22d3a6", "#ffb400", "#ec4899", "#14b8a6", "#f97316"];
@@ -124,7 +125,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
       </header>
 
       <nav style={{ ...C.tabs, padding: isMobile ? "0 12px" : "0 22px" }}>
-        {[["dashboard", "chart", "Dashboard", "Panel"], ["ingresos", "wallet", "Ingresos", "Ingresos"], ["gastos", "receipt", "Gastos", "Gastos"], ["stock", "box", "Stock", "Stock"], ["liquidacion", "scale", "Liquidación", "Liquidar"], ["socios", "users", "Socios", "Socios"]].map(([k, ico, l, lm]) =>
+        {[["dashboard", "chart", "Dashboard", "Panel"], ["ingresos", "wallet", "Ingresos", "Ingresos"], ["gastos", "receipt", "Gastos", "Gastos"], ["prevision", "trend", "Previsión", "Previsión"], ["stock", "box", "Stock", "Stock"], ["liquidacion", "scale", "Liquidación", "Liquidar"], ["socios", "users", "Socios", "Socios"]].map(([k, ico, l, lm]) =>
           <button key={k} onClick={() => setTab(k)} style={{ ...C.tab, display: "flex", alignItems: "center", gap: 8, ...(isMobile ? { flex: 1, padding: "9px 2px 7px", fontSize: 12, flexDirection: "column", gap: 3 } : {}), ...(tab === k ? C.tabOn : {}) }}>
             <Icon n={ico} s={isMobile ? 19 : 17} c={tab === k ? "var(--accent)" : "currentColor"} />{isMobile ? lm : l}</button>)}
       </nav>
@@ -149,6 +150,12 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
               onSave={(x) => run(() => crm.saveGasto({ ...x, eventoId: ev.id }), x.id ? "Gasto actualizado" : "Gasto añadido")}
               onDelete={(x) => run(() => crm.deleteGasto(x.id), "Gasto borrado")}
               onCopiar={(desde) => run(async () => { const nn = await crm.copiarPresupuesto(desde.id, ev.id); if (!nn) throw new Error("vacío"); }, `Presupuesto de ${desde.name} copiado`)} />
+          )}
+          {data && tab === "prevision" && (
+            <Prevision ev={ev} events={events} ingresos={ingresos} gastos={data.gastos} G={G} F={F} ajustes={data.ajustes || {}}
+              vinculo={vinculo} conexion={data.conexion} sincronizando={sincronizando} flash={flash}
+              onSync={() => sincronizar(ev.id)} onIrGastos={() => setTab("gastos")}
+              onGuardarDefecto={async (pv) => { await crm.saveAjustes({ ...(data.ajustes || {}), prevision: pv }); await cargar(); }} />
           )}
           {data && tab === "stock" && (
             <Stock ev={ev} sales={sales} ajustes={data.ajustes || {}} flash={flash} onRecargarCRM={cargar}
