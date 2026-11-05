@@ -59,9 +59,9 @@ export default function InformeQR({ ev, evSales }) {
 
   const tile = (label, val, c, sub) => (
     <div style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: "12px 14px", minWidth: 0 }}>
-      <div style={{ fontSize: 11.5, color: "var(--muted)", textTransform: "uppercase", letterSpacing: .6, fontWeight: 700 }}>{label}</div>
+      <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: .6, fontWeight: 700 }}>{label}</div>
       <div style={{ fontSize: 26, fontWeight: 800, color: c || "var(--text)", lineHeight: 1.15, marginTop: 2 }}>{val}</div>
-      {sub && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{sub}</div>}
     </div>
   );
 
@@ -111,7 +111,7 @@ export default function InformeQR({ ev, evSales }) {
             </tbody>
           </table>
         </div>
-        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>«Servidos» y «Pendientes» son de los tickets vendidos en esa barra (se sirvan donde se sirvan). «Aquí» es lo que validó el móvil de esa barra.</div>
+        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>«Servidos» y «Pendientes» son de los tickets vendidos en esa barra (se sirvan donde se sirvan). «Aquí» es lo que validó el móvil de esa barra.</div>
 
         {r.rech > 0 && (<>
           <div style={{ fontSize: 12.5, fontWeight: 800, margin: "14px 0 6px" }}>Intentos rechazados</div>

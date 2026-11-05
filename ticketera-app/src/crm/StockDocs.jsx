@@ -195,7 +195,7 @@ export function SubirFactura({ ev, d, busy, run, onClose, onAplicada }) {
       decidir={decidir} artById={artById} />}
   </>);
 }
-const Mini = ({ l, v }) => <div style={{ padding: "8px 10px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", minWidth: 0 }}><div style={{ fontSize: 10.5, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>{l}</div><div style={{ fontWeight: 900, fontSize: 16, marginTop: 2, whiteSpace: "nowrap" }}>{v}</div></div>;
+const Mini = ({ l, v }) => <div style={{ padding: "8px 10px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", minWidth: 0 }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>{l}</div><div style={{ fontWeight: 900, fontSize: 16, marginTop: 2, whiteSpace: "nowrap" }}>{v}</div></div>;
 
 function LineaFactura({ l, a, onClick }) {
   const f = a ? famInfo(a.familia) : null, ac = ACCIONES[l.accion];
@@ -206,7 +206,7 @@ function LineaFactura({ l, a, onClick }) {
       {f ? <Tile n={f.i} c={f.c} s={34} /> : <Tile n="alert" c="var(--amber)" s={34} />}
       <span style={{ flex: 1, minWidth: 0 }}>
         <b style={{ display: "block", fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: a ? "var(--text)" : "var(--amber)" }}>{a ? a.nombre : "Sin artículo en el catálogo"}</b>
-        <span style={{ display: "block", fontSize: 11.5, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><span style={{ fontFamily: "monospace" }}>{l.codigo}</span> · {l.descripcion}</span>
+        <span style={{ display: "block", fontSize: 12, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><span style={{ fontFamily: "monospace" }}>{l.codigo}</span> · {l.descripcion}</span>
         {a && l.unidades != null && <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, marginTop: 2 }}>{origen}{pc > 1 ? ` = ${num(l.unidades, 3)} ${uniTxt(a.unidad, l.unidades)}` : ` ${uniTxt(a.unidad, l.unidades)}`}</span>}
         <span style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
           {l.repetida && <Badge c="var(--amber)">Línea repetida en la factura</Badge>}
@@ -231,7 +231,7 @@ function LineaSheet({ l, articulos, pendAbono, sellado, onClose, onSave, decidir
     <Sheet title={`Línea · código ${l.codigo}`} onClose={onClose}
       footer={<button disabled={!ok} onClick={() => onSave(x.articuloId || x.accion === "ignorar" ? x : { ...x, accion: "pendiente" })} style={{ ...C.btnPrimary, width: "100%", minHeight: 52, fontSize: 16, opacity: ok ? 1 : .45 }}>Listo</button>}>
       <div style={{ padding: 12, borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", marginBottom: 14 }}>
-        <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Tal cual en la factura (página {l.pagina})</div>
+        <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Tal cual en la factura (página {l.pagina})</div>
         <div style={{ fontWeight: 800, marginTop: 4 }}>{l.descripcion}</div>
         <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 4 }}>Cantidad {num(l.cantidad, 3)} · precio {money(l.precio || 0)}{l.dto ? ` · dto. ${num(l.dto)} %` : ""} · IVA {l.iva ?? "—"} % · importe <b style={{ color: "var(--text)" }}>{money(l.importe || 0)}</b></div>
       </div>
@@ -359,8 +359,8 @@ export function Sobrante({ ev, d, busy, run, isMobile, ir }) {
         <div style={C.label}>Lo que sobró cerrado · {ev.name}</div>
         <div style={{ fontSize: 14, color: "var(--muted)", marginTop: 4, lineHeight: 1.5 }}>Sale del recuento final. Decide qué se devuelve a {filas[0].a.proveedor || "proveedor"} y qué se guarda en el almacén para el próximo evento. Las botellas abiertas no cuentan.</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
-          <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)" }}><div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Se devuelve</div><div style={{ fontWeight: 900, fontSize: 19, color: "#60a5fa" }}>{money(estimado)}</div><div style={{ fontSize: 11, color: "var(--muted)" }}>abono estimado, sin IVA</div></div>
-          <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)" }}><div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Se guarda</div><div style={{ fontWeight: 900, fontSize: 19, color: "#2dd4bf" }}>{money(valorAlm)}</div><div style={{ fontSize: 11, color: "var(--muted)" }}>en el almacén, a coste</div></div>
+          <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)" }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Se devuelve</div><div style={{ fontWeight: 900, fontSize: 19, color: "#60a5fa" }}>{money(estimado)}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>abono estimado, sin IVA</div></div>
+          <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)" }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Se guarda</div><div style={{ fontWeight: 900, fontSize: 19, color: "#2dd4bf" }}>{money(valorAlm)}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>en el almacén, a coste</div></div>
         </div>
       </section>
       <section style={C.panel}>
@@ -419,7 +419,7 @@ export function Almacen({ d, busy, run, isMobile, alm, recargarAlm }) {
             <button key={x.a.id} onClick={() => setAjuste(x.a)} style={C.listBtn}>
               <Tile n={f.i} c={f.c} s={34} />
               <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.a.nombre}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>{cantTxt(x.a, x.q)}</span></span>
-              <span style={{ textAlign: "right", flexShrink: 0 }}><b style={{ display: "block" }}>{money(Math.max(0, x.q) * x.c)}</b><span style={{ fontSize: 11, color: "var(--muted)" }}>Ajustar</span></span>
+              <span style={{ textAlign: "right", flexShrink: 0 }}><b style={{ display: "block" }}>{money(Math.max(0, x.q) * x.c)}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>Ajustar</span></span>
             </button>))}
         </div>); })}
     </section>

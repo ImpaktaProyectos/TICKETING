@@ -33,13 +33,13 @@ export const C = {
   tab: { background: "transparent", border: "none", borderBottom: "3px solid transparent", color: "var(--muted)", padding: "13px 14px 11px", fontWeight: 800, fontSize: 15, cursor: "pointer", whiteSpace: "nowrap" },
   tabOn: { color: "var(--text)", borderBottomColor: "var(--accent)" },
   hero: { background: "radial-gradient(120% 140% at 0% 0%, rgba(255,90,60,.22), transparent 60%), var(--surface)", border: "1px solid var(--line)", borderRadius: 18 },
-  label: { fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: 800, marginBottom: 6 },
+  label: { fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: 800, marginBottom: 6 },
   tag: { display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 700, border: "1px solid var(--line)", borderRadius: 20, padding: "4px 10px", background: "var(--surface2)" },
   card: { background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: 14, minWidth: 0 },
   panel: { background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 16 },
   row: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 0", borderTop: "1px solid var(--line)" },
   ingRow: { display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "11px 8px", borderTop: "1px solid var(--line)", background: "transparent", border: "none", borderTopStyle: "solid", borderTopWidth: 1, borderTopColor: "var(--line)", color: "var(--text)", cursor: "pointer", borderRadius: 0 },
-  live: { fontSize: 11, color: "var(--green)", fontWeight: 800, marginLeft: 6 },
+  live: { fontSize: 12, color: "var(--green)", fontWeight: 800, marginLeft: 6 },
   seg: { display: "inline-flex", alignItems: "center", gap: 6, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 20, padding: "7px 12px", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" },
   segOn: { background: "var(--accent)", borderColor: "var(--accent)", color: "#fff" },
   primary: { background: "var(--accent)", color: "#fff", border: "none", borderRadius: 12, padding: "12px 18px", fontWeight: 900, fontSize: 15, cursor: "pointer" },
@@ -98,7 +98,7 @@ export const Avatar = ({ nombre = "?", c, s = 26 }) => (
   <span style={{ width: s, height: s, borderRadius: "50%", background: c || "var(--muted)", color: "#fff", fontWeight: 900, fontSize: Math.round(s * 0.42), display: "grid", placeItems: "center", flexShrink: 0, lineHeight: 1 }}>{String(nombre).trim().charAt(0).toUpperCase() || "?"}</span>
 );
 export const Badge = ({ children, c = "var(--muted)", solid }) => (
-  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 800, letterSpacing: .2, borderRadius: 6, padding: "2px 7px", whiteSpace: "nowrap", color: solid ? "#0b0c10" : c, background: solid ? c : `color-mix(in srgb, ${c} 14%, transparent)` }}>{children}</span>
+  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 800, letterSpacing: .2, borderRadius: 6, padding: "2px 7px", whiteSpace: "nowrap", color: solid ? "#0b0c10" : c, background: solid ? c : `color-mix(in srgb, ${c} 14%, transparent)` }}>{children}</span>
 );
 // Control segmentado (opciones excluyentes), igual en móvil y ordenador
 export function Seg({ opciones, valor, onChange, full, size = "md" }) {
@@ -149,7 +149,7 @@ export function IconGrid({ items, valor, onChange, cols }) {
         <button key={it.k} type="button" onClick={() => onChange(it.k)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "10px 6px", borderRadius: 12, cursor: "pointer", minWidth: 0,
           border: `2px solid ${on ? (it.c || "var(--accent)") : "var(--line)"}`, background: on ? `color-mix(in srgb, ${it.c || "var(--accent)"} 12%, var(--surface2))` : "var(--surface2)", color: "var(--text)" }}>
           <Tile n={it.i} c={it.c} s={34} />
-          <span style={{ fontSize: 11.5, fontWeight: 800, lineHeight: 1.15, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", width: "100%" }}>{it.t || it.k}</span>
+          <span style={{ fontSize: 12, fontWeight: 800, lineHeight: 1.15, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", width: "100%" }}>{it.t || it.k}</span>
         </button>); })}
     </div>
   );

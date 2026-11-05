@@ -41,7 +41,7 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
             <div key={g.k} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", opacity: g.v > 0 ? 1 : .5, minWidth: 0 }}>
               <Tile n={g.i} c={g.c} s={32} />
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 11.5, color: "var(--muted)", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{g.t}</div>
+                <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{g.t}</div>
                 <div style={{ fontWeight: 900, fontSize: 15, whiteSpace: "nowrap" }}>{money(g.v)}</div>
               </div>
             </div>

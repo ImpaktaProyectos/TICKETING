@@ -86,14 +86,14 @@ function Conexiones({ ev, events, conexion, vinculos, busy, onGuardarClave, onPr
         <div>
           <Field l="Entorno">
             <Seg full valor={entorno} onChange={setEntorno} opciones={[{ k: "prueba", t: "Pruebas", i: "edit" }, { k: "real", t: "Real", i: "check", c: "var(--green)", ink: "#04241b" }]} />
-            <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>{entorno === "prueba" ? "Datos de prueba de Fourvenues (sin ventas reales). Empieza por aquí." : "Ventas reales de tus eventos."}</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{entorno === "prueba" ? "Datos de prueba de Fourvenues (sin ventas reales). Empieza por aquí." : "Ventas reales de tus eventos."}</div>
           </Field>
           <Field l={conexion ? "Nueva clave (déjala vacía para mantener la actual)" : "Clave de Fourvenues (API key)"}>
             <div style={{ position: "relative" }}>
               <input type={ver ? "text" : "password"} value={clave} onChange={e => setClave(e.target.value.slice(0, 500))} placeholder="Pega aquí la clave" autoComplete="off" spellCheck={false} style={{ ...C.input, paddingRight: 46, fontFamily: "monospace" }} />
               <button type="button" onClick={() => setVer(v => !v)} aria-label={ver ? "Ocultar" : "Ver"} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", width: 34, height: 34, borderRadius: 8, border: "none", background: "transparent", color: "var(--muted)", cursor: "pointer", display: "grid", placeItems: "center" }}><Icon n={ver ? "eyeOff" : "eye"} s={18} /></button>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}><Icon n="lock" s={13} />Se guarda cifrada en el servidor y no se vuelve a mostrar, ni siquiera a ti.</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)", marginTop: 6 }}><Icon n="lock" s={13} />Se guarda cifrada en el servidor y no se vuelve a mostrar, ni siquiera a ti.</div>
           </Field>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button disabled={busy || (!claveOk && !(conexion && entorno !== conexion.entorno))} onClick={guardar} style={{ ...C.btnPrimary, opacity: busy || (!claveOk && !(conexion && entorno !== conexion.entorno)) ? .45 : 1 }}><Icon n="check" s={16} w={2.4} />Guardar y probar</button>
@@ -143,7 +143,7 @@ function Conexiones({ ev, events, conexion, vinculos, busy, onGuardarClave, onPr
     {vinc && <VincularSheet evento={vinc} busy={busy} onCargar={onCargarEventos} onClose={() => setVinc(null)} onVincular={async (id, nombre) => { const ok = await onVincular(vinc.id, id, nombre); if (ok) setVinc(null); }} />}
   </>);
 }
-const Dato = ({ l, v }) => <div style={{ padding: "9px 11px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", minWidth: 0 }}><div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>{l}</div><div style={{ fontWeight: 900, fontSize: 14.5, marginTop: 2 }}>{v}</div></div>;
+const Dato = ({ l, v }) => <div style={{ padding: "9px 11px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", minWidth: 0 }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>{l}</div><div style={{ fontWeight: 900, fontSize: 14.5, marginTop: 2 }}>{v}</div></div>;
 
 function VincularSheet({ evento, busy, onCargar, onClose, onVincular }) {
   const [lista, setLista] = useState(null);
@@ -231,8 +231,8 @@ function CategoriaSheet({ ambito, cat, nueva, lista, busy, onClose, onSave }) {
       footer={<button disabled={!valido || busy} onClick={() => onSave({ ...f, k: nombre }, nueva ? null : cat.k)} style={{ ...C.btnPrimary, width: "100%", minHeight: 52, fontSize: 16, opacity: valido && !busy ? 1 : .45 }}>{busy ? "Guardando…" : repetido ? "Ya existe ese nombre" : "Guardar"}</button>}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><Tile n={f.i} c={f.c} s={52} /><b style={{ fontSize: 18 }}>{nombre || "Nombre"}</b></div>
       <Field l="Nombre"><input autoFocus={nueva} disabled={protegido} value={f.k} maxLength={60} onChange={e => set({ k: e.target.value })} style={{ ...C.input, opacity: protegido ? .6 : 1 }} placeholder="Ej.: Seguridad" />
-        {protegido && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>{ambito === "ingreso" ? "La usa la ticketera para las entradas online" : "La usan los botones Personal y Artista"}; el nombre no se cambia, pero sí el icono y el color.</div>}
-        {!nueva && !protegido && nombre && nombre !== cat.k && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>Se cambiará el nombre también en todo lo ya apuntado.</div>}
+        {protegido && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{ambito === "ingreso" ? "La usa la ticketera para las entradas online" : "La usan los botones Personal y Artista"}; el nombre no se cambia, pero sí el icono y el color.</div>}
+        {!nueva && !protegido && nombre && nombre !== cat.k && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Se cambiará el nombre también en todo lo ya apuntado.</div>}
       </Field>
       <Field l="Icono">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(44px, 1fr))", gap: 6 }}>
@@ -246,12 +246,12 @@ function CategoriaSheet({ ambito, cat, nueva, lista, busy, onClose, onSave }) {
       </Field>
       {ambito === "ingreso" && <Field l="Cuenta como">
         <Seg full size="sm" valor={f.g} onChange={(g) => set({ g, c: f.c === grupoInfo(f.g).c ? grupoInfo(g).c : f.c })} opciones={GRUPOS.map(g => ({ k: g.k, t: g.t, c: g.c, ink: "#fff" }))} />
-        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>Decide en qué grupo se suma en el resumen y qué IVA de ventas se le aplica.</div>
+        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Decide en qué grupo se suma en el resumen y qué IVA de ventas se le aplica.</div>
       </Field>}
       {ambito === "gasto" && <>
         <Field l="IVA habitual"><Seg full valor={String(f.iva ?? 21)} onChange={(k) => set({ iva: Number(k) })} opciones={TIPOS_IVA.map(t => ({ k: String(t), t: t ? `${t} %` : "Sin IVA" }))} /></Field>
         <Field l="¿Suele llevar factura?"><Seg full valor={f.factura !== false ? "si" : "no"} onChange={(k) => set({ factura: k === "si" })} opciones={[{ k: "si", t: "Con factura", i: "file", c: "var(--green)", ink: "#04241b" }, { k: "no", t: "Sin factura", i: "x", c: "var(--amber)", ink: "#1a1205" }]} />
-          <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>Es lo que sale marcado al apuntar un gasto de esta categoría; en cada gasto se puede cambiar.</div></Field>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Es lo que sale marcado al apuntar un gasto de esta categoría; en cada gasto se puede cambiar.</div></Field>
       </>}
     </Sheet>
   );
@@ -315,7 +315,7 @@ function Fiscal({ ajustes, busy, preview, ev, onGuardar }) {
         <Dato l={P.iva.neto >= 0 ? "A pagar (estimado)" : "A devolver (estimado)"} v={<span style={{ color: P.iva.neto >= 0 ? "var(--amber)" : "var(--green)" }}>{money(Math.abs(P.iva.neto))}</span>} />
         <Dato l="Gastos sin factura" v={money(P.iva.sinFactura)} />
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--muted)", marginTop: 10 }}><Icon n="alert" s={13} />Es una estimación para el control del evento. Confirma los tipos de IVA con tu gestor.</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)", marginTop: 10 }}><Icon n="alert" s={13} />Es una estimación para el control del evento. Confirma los tipos de IVA con tu gestor.</div>
     </section>
 
     <div style={{ position: "sticky", bottom: 0, paddingBottom: 4, background: "linear-gradient(transparent, var(--bg) 30%)", paddingTop: 12 }}>

@@ -95,7 +95,7 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
       {/* ===== Por categoría (toca para filtrar) ===== */}
       <section style={C.panel}>
         <Head i="chart" t="En qué se va el dinero" sub="Toca una categoría para ver solo sus gastos"
-          right={<span style={{ display: "flex", gap: 12, fontSize: 11.5, color: "var(--muted)" }}><Ley c="var(--accent)" t="Cuenta" /><Ley c="#fff" t="Previsto" marca /></span>} />
+          right={<span style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--muted)" }}><Ley c="var(--accent)" t="Cuenta" /><Ley c="#fff" t="Previsto" marca /></span>} />
         {cats.length === 0 && <Vacio i="receipt" t="Aún no hay gastos." sub={otrosEventos.length ? "Añade el primero o copia el presupuesto de otro evento." : "Añade el primero con los botones de arriba."} />}
         {cats.map(([k, v]) => { const ci = gcatInfo(k), on = filtro === k, pasa = v.previsto && v.total > v.previsto + 0.005; return (
           <button key={k} onClick={() => setFiltro(on ? null : k)} style={{ ...C.listBtn, padding: "10px 8px", borderRadius: on ? 12 : 0, background: on ? "color-mix(in srgb, var(--accent) 10%, transparent)" : "transparent", outline: on ? "2px solid var(--accent)" : "none", outlineOffset: -2 }}>
@@ -171,13 +171,13 @@ const Barra = ({ t, v, max, c, i }) => (
     <div style={{ height: 12, borderRadius: 7, background: "var(--surface2)", overflow: "hidden" }}><div style={{ width: `${Math.max(0, v) / max * 100}%`, height: "100%", background: c, borderRadius: 7 }} /></div>
   </div>
 );
-const Mini = ({ l, v, c, sub }) => <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", minWidth: 0 }}><div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>{l}</div><div style={{ fontSize: 17, fontWeight: 900, color: c || "var(--text)", marginTop: 2, whiteSpace: "nowrap" }}>{v}</div>{sub && <div style={{ fontSize: 11, color: "var(--muted)" }}>{sub}</div>}</div>;
+const Mini = ({ l, v, c, sub }) => <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", minWidth: 0 }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>{l}</div><div style={{ fontSize: 17, fontWeight: 900, color: c || "var(--text)", marginTop: 2, whiteSpace: "nowrap" }}>{v}</div>{sub && <div style={{ fontSize: 12, color: "var(--muted)" }}>{sub}</div>}</div>;
 const Ley = ({ c, t, marca }) => <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: marca ? 2 : 12, height: marca ? 12 : 6, borderRadius: 2, background: c }} />{t}</span>;
 const AddBtn = ({ i, t, sub, primary, onClick }) => (
   <button onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 10, padding: sub ? "12px 14px" : "12px 8px", borderRadius: 14, cursor: "pointer", textAlign: "left", justifyContent: sub ? "flex-start" : "center", minWidth: 0,
     border: primary ? "none" : "1px solid var(--line)", background: primary ? "var(--accent)" : "var(--surface)", color: primary ? "#fff" : "var(--text)" }}>
     <span style={{ width: 32, height: 32, borderRadius: 10, display: "grid", placeItems: "center", flexShrink: 0, background: primary ? "rgba(255,255,255,.2)" : "color-mix(in srgb, var(--accent) 16%, transparent)", color: primary ? "#fff" : "var(--accent)" }}><Icon n={i} s={17} w={2.2} /></span>
-    <span style={{ minWidth: 0 }}><span style={{ display: "block", fontWeight: 900, fontSize: 14.5 }}>{t}</span>{sub && <span style={{ display: "block", fontSize: 11.5, opacity: .8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</span>}</span>
+    <span style={{ minWidth: 0 }}><span style={{ display: "block", fontWeight: 900, fontSize: 14.5 }}>{t}</span>{sub && <span style={{ display: "block", fontSize: 12, opacity: .8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</span>}</span>
   </button>
 );
 function EstadoBadge({ g }) {
@@ -189,7 +189,7 @@ function Importe({ g }) {
   return (
     <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
       <b style={{ fontSize: 15.5 }}>{money(importe(g))}</b>
-      {Math.abs(dif) >= 0.01 ? <span style={{ fontSize: 11, fontWeight: 800, color: dif > 0 ? "var(--red)" : "var(--green)" }}>{dif > 0 ? "+" : "−"}{money(Math.abs(dif))} vs previsto</span> : <EstadoBadge g={g} />}
+      {Math.abs(dif) >= 0.01 ? <span style={{ fontSize: 12, fontWeight: 800, color: dif > 0 ? "var(--red)" : "var(--green)" }}>{dif > 0 ? "+" : "−"}{money(Math.abs(dif))} vs previsto</span> : <EstadoBadge g={g} />}
     </span>
   );
 }
@@ -327,7 +327,7 @@ function GastoForm({ tipo, gasto, padre, socios, usadas, hijos, busy, ivaOn, onC
         {tipo !== "personal" && <Field l={tipo === "artista" ? "Caché previsto" : "Previsto"} mb={0}><MoneyInput value={f.previsto} onChange={(v) => set({ previsto: v })} /></Field>}
         <Field l={tipo === "personal" ? "Coste real (si ya lo sabes)" : "Real"} mb={0}><MoneyInput value={f.real} onChange={(v) => set({ real: v })} /></Field>
       </div>
-      <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 16 }}>Importe que pagas, con el IVA incluido si lo lleva. Para el beneficio cuenta el real; mientras no lo haya, el previsto.</div>
+      <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 16 }}>Importe que pagas, con el IVA incluido si lo lleva. Para el beneficio cuenta el real; mientras no lo haya, el previsto.</div>
 
       <div style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 14, padding: 12, marginBottom: 16 }}>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
@@ -338,7 +338,7 @@ function GastoForm({ tipo, gasto, padre, socios, usadas, hijos, busy, ivaOn, onC
           <span style={{ color: "var(--muted)" }}>Base <b style={{ color: "var(--text)" }}>{money(r2(cuenta - ivaDe(cuenta, fx.iva)))}</b> + IVA <b style={{ color: "var(--text)" }}>{money(ivaDe(cuenta, fx.iva))}</b></span>
           {ivaOn && <span style={{ fontWeight: 800, color: fx.factura ? "var(--green)" : "var(--amber)" }}>{fx.factura ? `Recuperas ${money(ivaDe(cuenta, fx.iva))} de IVA` : "Sin factura no se recupera el IVA"}</span>}
         </div>}
-        {!ivaOn && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8 }}>Queda apuntado. El IVA solo se descuenta del beneficio si activas «Calcular IVA» en Ajustes.</div>}
+        {!ivaOn && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>Queda apuntado. El IVA solo se descuenta del beneficio si activas «Calcular IVA» en Ajustes.</div>}
       </div>
 
       <Field l="Estado"><Seg full valor={f.estado} onChange={(k) => set({ estado: k })} opciones={ESTADOS.map(e => ({ k: e.k, t: e.t, i: e.i, c: e.c, ink: e.ink }))} /></Field>
@@ -347,7 +347,7 @@ function GastoForm({ tipo, gasto, padre, socios, usadas, hijos, busy, ivaOn, onC
           <Pill on={!f.pagadoPor} onClick={() => set({ pagadoPor: null })}><Icon n="building" s={16} />Empresa</Pill>
           {socios.map(s => <Pill key={s.id} on={f.pagadoPor === s.id} c="#3b82f6" onClick={() => set({ pagadoPor: s.id })}><Avatar nombre={s.nombre} c={s.color} s={22} />{s.nombre}</Pill>)}
         </div>
-        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>{socios.length ? "Si lo paga un socio de su bolsillo, se le devuelve en la liquidación." : "Añade socios en la pestaña Socios para indicar si alguno lo adelanta."}</div>
+        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{socios.length ? "Si lo paga un socio de su bolsillo, se le devuelve en la liquidación." : "Añade socios en la pestaña Socios para indicar si alguno lo adelanta."}</div>
       </Field>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1.6fr", gap: 12 }}>
         <Field l="Fecha (opcional)" mb={4}><input type="date" value={f.fecha} onChange={e => set({ fecha: e.target.value })} style={C.input} /></Field>

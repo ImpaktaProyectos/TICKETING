@@ -41,7 +41,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.05j";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.05k";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -331,6 +331,7 @@ export default function App() {
   const [printer, setPrinter] = useState("live");
   const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   const [pending, setPending] = useState(db.pendingCount());
+  const [fromCache, setFromCache] = useState(false);   // arrancó sin servidor: usando la copia guardada
   const isMobile = useIsMobile();
   const [menuOpen, setMenuOpen] = useState(false);
   const [updateReady, setUpdateReady] = useState(false);
@@ -358,7 +359,13 @@ export default function App() {
   const setPuntoSortMode = (m) => { dispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: punto.id, patch: { sortMode: m } }); if (m === "ventas") flash("Más vendidos primero"); };
   const eventRevenue = useMemo(() => round2(evSales.filter(s => !s.voided).reduce((t, s) => t + s.price, 0)), [evSales]);
 
-  const flash = (msg, kind = "ok") => { setToast({ msg, kind }); setTimeout(() => setToast(null), 1700); };
+  // Avisos: los normales se van solos; los de aviso/error se quedan hasta que se tocan (o llega otro)
+  const toastTimer = useRef(null);
+  const flash = (msg, kind = "ok") => {
+    clearTimeout(toastTimer.current);
+    setToast({ msg, kind, id: Date.now() });
+    if (kind !== "warn") toastTimer.current = setTimeout(() => setToast(null), 1700);
+  };
 
   // ===== Tickets con QR de un solo uso =====
   // Si el evento lo tiene activado, cada ticket impreso lleva su QR firmado (se firma aquí, sin internet).
@@ -399,13 +406,14 @@ export default function App() {
       if (!navigator.onLine) throw new Error("offline");
       data = await Promise.race([db.loadAll(), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 5000))]);
       if (!data.events.length) { await db.ensureDefaultEvent(); data = await db.loadAll(); }
+      setFromCache(false);
       try { localStorage.setItem(SNAP, JSON.stringify({ events: data.events, closures: data.closures, gastos: data.gastos || [], sales: data.sales.slice(-4000) })); } catch {}
     } catch (e) {
       // Sin conexión al arrancar: usamos la última copia guardada para poder vender igual
       const snap = (() => { try { return JSON.parse(localStorage.getItem(SNAP) || "null"); } catch { return null; } })();
       if (!snap || !snap.events?.length) throw e;
       data = snap;
-      flash("Sin conexión · usando datos guardados", "warn");
+      setFromCache(true);   // se ve en la cabecera (punto de conexión), sin aviso flotante
     }
     const merged = mergePending(data.events, data.sales || []);
     // Continuidad: si cambias de ordenador, la numeración sigue donde iba (no vuelve a 0001)
@@ -601,12 +609,17 @@ export default function App() {
   };
   const requestVoidCajero = () => { if (testMode) { flash("🧪 Modo prueba: no hay ventas que anular", "warn"); return; } if (ev.anularPin) setAskVoidPin(true); else voidLast(punto.name); };
 
-  // Venta avanzada desde el propio TPV (cobro con cálculo de cambio)
-  const toggleAdvanced = () => {
-    const on = !ev.advanced;
+  // Venta avanzada (cobro con efectivo/tarjeta y cambio). La elige cualquiera ANTES de vender;
+  // en cuanto una barra inicia la venta (o hay ventas reales) queda fija para todo el evento,
+  // porque cambiarla a mitad de noche descuadra el arqueo del cierre Z.
+  const modoBloqueado = modoCobroBloqueado(ev, evSales);
+  const setAdvanced = (on) => {
+    if (modoBloqueado) { flash("La venta ya ha empezado: el modo de cobro no se puede cambiar", "warn"); return; }
+    if (!!ev.advanced === !!on) return;
     dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: on ? { advanced: true, changeHelp: true } : { advanced: false } });
-    flash(on ? "💶 Venta avanzada activada" : "Venta avanzada desactivada", on ? "ok" : "warn");
   };
+  const [chooseMode, setChooseMode] = useState(false);
+  const pedirIniciar = () => { if (!modoBloqueado) setChooseMode(true); else if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); };
 
   // Bono / oferta: registra UNA venta al precio del bono e imprime todos los vales de un clic
   const sellCombo = (combo) => {
@@ -783,6 +796,14 @@ export default function App() {
     flash(`🧪 ${puntoObj.name} en modo prueba`, "warn");
   };
 
+  // Quien ya entró como administrador ve la facturación sin volver a poner el PIN
+  const verFacturacion = () => { if (role === "admin") setShowRevenue(true); else setAskRevenue(true); };
+  const avisoPin = role === "admin" && pinsDeFabrica(ev) ? (
+    <div role="alert" style={S.pinAviso}>
+      <span style={{ flex: 1, minWidth: 0 }}><b>PIN de fábrica.</b> Este evento aún usa {(ev.pin_admin || "1234") === "1234" ? "1234 (admin)" : ""}{(ev.pin_admin || "1234") === "1234" && (ev.pin_supervisor || "0000") === "0000" ? " y " : ""}{(ev.pin_supervisor || "0000") === "0000" ? "0000 (supervisor)" : ""}. Cualquiera puede adivinarlo.</span>
+      {view !== "config" && <button onClick={() => setView("config")} style={{ ...S.smallBtn, flexShrink: 0, background: "rgba(0,0,0,.2)", color: "inherit", borderColor: "rgba(0,0,0,.25)" }}>Cambiar ahora</button>}
+    </div>
+  ) : null;
   const exitToLogin = () => { setRole(null); setView("pos"); setAppMode("tpv"); };
   const inCRM = role === "admin" && appMode === "crm";
   const isPriv = role === "admin" || role === "supervisor";
@@ -802,7 +823,7 @@ export default function App() {
   const OnlinePill = ({ small }) => (
     <button onClick={syncNow} style={{ ...S.printerStatusSm, borderColor: !online ? "rgba(255,77,77,.5)" : pending ? "rgba(255,180,0,.5)" : "var(--line)", color: !online ? "var(--red)" : pending ? "var(--amber)" : "var(--text)", fontWeight: pending ? 800 : 700 }} title="Conexión (offline-first) · toca para sincronizar">
       <span style={{ ...S.stDot, background: online ? (pending ? "var(--amber)" : "var(--green)") : "var(--red)", boxShadow: `0 0 0 3px ${online ? (pending ? "rgba(255,180,0,.18)" : "rgba(34,211,166,.18)") : "rgba(255,77,77,.18)"}` }} />
-      {online ? (pending ? `⏳ ${pending} sin subir` : "En línea") : `Sin conexión · ${pending}`}
+      {online ? (pending ? `⏳ ${pending} sin subir` : fromCache ? "Datos guardados" : "En línea") : `Sin conexión · ${pending}`}
     </button>
   );
   const PrinterPill = () => (
@@ -845,7 +866,7 @@ export default function App() {
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn} aria-label="Menú"><Ic n="menu" /></button>
           </header>
           <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={() => { if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} modoBloqueado={modoBloqueado} onSetAdvanced={setAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
           </div>
         </div>
       ) : (
@@ -858,7 +879,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.topBtn}><Ic n="lock" s={16} />Salir</button></div>
           </header>
           <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={() => { if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} modoBloqueado={modoBloqueado} onSetAdvanced={setAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
           </div>
         </div>
       ))}
@@ -886,14 +907,15 @@ export default function App() {
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn} aria-label="Menú"><Ic n="menu" /></button>
           </header>
           <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
+            {avisoPin}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: "10px 12px 10px 14px" }}>
               <div style={{ minWidth: 0 }}><div style={S.miniLabel}>Barra activa</div><div style={{ fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 6 }}><span style={{ color: "var(--accent)" }}><Ic n="store" s={14} w={2.2} /></span>{punto.name}</div></div>
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
                 <div style={{ textAlign: "right" }}><div style={S.miniLabel}>Tickets</div><div style={{ fontWeight: 800, fontSize: 18, lineHeight: 1.1 }}>{totals.count}</div></div>
-                <button onClick={() => setAskRevenue(true)} style={{ ...S.iconBtn, color: "var(--accent)" }} aria-label="Consultar facturación"><Ic n="euro" /></button>
+                <button onClick={verFacturacion} style={{ ...S.iconBtn, color: "var(--accent)" }} aria-label="Consultar facturación"><Ic n="euro" /></button>
               </div>
             </div>
-            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={() => { if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
+            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} modoBloqueado={modoBloqueado} onSetAdvanced={setAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
             {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
             {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
@@ -933,11 +955,12 @@ export default function App() {
               <div style={{ minWidth: 0 }}><div style={S.topTitle}>{ev.name}</div><div style={S.topSub}><span style={S.barTag}><Ic n="store" s={12} w={2.2} />{punto.name}</span>{dateFmt(ev.date)}{ev.venue ? ` · ${ev.venue}` : ""}</div></div>
               <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                 <Stat label={`Tickets · ${punto.name}`} value={totals.count} accent="var(--accent)" />
-                <button onClick={() => setAskRevenue(true)} style={S.topBtn}><span style={{ color: "var(--accent)", display: "flex" }}><Ic n="euro" s={17} /></span>Consultar facturación</button>
+                <button onClick={verFacturacion} style={S.topBtn}><span style={{ color: "var(--accent)", display: "flex" }}><Ic n="euro" s={17} /></span>Consultar facturación</button>
               </div>
             </header>
             <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={() => { if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
+              {avisoPin}
+              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} modoBloqueado={modoBloqueado} onSetAdvanced={setAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
               {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
               {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
               {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
@@ -978,9 +1001,15 @@ export default function App() {
               <MenuRow big icon="swap" label="Cambiar de rol" onClick={() => { setMenuOpen(false); exitToLogin(); }} right={<span style={{ color: "var(--muted)" }}><Ic n="chev" s={16} /></span>} />
               <MenuRow big icon="logout" label="Cerrar sesión" onClick={() => { setMenuOpen(false); logout(); }} tone="danger" />
             </div>
-            <div style={{ textAlign: "center", fontSize: 11, color: "var(--muted)", marginTop: 14 }}>TIXFAST · versión {APP_VERSION}</div>
+            <div style={{ textAlign: "center", fontSize: 12, color: "var(--muted)", marginTop: 14 }}>TIXFAST · versión {APP_VERSION}</div>
           </div>
         </div>
+      )}
+
+      {/* ===== Modo de cobro (se decide antes de la primera venta) ===== */}
+      {chooseMode && (
+        <ModoCobroGate advanced={!!ev.advanced} puntoName={punto.name} onBack={() => setChooseMode(false)}
+          onChoose={(adv) => { setChooseMode(false); setAdvanced(adv); if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} />
       )}
 
       {/* ===== Fondo de caja (bloquea la venta hasta declararlo) ===== */}
@@ -1031,7 +1060,7 @@ export default function App() {
 
             <button onClick={() => setShowCheck(false)} style={{ ...S.btnPrimary, width: "100%", padding: "16px", fontSize: 17, marginTop: 6 }}>✅ Todo listo · Empezar a vender</button>
             <button onClick={() => { setShowCheck(false); exitToLogin(); }} style={{ ...S.btnGhost, width: "100%", marginTop: 10, padding: "13px" }}>Cambiar de barra / rol</button>
-            <div style={{ textAlign: "center", fontSize: 11, color: "var(--muted)", marginTop: 14 }}>TIXFAST · versión {APP_VERSION}</div>
+            <div style={{ textAlign: "center", fontSize: 12, color: "var(--muted)", marginTop: 14 }}>TIXFAST · versión {APP_VERSION}</div>
           </div>
         </div>
       )}
@@ -1061,7 +1090,7 @@ export default function App() {
               {(() => { const gt = sumMov(evGastos, "gasto"); return gt > 0 ? (<>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "8px 0 4px", marginTop: 6, borderTop: "1px solid var(--line)" }}><span style={{ color: "var(--amber)" }}>💸 Gastos de caja</span><b style={{ color: "var(--amber)" }}>-{money(gt)}</b></div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "4px 0" }}><span>A cuadrar (efectivo + datáfono)</span><b>{money(round2(eventRevenue - gt))}</b></div>
-                {ev.advanced && <div style={{ fontSize: 11.5, color: "var(--muted)" }}>Sin contar el fondo inicial de los cajones.</div>}
+                {ev.advanced && <div style={{ fontSize: 12, color: "var(--muted)" }}>Sin contar el fondo inicial de los cajones.</div>}
               </>) : null; })()}
             </div>
             <button style={S.btnGhost} onClick={() => setShowRevenue(false)}>Cerrar</button>
@@ -1077,7 +1106,7 @@ export default function App() {
           <button onClick={() => setUpdateReady(false)} style={S.updateX} aria-label="Más tarde">✕</button>
         </div>
       )}
-      {toast && <div role="status" style={{ ...S.toast, background: toast.kind === "warn" ? "var(--amber)" : "var(--green)", ...(isMobile && isPriv ? { bottom: "calc(84px + env(safe-area-inset-bottom))" } : {}) }}>{toast.msg}</div>}
+      {toast && <div role={toast.kind === "warn" ? "alert" : "status"} onClick={() => setToast(null)} style={{ ...S.toast, cursor: toast.kind === "warn" ? "pointer" : "default", background: toast.kind === "warn" ? "var(--amber)" : "var(--green)", ...(isMobile && (isPriv || role === "cajero") ? { bottom: "calc(84px + env(safe-area-inset-bottom))" } : {}) }}>{toast.msg}{toast.kind === "warn" && <span style={{ display: "block", fontSize: 12, fontWeight: 700, opacity: .75, marginTop: 2 }}>Toca para cerrar</span>}</div>}
     </div>
   );
 }
@@ -1211,6 +1240,7 @@ const IC = {
   up: "M6 15l6-6 6 6",
   down: "M6 9l6 6 6-6",
   scan: "M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M8 8h3v3H8zM13 13h3v3h-3zM13 8h3M8 13v3",
+  edit: "M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16zM13.5 6.5l4 4",
   qr: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2M14 18h2v2M18 18h2v2h-2",
 };
 function Ic({ n, s = 20, w = 1.9, style }) {
@@ -1255,7 +1285,7 @@ function RoleGate({ ev, events, adminPin, supervisorPin, onSelectEvent, onRole }
 
         {mode === null && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {roles.map(r => <button key={r.k} className="gate-role" onClick={() => setMode(r.k)} style={{ ...S.gateRole, ...(r.wide ? { gridColumn: "1 / -1" } : {}) }}><span style={{ ...S.gateIco, ...(r.k === "cajero" ? S.gateIcoMain : {}) }}><Ic n={r.icon} s={24} /></span><span style={{ fontWeight: 800, fontSize: 16, marginTop: 4 }}>{r.t}</span><span style={{ fontSize: 11, color: "var(--muted)" }}>{r.d}</span></button>)}
+            {roles.map(r => <button key={r.k} className="gate-role" onClick={() => setMode(r.k)} style={{ ...S.gateRole, ...(r.wide ? { gridColumn: "1 / -1" } : {}) }}><span style={{ ...S.gateIco, ...(r.k === "cajero" ? S.gateIcoMain : {}) }}><Ic n={r.icon} s={24} /></span><span style={{ fontWeight: 800, fontSize: 16, marginTop: 4 }}>{r.t}</span><span style={{ fontSize: 12, color: "var(--muted)" }}>{r.d}</span></button>)}
           </div>
         )}
 
@@ -1324,7 +1354,7 @@ function EmojiPicker({ value, onChange, size = 52 }) {
             {isMobile && <div style={S.grab} />}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 10 }}>
               <div style={{ fontWeight: 800, fontSize: 17 }}>Elige un icono</div>
-              <button onClick={() => setOpen(false)} style={S.iconBtn}>✕</button>
+              <button onClick={() => setOpen(false)} style={S.iconBtn} aria-label="Cerrar"><Ic n="close" /></button>
             </div>
             <input autoFocus={!isMobile} value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar: hamburguesa, perrito, cerveza, vip…" style={{ ...S.input, marginBottom: 10 }} />
             {!nq && (
@@ -1346,6 +1376,38 @@ function EmojiPicker({ value, onChange, size = 52 }) {
         </div>
       )}
     </>
+  );
+}
+
+/* ---------------------- Modo de cobro ----------------------
+   Queda fijo en cuanto cualquier barra del evento inicia la venta o hay ventas reales. */
+function modoCobroBloqueado(ev, evSales) {
+  return (evSales || []).length > 0 || (ev.puntos || []).some(p => !p.archivado && (p.estado || "prueba") !== "prueba");
+}
+function ModoCobroGate({ advanced, puntoName, onChoose, onBack }) {
+  const opt = (adv, ico, title, desc) => (
+    <button onClick={() => onChoose(adv)} style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", padding: "18px 16px", marginBottom: 12, borderRadius: 16, cursor: "pointer", color: "var(--text)", background: advanced === adv ? "rgba(34,211,166,.10)" : "var(--surface)", border: `2px solid ${advanced === adv ? "var(--green)" : "var(--line)"}` }}>
+      <span style={{ fontSize: 34, flexShrink: 0 }} aria-hidden="true">{ico}</span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: "block", fontWeight: 900, fontSize: 17 }}>{title}</span>
+        <span style={{ display: "block", fontSize: 13.5, color: "var(--muted)", marginTop: 2 }}>{desc}</span>
+      </span>
+      {advanced === adv && <span style={{ fontSize: 12, fontWeight: 800, color: "var(--green)", flexShrink: 0 }}>ACTUAL</span>}
+    </button>
+  );
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 85, background: "var(--bg)", overflow: "auto", padding: "calc(18px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom))" }}>
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>
+        <div style={{ textAlign: "center", marginBottom: 18 }}>
+          <div style={{ ...S.display, marginTop: 4 }}>¿Cómo vais a cobrar?</div>
+          <div style={{ color: "var(--muted)", fontSize: 14, marginTop: 6 }}>Vale para todas las barras del evento. <b style={{ color: "var(--text)" }}>Cuando empiece la venta ya no se podrá cambiar.</b></div>
+        </div>
+        {opt(false, "🎟️", "Venta rápida", "Tocas el producto y sale el ticket. Efectivo y datáfono se cuadran juntos al cerrar.")}
+        {opt(true, "💶", "Venta avanzada", "En cada venta eliges efectivo o tarjeta y te calcula el cambio. El cierre separa el cajón del datáfono.")}
+        <button onClick={onBack} style={{ ...S.btnGhost, width: "100%", marginTop: 4, padding: "13px" }}>Cancelar · seguir en modo prueba</button>
+        <div style={{ fontSize: 12.5, color: "var(--muted)", textAlign: "center", marginTop: 10 }}>Barra: {puntoName}</div>
+      </div>
+    </div>
   );
 }
 
@@ -1456,7 +1518,7 @@ function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose }) {
             <div style={{ fontWeight: 900, fontSize: 19 }}>💰 Caja</div>
             <div style={{ color: "var(--muted)", fontSize: 12.5 }}>{puntoName} · no cambia lo facturado</div>
           </div>
-          <button onClick={onClose} style={{ ...S.smallBtn, flexShrink: 0 }} aria-label="Cerrar">✕</button>
+          <button onClick={onClose} style={{ ...S.smallBtn, flexShrink: 0 }} aria-label="Cerrar"><Ic n="close" s={16} /></button>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 6, marginBottom: 14 }}>
@@ -1566,7 +1628,7 @@ function PayFlow({ total, lines = [], changeHelp = true, onDone, onCancel, onDis
             {quick.map((n, i) => (
               <button key={n + "-" + i} onClick={() => { setGiven(String(n)); }} style={{ ...S.noteBtn, ...(i === 0 ? { borderColor: "var(--green)", color: "var(--green)" } : {}) }}>
                 {i === 0 ? "JUSTO" : money(n)}
-                {i === 0 && <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: "var(--muted)" }}>{money(n)}</span>}
+                {i === 0 && <span style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>{money(n)}</span>}
               </button>
             ))}
           </div>
@@ -1602,7 +1664,7 @@ function PayFlow({ total, lines = [], changeHelp = true, onDone, onCancel, onDis
 
 /* ---------------------- Stat ---------------------- */
 function Stat({ label, value, accent }) {
-  return <div style={S.statBox}><div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>{label}</div><div style={{ fontSize: 24, fontWeight: 800, color: accent }}>{value}</div></div>;
+  return <div style={S.statBox}><div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>{label}</div><div style={{ fontSize: 24, fontWeight: 800, color: accent }}>{value}</div></div>;
 }
 
 /* ---------------------- Tarjeta de comprobación previa ---------------------- */
@@ -1627,7 +1689,7 @@ function CheckCard({ state, title, value, note, children }) {
 /* ============================================================
    POS
    ============================================================ */
-function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onInvite, onComboInvite, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, onToggleAdvanced, onGasto, gastoTotal = 0, entradaTotal = 0, fondo = null, onIniciar }) {
+function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onInvite, onComboInvite, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, modoBloqueado, onSetAdvanced, onGasto, gastoTotal = 0, entradaTotal = 0, fondo = null, onIniciar }) {
   const isMobile = useIsMobile();
   const combos = punto.combos || [];
   const [qty, setQty] = useState(1);
@@ -1747,16 +1809,21 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
           <span className="livedot" style={{ ...S.liveDot, background: "var(--green)" }} />
           <b>VENTA ABIERTA</b>{punto.abiertaEn ? <span style={{ color: "var(--muted)", fontWeight: 600 }}>· desde las {new Date(punto.abiertaEn).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</span> : null}
           {fondo != null && <span style={{ color: "var(--muted)", fontWeight: 600 }}>· fondo {money(fondo)}</span>}
+          <span style={{ color: "var(--muted)", fontWeight: 600 }}>· {advanced ? "cobro efectivo/tarjeta" : "venta rápida"}</span>
         </div>
       )}
-      <button onClick={onToggleAdvanced} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", marginBottom: 14, borderRadius: 14, cursor: "pointer", textAlign: "left", background: advanced ? "rgba(34,211,166,.12)" : "var(--surface)", border: `2px solid ${advanced ? "var(--green)" : "var(--line)"}`, color: "var(--text)" }}>
-        <span style={{ fontSize: 26, flexShrink: 0 }}>💶</span>
-        <span style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ display: "block", fontWeight: 900, fontSize: 15 }}>Venta avanzada {advanced ? "ACTIVADA" : "desactivada"}</span>
-          <span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>{advanced ? "Al vender: total, lo que entrega el cliente y el cambio a devolver" : "Toca para cobrar con cálculo del cambio"}</span>
-        </span>
-        <span style={{ ...S.switch, display: "inline-block", flexShrink: 0, background: advanced ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, left: 0, transform: advanced ? "translateX(20px)" : "translateX(2px)" }} /></span>
-      </button>
+      {!modoBloqueado && !closed ? (
+        <div style={S.modoRow}>
+          <span style={{ flex: "1 1 160px", minWidth: 0 }}>
+            <span style={{ display: "block", fontWeight: 800, fontSize: 14 }}>Modo de cobro</span>
+            <span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>Elígelo antes de vender: luego queda fijo</span>
+          </span>
+          <div style={{ ...S.miniSeg, flexShrink: 0 }} role="radiogroup" aria-label="Modo de cobro">
+            <button role="radio" aria-checked={!advanced} onClick={() => onSetAdvanced(false)} style={{ ...S.miniSegBtn, ...(!advanced ? S.miniSegOn : {}) }}>Rápida</button>
+            <button role="radio" aria-checked={!!advanced} onClick={() => onSetAdvanced(true)} style={{ ...S.miniSegBtn, ...(advanced ? S.miniSegOn : {}) }}>Avanzada</button>
+          </div>
+        </div>
+      ) : null}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
         {!grouping ? (
           <>
@@ -1766,7 +1833,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
             </div>
             <div style={isMobile ? { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8, width: "100%" } : { display: "flex", gap: 8 }}>
               <button onClick={() => { setArranging(false); setInviting(v => !v); }} style={{ ...S.inviteBtn, ...(inviting ? S.inviteBtnOn : {}), flex: isMobile ? 1 : "none" }}>🎁 {inviting ? "Cancelar" : isMobile ? "Invit." : "Invitación"}</button>
-              <button onClick={startGroup} style={{ ...S.groupBtn, flex: isMobile ? 1 : "none" }}>🧾 Unir</button>
+              <button onClick={startGroup} style={{ ...S.groupBtn, flex: isMobile ? 1 : "none" }}>🧾 Varios productos</button>
               {onGasto && <button onClick={() => { setArranging(false); setInviting(false); onGasto(); }} style={{ ...S.gastoBtn, flex: isMobile ? 1 : "none" }} title="Sacar dinero (gastos) o meter cambio en la caja">💰 Caja{!isMobile && entradaTotal > 0 ? <span style={{ ...S.gastoBadge, background: "var(--green)" }}>+{money(entradaTotal)}</span> : null}{!isMobile && gastoTotal > 0 ? <span style={S.gastoBadge}>-{money(gastoTotal)}</span> : null}</button>}
               <button onClick={onReprint} disabled={!canReprint} style={{ ...S.btnGhost, flex: isMobile ? 1 : "none", opacity: canReprint ? 1 : .4 }}>🖨️ {isMobile ? "Reimp." : "Reimprimir"}</button>
               <button onClick={onVoid} style={{ ...S.voidBtn, flex: isMobile ? 1 : "none" }}>↩︎ Anular</button>
@@ -1795,7 +1862,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
         <div style={{ flex: 1, width: "100%" }}>
           {punto.products.length > 1 && !grouping && (arranging ? (
             <div style={S.arrangeBar}>
-              <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}><Ic n="grip" s={16} w={2.4} /><span><b>Moviendo productos</b><span style={{ display: "block", fontSize: 11.5, opacity: .85, fontWeight: 600 }}>Arrastra cada caja a su sitio. Ahora no se vende.</span></span></span>
+              <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}><Ic n="grip" s={16} w={2.4} /><span><b>Moviendo productos</b><span style={{ display: "block", fontSize: 12, opacity: .85, fontWeight: 600 }}>Arrastra cada caja a su sitio. Ahora no se vende.</span></span></span>
               <button onClick={() => setArranging(false)} style={S.doneBtn}>✓ Hecho</button>
             </div>
           ) : (
@@ -1822,16 +1889,16 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
                 return (
                   <button key={p.id} ref={el => { tileRefs.current[p.id] = el; }} onClick={() => tap(p)} disabled={!arranging && p.soldOut}
                     onPointerDown={arranging ? (e => dStart(e, p.id)) : undefined} onPointerMove={arranging ? dMove : undefined} onPointerUp={arranging ? dEnd : undefined} onPointerCancel={arranging ? dEnd : undefined}
-                    className={arranging ? "tile arranging" : inviting ? "tile inviting" : "tile"} style={{ ...S.tile, background: p.soldOut ? "var(--surface2)" : `linear-gradient(160deg, ${p.color}, ${shade(p.color, -25)})`, color: p.soldOut ? "var(--muted)" : "#fff", cursor: p.soldOut ? "not-allowed" : "pointer", outline: grouping && cartQty(p.id) ? "3px solid #fff" : "none", ...(testMode ? { paddingBottom: 30 } : {}), ...arr }}>
+                    className={arranging ? "tile arranging" : inviting ? "tile inviting" : "tile"} style={{ ...S.tile, background: p.soldOut ? "var(--surface2)" : `linear-gradient(160deg, ${p.color}, ${shade(p.color, -25)})`, color: p.soldOut ? "var(--muted)" : inkOn(p.color), cursor: p.soldOut ? "not-allowed" : "pointer", outline: grouping && cartQty(p.id) ? "3px solid #fff" : "none", ...(testMode ? { paddingBottom: 30 } : {}), ...arr }}>
                     {arranging && <span style={S.tileGrip}><Ic n="grip" s={16} w={2.6} /></span>}
                     {testMode && !arranging && <span style={S.tilePrueba}><span style={S.tilePruebaTxt}>PRUEBA</span></span>}
                     {inviting && !arranging && !p.soldOut && <span style={S.tileInvite}>🎁 INVITAR</span>}
-                    {!arranging && p.print === false && <span style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,.45)", borderRadius: 7, padding: "2px 7px", fontWeight: 800, fontSize: 10.5 }}>SIN TICKET</span>}
+                    {!arranging && p.print === false && <span style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,.45)", borderRadius: 7, padding: "2px 7px", fontWeight: 800, fontSize: 12 }}>SIN TICKET</span>}
                     {badge && !arranging && !inviting ? <span style={{ ...S.tileBadge, background: grouping ? "var(--accent)" : "rgba(0,0,0,.45)" }}>{badge}</span> : null}
                     {p.soldOut && <span style={S.soldOut}>AGOTADO</span>}
                     <span style={{ fontSize: 44 }}>{p.emoji}</span>
-                    <span style={{ fontSize: 19, fontWeight: 800, lineHeight: 1.1, textShadow: p.soldOut ? "none" : "0 1px 3px rgba(0,0,0,.3)" }}>{p.name}</span>
-                    {p.subtitle ? <span style={{ fontSize: 11.5, fontWeight: 700, lineHeight: 1.15, opacity: .9, marginTop: -4 }}>{p.subtitle}</span> : null}
+                    <span style={{ fontSize: 19, fontWeight: 800, lineHeight: 1.1, textShadow: p.soldOut || inkOn(p.color) !== "#fff" ? "none" : "0 1px 3px rgba(0,0,0,.3)" }}>{p.name}</span>
+                    {p.subtitle ? <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.15, opacity: .9, marginTop: -4 }}>{p.subtitle}</span> : null}
                     <span style={{ fontSize: 22, fontWeight: 800 }}>{money(p.price)}</span>
                   </button>
                 );
@@ -1870,7 +1937,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
               {cart.length === 0 ? <div style={{ color: "var(--muted)", fontSize: 13, textAlign: "center", padding: "30px 0" }}>Toca productos para añadirlos</div> : cart.map(c => (
                 <div key={c.product.id} style={S.cartRow}>
                   <span style={{ fontSize: 20 }}>{c.product.emoji}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.product.name}</div><div style={{ fontSize: 11, color: "var(--muted)" }}>{money(c.product.price)} · {money(c.product.price * c.qty)}</div></div>
+                  <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.product.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{money(c.product.price)} · {money(c.product.price * c.qty)}</div></div>
                   <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <button onClick={() => changeQty(c.product.id, -1)} style={S.stepBtn}>−</button>
                     <span style={{ width: 22, textAlign: "center", fontWeight: 800 }}>{c.qty}</span>
@@ -1923,11 +1990,17 @@ function TemplateDesigner({ ev, dispatch, flash }) {
     { k: "sello", l: "Sello", d: "Con código grande" },
   ];
   const demo = ev.puntos.flatMap(p => p.products)[0] || { name: "NOMBRE TICKET", price: 10, id: "abc123" };
+  const [previewPrueba, setPreviewPrueba] = useState(false);
+  // Con QR activado, la vista previa lleva un QR real de muestra (marcado como prueba: nunca se canjea)
+  const previewQr = useMemo(() => {
+    if (!ev.qrActivo || !ev.qrClave || demo.qr === false) return null;
+    try { return crearToken({ clave: ev.qrClave, ventaUuid: "00000000-0000-4000-8000-000000000000", idx: 0, productoId: demo.id, prueba: true }); } catch { return null; }
+  }, [ev.qrActivo, ev.qrClave, demo.id, demo.qr]);
   const Toggle = ({ k, label }) => (
-    <label style={S.toggleRow}><span>{label}</span><button onClick={() => set({ [k]: !ev[k] })} style={{ ...S.switch, background: ev[k] ? "var(--accent)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev[k] ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+    <label style={S.toggleRow}><span>{label}</span><button onClick={() => set({ [k]: !ev[k] })} style={{ ...S.switch, background: ev[k] ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev[k] ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
   );
   const StyleToggle = ({ k, label, def = true }) => { const on = st[k] !== false && (st[k] !== undefined ? st[k] : def); return (
-    <label style={S.toggleRow}><span>{label}</span><button onClick={() => setStyle(k, !on)} style={{ ...S.switch, background: on ? "var(--accent)" : "var(--line)" }}><span style={{ ...S.knob, transform: on ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+    <label style={S.toggleRow}><span>{label}</span><button onClick={() => setStyle(k, !on)} style={{ ...S.switch, background: on ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: on ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
   ); };
   const Seg = ({ k, label, opts }) => (
     <div style={{ marginBottom: 12 }}>
@@ -1965,7 +2038,7 @@ function TemplateDesigner({ ev, dispatch, flash }) {
                   reader.readAsDataURL(f);
                 }} />
               </label>
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 8 }}>PNG o JPG. Se imprime en blanco y negro; un logo de alto contraste sale mejor en térmica.</div>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>PNG o JPG. Se imprime en blanco y negro; un logo de alto contraste sale mejor en térmica.</div>
               {ev.logo && <div style={{ fontSize: 12, marginTop: 8 }}>Texto actual: <b>{ev.logo}</b> · <button onClick={() => set({ logo: "" })} style={{ ...S.smallBtn, marginLeft: 4 }}>Quitar</button></div>}
             </>
           )}
@@ -1994,8 +2067,15 @@ function TemplateDesigner({ ev, dispatch, flash }) {
         <button onClick={() => flash("Plantilla guardada")} style={{ ...S.btnPrimary, marginTop: 16, width: "auto", padding: "12px 26px" }}>Guardar plantilla</button>
       </div>
       <div style={{ position: "sticky", top: 0 }}>
-        <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Vista previa en vivo</div>
-        <div style={S.paperWrap}><ThermalTicket ev={ev} product={demo} time={timeNow()} num={42} /></div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+          <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>Vista previa · igual que se imprime</div>
+          <div style={S.miniSeg} role="radiogroup" aria-label="Tipo de ticket en la vista previa">
+            <button role="radio" aria-checked={!previewPrueba} onClick={() => setPreviewPrueba(false)} style={{ ...S.miniSegBtn, ...(!previewPrueba ? S.miniSegOn : {}) }}>Venta</button>
+            <button role="radio" aria-checked={previewPrueba} onClick={() => setPreviewPrueba(true)} style={{ ...S.miniSegBtn, ...(previewPrueba ? S.miniSegOn : {}) }}>Prueba</button>
+          </div>
+        </div>
+        <div style={S.paperWrap}><ThermalTicket ev={ev} product={demo} time={timeNow()} num={42} folio={previewPrueba ? "PRUEBA" : `${prefijoDePunto(ev.puntos[0] || {})}-0042`} qr={previewQr} /></div>
+        {ev.qrActivo && !previewQr && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>El QR aparecerá cuando el evento tenga su clave (necesita internet una vez).</div>}
       </div>
     </div>
   );
@@ -2084,7 +2164,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
       const src = state.events.find(e => e.id === newEvent.copyFrom);
       if (src) { duplicarEvento(src, newEvent.name.trim().toUpperCase(), newEvent.date || new Date().toISOString().slice(0, 10), newEvent.venue); setNewEvent(null); return; }
     }
-    dispatch({ type: "ADD_EVENT", event: { id: uid(), name: newEvent.name.toUpperCase(), date: newEvent.date || "2026-01-01", venue: newEvent.venue, startsAt: newEvent.startsAt || "", endsAt: localAIso(newEvent.endsAt) || "", template: "festival", paper: 80, footer: "", logo: "", showEventName: true, showDate: true, showTime: true, showPrice: true, anularPin: false, puntos: [{ id: uid(), name: "Taquilla", archivado: false, products: [] }] } }); setNewEvent(null); flash("Evento creado"); };
+    dispatch({ type: "ADD_EVENT", event: { id: uid(), name: newEvent.name.toUpperCase(), date: newEvent.date || new Date().toISOString().slice(0, 10), venue: newEvent.venue, startsAt: newEvent.startsAt || "", endsAt: localAIso(newEvent.endsAt) || "", template: "festival", paper: 80, footer: "", logo: "", showEventName: true, showDate: true, showTime: true, showPrice: true, anularPin: false, puntos: [{ id: uid(), name: "Taquilla", archivado: false, products: [] }] } }); setNewEvent(null); flash("Evento creado"); };
 
   return (
     <>
@@ -2093,19 +2173,18 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><h3 style={S.h3}>Datos del evento</h3><div style={{ display: "flex", gap: 8 }}><button onClick={() => setNewEvent({ name: `${ev.name} (COPIA)`, date: "", venue: ev.venue || "", copyFrom: ev.id })} style={S.btnGhost} title="Copia barras, productos, bonos, plantilla y ajustes, sin ventas">⧉ Duplicar</button><button onClick={() => setNewEvent({ name: "", date: "", venue: "", copyFrom: "" })} style={S.btnGhost}>+ Nuevo evento</button></div></div>
         <div style={S.panel}>
           <Field label="Nombre"><input style={S.input} value={ev.name} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { name: e.target.value } })} /></Field>
-          <Field label="Fecha"><input type="date" style={S.input} value={ev.date} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { date: e.target.value } })} /></Field>
           <div style={{ display: "flex", gap: 10, flexWrap: isMobile ? "wrap" : "nowrap" }}>
-            <div style={{ flex: isMobile ? "1 1 100%" : 1, minWidth: 0 }}><Field label="Empieza (fecha y hora)"><input type="datetime-local" style={S.input} value={ev.startsAt || ""} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { startsAt: e.target.value } })} /></Field></div>
+            <div style={{ flex: isMobile ? "1 1 100%" : 1, minWidth: 0 }}><Field label="Empieza (fecha y hora)"><input type="datetime-local" style={S.input} value={ev.startsAt || ""} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: e.target.value ? { startsAt: e.target.value, date: e.target.value.slice(0, 10) } : { startsAt: "" } })} /></Field></div>
             <div style={{ flex: isMobile ? "1 1 100%" : 1, minWidth: 0 }}><Field label="Termina (fecha y hora)"><input type="datetime-local" style={{ ...S.input, ...(ev.qrActivo && !ev.endsAt ? { borderColor: "var(--amber)" } : {}) }} value={isoALocal(ev.endsAt)} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { endsAt: localAIso(e.target.value) || "" } })} /></Field></div>
           </div>
           {ev.startsAt && ev.endsAt && new Date(ev.endsAt) <= new Date(ev.startsAt) && <div style={{ fontSize: 12.5, color: "var(--red)", margin: "-4px 0 10px" }}>⚠️ La hora de fin es anterior al inicio. Revisa el día (si acaba de madrugada, es el día siguiente).</div>}
           <Field label="Recinto"><input style={S.input} value={ev.venue} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { venue: e.target.value } })} /></Field>
           <div style={{ display: "flex", gap: 10 }}>
-            <Field label="PIN admin"><input style={S.input} value={ev.pin_admin || ""} maxLength={6} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pin_admin: e.target.value } })} /></Field>
-            <Field label="PIN supervisor"><input style={S.input} value={ev.pin_supervisor || ""} maxLength={6} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pin_supervisor: e.target.value } })} /></Field>
+            <PinField label="PIN admin" value={ev.pin_admin} fabrica="1234" onSave={(v) => { dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pin_admin: v } }); flash("PIN de administrador cambiado"); }} flash={flash} />
+            <PinField label="PIN supervisor" value={ev.pin_supervisor} fabrica="0000" onSave={(v) => { dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pin_supervisor: v } }); flash("PIN de supervisor cambiado"); }} flash={flash} />
           </div>
-          <label style={S.toggleRow}><span>Anular ticket en caja exige PIN de supervisor</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { anularPin: !ev.anularPin } })} style={{ ...S.switch, background: ev.anularPin ? "var(--accent)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.anularPin ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
-          <label style={S.toggleRow}><span><b>Venta avanzada</b> · pedir efectivo/tarjeta y calcular el cambio</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { advanced: !ev.advanced } })} style={{ ...S.switch, background: ev.advanced ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.advanced ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          <label style={S.toggleRow}><span>Anular ticket en caja exige PIN de supervisor</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { anularPin: !ev.anularPin } })} style={{ ...S.switch, background: ev.anularPin ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.anularPin ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          <label style={S.toggleRow}><span><b>Venta avanzada</b> · pedir efectivo/tarjeta y calcular el cambio{modoCobroBloqueado(ev, evSales) && <span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2 }}>🔒 Fijo: la venta ya ha empezado en este evento</span>}</span><button disabled={modoCobroBloqueado(ev, evSales)} aria-label="Venta avanzada" onClick={() => { if (modoCobroBloqueado(ev, evSales)) return; dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: ev.advanced ? { advanced: false } : { advanced: true, changeHelp: true } }); }} style={{ ...S.switch, flexShrink: 0, opacity: modoCobroBloqueado(ev, evSales) ? .45 : 1, cursor: modoCobroBloqueado(ev, evSales) ? "not-allowed" : "pointer", background: ev.advanced ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.advanced ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
           {ev.advanced && <label style={S.toggleRow}><span>Ayuda con el cambio · billetes y cálculo de devolución</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { changeHelp: !(ev.changeHelp !== false) } })} style={{ ...S.switch, background: ev.changeHelp !== false ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.changeHelp !== false ? "translateX(20px)" : "translateX(2px)" }} /></button></label>}
           {ev.advanced && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Al vender, el camarero elegirá <b>Efectivo</b> o <b>Tarjeta</b>. {ev.changeHelp !== false ? "Con efectivo verá los billetes y el cambio a devolver." : "Con efectivo cobrará directo, sin pedir billetes."} El cierre Z mostrará el arqueo separado.</div>}
         </div>
@@ -2130,7 +2209,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
                   {p.products.map(x => { const on = x.qr !== false && x.print !== false; return (
                     <button key={x.id} disabled={x.print === false} title={x.print === false ? "Este producto no imprime ticket" : ""} onClick={() => dispatch({ type: "UPDATE_PRODUCT", eventId: ev.id, puntoId: p.id, productId: x.id, patch: { qr: x.qr === false } })}
                       style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 11px", borderRadius: 20, fontSize: 12.5, fontWeight: 700, cursor: x.print === false ? "default" : "pointer", border: `1px solid ${on ? "rgba(34,211,166,.55)" : "var(--line)"}`, background: on ? "rgba(34,211,166,.12)" : "transparent", color: on ? "var(--text)" : "var(--muted)", opacity: x.print === false ? .5 : 1 }}>
-                      <span>{x.emoji}</span>{x.name}<span style={{ fontSize: 11, color: on ? "var(--green)" : "var(--muted)" }}>{x.print === false ? "sin ticket" : on ? "QR" : "sin QR"}</span>
+                      <span>{x.emoji}</span>{x.name}<span style={{ fontSize: 12, color: on ? "var(--green)" : "var(--muted)" }}>{x.print === false ? "sin ticket" : on ? "QR" : "sin QR"}</span>
                     </button>); })}
                 </div>
               </div>
@@ -2181,9 +2260,8 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
             </select>
             {newEvent.copyFrom && <div style={{ fontSize: 12, color: "var(--green)", marginBottom: 10 }}>✓ Se copia todo (también el fondo previsto de cada barra) menos las ventas y los cierres.</div>}
             <input style={S.input} placeholder="Nombre del evento" value={newEvent.name} onChange={e => setNewEvent({ ...newEvent, name: e.target.value })} /><div style={{ height: 8 }} />
-            <input type="date" style={S.input} value={newEvent.date} onChange={e => setNewEvent({ ...newEvent, date: e.target.value })} /><div style={{ height: 8 }} />
             <div style={{ display: "flex", gap: 8, flexWrap: isMobile ? "wrap" : "nowrap" }}>
-              <label style={{ flex: isMobile ? "1 1 100%" : 1, minWidth: 0, fontSize: 12, color: "var(--muted)" }}>Empieza<input type="datetime-local" style={{ ...S.input, marginTop: 4 }} value={newEvent.startsAt || ""} onChange={e => setNewEvent({ ...newEvent, startsAt: e.target.value })} /></label>
+              <label style={{ flex: isMobile ? "1 1 100%" : 1, minWidth: 0, fontSize: 12, color: "var(--muted)" }}>Empieza<input type="datetime-local" style={{ ...S.input, marginTop: 4 }} value={newEvent.startsAt || ""} onChange={e => setNewEvent({ ...newEvent, startsAt: e.target.value, date: e.target.value ? e.target.value.slice(0, 10) : newEvent.date })} /></label>
               <label style={{ flex: isMobile ? "1 1 100%" : 1, minWidth: 0, fontSize: 12, color: "var(--muted)" }}>Termina<input type="datetime-local" style={{ ...S.input, marginTop: 4 }} value={newEvent.endsAt || ""} onChange={e => setNewEvent({ ...newEvent, endsAt: e.target.value })} /></label>
             </div><div style={{ height: 8 }} />
             <input style={S.input} placeholder="Recinto" value={newEvent.venue} onChange={e => setNewEvent({ ...newEvent, venue: e.target.value })} />
@@ -2208,10 +2286,10 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
                   ) : (
                     <>
                       <button onClick={() => !p.archivado && dispatch({ type: "SET_PUNTO", id: p.id })} disabled={p.archivado} style={{ flex: 1, textAlign: "left", background: "transparent", border: "none", color: "var(--text)", cursor: p.archivado ? "default" : "pointer" }}>
-                        <div style={{ fontWeight: 700 }}>{active ? "▶ " : ""}{p.name} {p.archivado && <span style={{ fontSize: 10, color: "var(--muted)", border: "1px solid var(--line)", borderRadius: 6, padding: "1px 6px", marginLeft: 4 }}>ARCHIVADO</span>}</div>
+                        <div style={{ fontWeight: 700 }}>{active ? "▶ " : ""}{p.name} {p.archivado && <span style={{ fontSize: 12, color: "var(--muted)", border: "1px solid var(--line)", borderRadius: 6, padding: "1px 6px", marginLeft: 4 }}>ARCHIVADO</span>}</div>
                         <div style={{ fontSize: 12, color: "var(--muted)" }}>{p.products.length} productos{conVentas ? " · con ventas" : ""}</div>
                       </button>
-                      <button onClick={() => setRenamePunto({ id: p.id, value: p.name })} style={S.smallBtn} title="Renombrar">✏️</button>
+                      <button onClick={() => setRenamePunto({ id: p.id, value: p.name })} style={{ ...S.smallBtn, padding: "6px 8px" }} title="Renombrar" aria-label={`Renombrar ${p.name}`}><Ic n="edit" s={14} /></button>
                       {conVentas ? (
                         <button onClick={() => dispatch({ type: "ARCHIVE_PUNTO", eventId: ev.id, puntoId: p.id, value: !p.archivado })} style={{ ...S.smallBtn, color: p.archivado ? "var(--green)" : "var(--amber)", borderColor: p.archivado ? "var(--green)" : "var(--amber)" }}>{p.archivado ? "Activar" : "Archivar"}</button>
                       ) : ev.puntos.length > 1 ? (
@@ -2220,7 +2298,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
                             <button onClick={() => { dispatch({ type: "DELETE_PUNTO", eventId: ev.id, puntoId: p.id }); setConfirmDel(null); flash("Punto borrado"); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Borrar</button>
                             <button onClick={() => setConfirmDel(null)} style={S.smallBtn}>✗</button>
                           </span>
-                        ) : <button onClick={() => setConfirmDel(p.id)} style={S.del}>✕</button>
+                        ) : <button onClick={() => setConfirmDel(p.id)} style={S.del} aria-label={`Archivar ${p.name}`}>✕</button>
                       ) : null}
                     </>
                   )}
@@ -2234,10 +2312,13 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
       <div>
         <h3 style={S.h3}>Productos de “{punto.name}” ({punto.products.length})</h3>
         <div style={S.panel}>
-          <input style={S.input} placeholder="Título (ej. ENTRADA TAQUILLA)" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} />
-          <input style={{ ...S.input, marginTop: 8 }} placeholder="Subtítulo opcional (ej. INCLUYE 1 COPA)" maxLength={60} value={draft.subtitle} onChange={e => setDraft({ ...draft, subtitle: e.target.value })} />
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}><input style={{ ...S.input, width: 110 }} type="number" placeholder="Precio €" value={draft.price} onChange={e => setDraft({ ...draft, price: e.target.value })} /><EmojiPicker value={draft.emoji} onChange={v => setDraft({ ...draft, emoji: v })} size={46} /></div>
-          <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>{PALETTE.map(c => <button key={c} onClick={() => setDraft({ ...draft, color: c })} style={{ width: 26, height: 26, borderRadius: 7, background: c, border: draft.color === c ? "3px solid #fff" : "3px solid transparent", cursor: "pointer" }} />)}</div>
+          <Field label="Título"><input style={S.input} placeholder="Ej. ENTRADA TAQUILLA" value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} /></Field>
+          <Field label="Subtítulo (opcional)"><input style={S.input} placeholder="Ej. INCLUYE 1 COPA" maxLength={60} value={draft.subtitle} onChange={e => setDraft({ ...draft, subtitle: e.target.value })} /></Field>
+          <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+            <div style={{ width: 130, flexShrink: 0 }}><Field label="Precio (€)"><input style={S.input} type="number" inputMode="decimal" placeholder="0,00" value={draft.price} onChange={e => setDraft({ ...draft, price: e.target.value })} /></Field></div>
+            <Field label="Icono"><EmojiPicker value={draft.emoji} onChange={v => setDraft({ ...draft, emoji: v })} size={46} /></Field>
+          </div>
+          <Field label="Color"><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{PALETTE.map(c => <button key={c} aria-label={`Color ${c}`} aria-pressed={draft.color === c} onClick={() => setDraft({ ...draft, color: c })} style={{ width: 28, height: 28, borderRadius: 8, background: c, border: draft.color === c ? "3px solid #fff" : "3px solid transparent", cursor: "pointer" }} />)}</div></Field>
           <button onClick={addProduct} style={{ ...S.btnPrimary, marginTop: 12 }}>+ Añadir a {punto.name}</button>
         </div>
         {punto.products.length > 1 && (
@@ -2262,9 +2343,12 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
                 <button onClick={() => moveProd(p.id, -1)} disabled={i === 0} style={{ ...S.arrowBtn, opacity: i === 0 ? .3 : 1 }} title="Subir" aria-label="Subir"><Ic n="up" s={13} w={2.4} /></button>
                 <button onClick={() => moveProd(p.id, 1)} disabled={i === punto.products.length - 1} style={{ ...S.arrowBtn, opacity: i === punto.products.length - 1 ? .3 : 1 }} title="Bajar" aria-label="Bajar"><Ic n="down" s={13} w={2.4} /></button>
               </div>}
-              <button onClick={() => setEditProd({ id: p.id, name: p.name, subtitle: p.subtitle || "", price: String(p.price), emoji: p.emoji, color: p.color, soldOut: p.soldOut, print: p.print !== false, ...(() => { const c = comisionActual(ev, p.id); return { isProv: !!(c && c.proveedor), prov: c?.proveedor || "", pct: c?.pct != null ? String(c.pct) : "" }; })() })} style={S.smallBtn} title="Editar producto">✏️</button>
-              <button onClick={() => dispatch({ type: "UPDATE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: p.id, patch: { soldOut: !p.soldOut } })} style={{ ...S.smallBtn, color: p.soldOut ? "var(--amber)" : "var(--muted)", borderColor: p.soldOut ? "var(--amber)" : "var(--line)" }}>{p.soldOut ? "Agotado" : "Disponible"}</button>
-              <button onClick={() => dispatch({ type: "DELETE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: p.id })} style={S.del}>✕</button>
+              <button onClick={() => setEditProd({ id: p.id, name: p.name, subtitle: p.subtitle || "", price: String(p.price), emoji: p.emoji, color: p.color, soldOut: p.soldOut, print: p.print !== false, ...(() => { const c = comisionActual(ev, p.id); return { isProv: !!(c && c.proveedor), prov: c?.proveedor || "", pct: c?.pct != null ? String(c.pct) : "" }; })() })} style={{ ...S.smallBtn, display: "grid", placeItems: "center", width: 32, height: 32, padding: 0, flexShrink: 0 }} title="Editar producto" aria-label={`Editar ${p.name}`}><Ic n="edit" s={15} /></button>
+              <label style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, fontSize: 12, fontWeight: 700, color: p.soldOut ? "var(--amber)" : "var(--muted)", flexShrink: 0 }}>
+                <button role="switch" aria-checked={!!p.soldOut} aria-label={`Agotado: ${p.name}`} onClick={() => dispatch({ type: "UPDATE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: p.id, patch: { soldOut: !p.soldOut } })} style={{ ...S.switch, transform: "scale(.82)", background: p.soldOut ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: p.soldOut ? "translateX(20px)" : "translateX(2px)" }} /></button>
+                Agotado
+              </label>
+              <button onClick={() => dispatch({ type: "DELETE_PRODUCT", eventId: ev.id, puntoId: punto.id, productId: p.id })} style={{ ...S.del, flexShrink: 0 }} aria-label={`Borrar ${p.name}`}><Ic n="close" s={15} w={2.2} style={{ margin: "0 auto" }} /></button>
             </div>
           )} />
         </div>
@@ -2280,8 +2364,8 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
                 <div key={c.id} style={S.prodRow}>
                   <div style={{ width: 36, height: 36, borderRadius: 9, background: "linear-gradient(160deg,#ffb400,#d98e00)", display: "grid", placeItems: "center", fontSize: 18 }}>🎟️</div>
                   <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{units} tickets{(c.price !== "" && c.price != null) ? ` · ${money(Number(c.price))}` : ""}</div></div>
-                  <button onClick={() => setEditCombo({ ...c, price: c.price ?? "", items: (c.items || []).map(i => ({ ...i })) })} style={S.smallBtn} title="Editar bono">✏️</button>
-                  <button onClick={() => delCombo(c.id)} style={S.del}>✕</button>
+                  <button onClick={() => setEditCombo({ ...c, price: c.price ?? "", items: (c.items || []).map(i => ({ ...i })) })} style={{ ...S.smallBtn, padding: "6px 8px" }} title="Editar bono" aria-label={`Editar ${c.name}`}><Ic n="edit" s={14} /></button>
+                  <button onClick={() => delCombo(c.id)} style={S.del} aria-label={`Borrar ${c.name}`}>✕</button>
                 </div>
               );
             })}
@@ -2304,8 +2388,8 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)", margin: "8px 0 6px" }}>Color</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{PALETTE.map(c => <button key={c} onClick={() => setEditProd({ ...editProd, color: c })} style={{ width: 28, height: 28, borderRadius: 7, background: c, border: editProd.color === c ? "3px solid #fff" : "3px solid transparent", cursor: "pointer" }} />)}</div>
-          <label style={{ ...S.toggleRow, marginTop: 14 }}><span>¿Imprimir ticket?<span style={{ display: "block", fontSize: 11.5, color: "var(--muted)" }}>{editProd.print !== false ? "Sí · al venderlo sale su ticket" : "No · solo se guarda la venta, sin imprimir"}</span></span><button onClick={() => setEditProd({ ...editProd, print: editProd.print === false })} style={{ ...S.switch, background: editProd.print !== false ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, left: 0, transform: editProd.print !== false ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
-          <label style={{ ...S.toggleRow }}><span>Producto de proveedor (comisión)<span style={{ display: "block", fontSize: 11.5, color: "var(--muted)" }}>Solo para liquidaciones · el precio y la facturación no cambian</span></span><button onClick={() => setEditProd({ ...editProd, isProv: !editProd.isProv })} style={{ ...S.switch, background: editProd.isProv ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, left: 0, transform: editProd.isProv ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          <label style={{ ...S.toggleRow, marginTop: 14 }}><span>¿Imprimir ticket?<span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>{editProd.print !== false ? "Sí · al venderlo sale su ticket" : "No · solo se guarda la venta, sin imprimir"}</span></span><button onClick={() => setEditProd({ ...editProd, print: editProd.print === false })} style={{ ...S.switch, background: editProd.print !== false ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, left: 0, transform: editProd.print !== false ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          <label style={{ ...S.toggleRow }}><span>Producto de proveedor (comisión)<span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>Solo para liquidaciones · el precio y la facturación no cambian</span></span><button onClick={() => setEditProd({ ...editProd, isProv: !editProd.isProv })} style={{ ...S.switch, background: editProd.isProv ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, left: 0, transform: editProd.isProv ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
           {editProd.isProv && (
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <Field label="Proveedor"><input style={S.input} placeholder="Ej. FOOD TRUCK BURGER" value={editProd.prov} onChange={e => setEditProd({ ...editProd, prov: e.target.value })} /></Field>
@@ -2313,7 +2397,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
             </div>
           )}
           {editProd.isProv && editProd.pct !== "" && !isNaN(parseFloat(String(editProd.pct).replace(",", "."))) && editProd.price !== "" && (() => { const pr = parseFloat(editProd.price) || 0, pc = parseFloat(String(editProd.pct).replace(",", ".")) || 0; return <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>Por cada {money(pr)}: <b style={{ color: "var(--green)" }}>{money(round2(pr * pc / 100))} vuestro</b> · {money(round2(pr - pr * pc / 100))} para el proveedor</div>; })()}
-          <label style={{ ...S.toggleRow }}><span>Marcar como agotado</span><button onClick={() => setEditProd({ ...editProd, soldOut: !editProd.soldOut })} style={{ ...S.switch, background: editProd.soldOut ? "var(--amber)" : "var(--line)" }}><span style={{ ...S.knob, left: 0, transform: editProd.soldOut ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          <label style={{ ...S.toggleRow }}><span>Marcar como agotado</span><button onClick={() => setEditProd({ ...editProd, soldOut: !editProd.soldOut })} style={{ ...S.switch, background: editProd.soldOut ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, left: 0, transform: editProd.soldOut ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}><button style={S.btnPrimary} onClick={saveProduct}>Guardar cambios</button><button style={S.btnGhost} onClick={() => setEditProd(null)}>Cancelar</button></div>
         </div>
       </div>
@@ -2338,7 +2422,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
                   <span style={{ width: 24, textAlign: "center", fontWeight: 800 }}>{it.qty || 1}</span>
                   <button onClick={() => { const items = editCombo.items.slice(); items[idx] = { ...it, qty: (it.qty || 1) + 1 }; setEditCombo({ ...editCombo, items }); }} style={S.stepBtn}>+</button>
                 </div>
-                <button onClick={() => setEditCombo({ ...editCombo, items: editCombo.items.filter((_, i) => i !== idx) })} style={S.del}>✕</button>
+                <button onClick={() => setEditCombo({ ...editCombo, items: editCombo.items.filter((_, i) => i !== idx) })} style={S.del} aria-label="Quitar producto del bono">✕</button>
               </div>
             ))}
           </div>
@@ -2446,7 +2530,7 @@ function Historico({ state, onOpenEvent, flash }) {
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" })); a.download = `${r.ev.name.replace(/\s+/g, "_")}_resumen.csv`; a.click(); flash("CSV del evento descargado");
   };
   const Delta = ({ d }) => d == null ? null : <span style={{ fontSize: 12, fontWeight: 800, color: d >= 0 ? "var(--green)" : "var(--red)", background: d >= 0 ? "rgba(34,211,166,.12)" : "rgba(255,77,77,.12)", borderRadius: 20, padding: "2px 8px" }}>{d >= 0 ? "▲" : "▼"} {Math.abs(d)}% vs anterior</span>;
-  const Kpi = ({ l, v, c, sub }) => <div style={S.statBox}><div style={S.miniLabel}>{l}</div><div style={{ fontSize: 22, fontWeight: 800, color: c || "var(--text)" }}>{v}</div>{sub && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>{sub}</div>}</div>;
+  const Kpi = ({ l, v, c, sub }) => <div style={S.statBox}><div style={S.miniLabel}>{l}</div><div style={{ fontSize: 22, fontWeight: 800, color: c || "var(--text)" }}>{v}</div>{sub && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{sub}</div>}</div>;
 
   if (sel) {
     const r = todos.find(x => x.ev.id === sel); if (!r) { setSel(null); return null; }
@@ -2475,7 +2559,7 @@ function Historico({ state, onOpenEvent, flash }) {
             {r.barras.map(b => <div key={b.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 14 }}><span>📍 {b.name} <span style={{ color: "var(--muted)" }}>· {b.tickets} tickets</span></span><b>{money(b.revenue)}</b></div>)}
             <div style={{ fontWeight: 800, margin: "16px 0 10px" }}>Ventas por hora {r.pico != null && <span style={{ fontWeight: 600, color: "var(--muted)", fontSize: 12 }}>· pico {String(r.pico).padStart(2, "0")}:00</span>}</div>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 90 }}>
-              {hk.map(h => <div key={h} style={{ flex: 1, textAlign: "center" }}><div style={{ height: Math.max(4, r.horas[h] / mh * 70), background: h === r.pico ? "var(--accent)" : "var(--surface2)", borderRadius: 4 }} /><div style={{ fontSize: 9.5, color: "var(--muted)", marginTop: 3 }}>{h}h</div></div>)}
+              {hk.map(h => <div key={h} style={{ flex: 1, textAlign: "center" }}><div style={{ height: Math.max(4, r.horas[h] / mh * 70), background: h === r.pico ? "var(--accent)" : "var(--surface2)", borderRadius: 4 }} /><div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}>{h}h</div></div>)}
             </div>
           </div>
           <div style={S.panel}>
@@ -2542,6 +2626,7 @@ function Historico({ state, onOpenEvent, flash }) {
 function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role, onVoid, onCierreZ, flash, onBackup, lastBackup, onImported }) {
   const [backups, setBackups] = useState(null);
   const [showBackups, setShowBackups] = useState(false);
+  const [showBkPanel, setShowBkPanel] = useState(false);
   const fileRef = useRef(null);
   const loadBk = async () => { try { setBackups(await db.loadBackups(ev.id)); } catch { setBackups([]); flash("Sin conexión: no se pueden ver las copias de la nube", "warn"); } };
   const downloadEmergency = () => {
@@ -2593,7 +2678,7 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
     const e = p.estado || "prueba";
     const c = e === "abierta" ? "var(--green)" : e === "cerrada" ? "var(--red)" : "var(--amber)";
     const t = e === "abierta" ? `🟢 Venta abierta${p.abiertaEn ? " · " + hhmm(p.abiertaEn) : ""}` : e === "cerrada" ? `🔒 Cerrada${p.cerradaEn ? " · " + hhmm(p.cerradaEn) : ""}` : "🧪 Modo prueba";
-    return <div style={{ display: "inline-block", fontSize: 11.5, fontWeight: 800, color: c, border: `1px solid ${c}`, borderRadius: 20, padding: "2px 9px", marginTop: 6 }}>{t}</div>;
+    return <div style={{ display: "inline-block", fontSize: 12, fontWeight: 800, color: c, border: `1px solid ${c}`, borderRadius: 20, padding: "2px 9px", marginTop: 6 }}>{t}</div>;
   };
   const exportCSV = () => {
     const rows = [["Punto de venta", "Producto", "Precio", "Unidades", "Total"]];
@@ -2634,19 +2719,20 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
     <>
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
-        <h3 style={{ ...S.h3, margin: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>🔒 Informe de cierre — {ev.name} <span className="livedot" style={S.liveDot} /> <span style={{ fontSize: 11, color: "var(--green)" }}>EN VIVO</span></h3>
-        <button onClick={exportCSV} style={S.btnPrimary}>⬇︎ Exportar CSV</button>
+        <h3 style={{ ...S.h3, margin: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>Resumen del evento · {ev.name} <span className="livedot" style={S.liveDot} /> <span style={{ fontSize: 12, color: "var(--green)" }}>en vivo</span></h3>
+        <button onClick={exportCSV} style={{ ...S.smallBtn, padding: "8px 12px", fontSize: 13 }}>Exportar CSV</button>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px,1fr))", gap: 14, marginBottom: 24 }}>
-        <BigStat label="Tickets · evento" value={grandCount} c="var(--accent)" />
+        {/* Cifras en blanco; color solo cuando significa algo: verde = dinero cobrado, rojo = problema */}
         <BigStat label="Facturación total" value={money(grandRevenue)} c="var(--green)" />
-        {gTotal > 0 && <BigStat label="💸 Gastos de caja" value={"-" + money(gTotal)} c="var(--amber)" />}
-        {gTotal > 0 && <BigStat label="A cuadrar (efect. + datáfono)" value={money(round2(grandRevenue - gTotal))} c="var(--text)" />}
-        <BigStat label="Anulaciones" value={totalVoids} c="var(--amber)" />
-        <BigStat label="Puntos de venta" value={ev.puntos.length} c="#3b82f6" />
-        {ev.advanced && <BigStat label="💶 Efectivo (en caja)" value={money(round2(evSales.filter(s => !s.voided && s.pago === "efectivo").reduce((t, s) => t + s.price, 0)))} c="var(--green)" />}
-        {ev.advanced && <BigStat label="💳 Tarjeta" value={money(round2(evSales.filter(s => !s.voided && s.pago === "tarjeta").reduce((t, s) => t + s.price, 0)))} c="#4d8dff" />}
+        <BigStat label="Tickets · evento" value={grandCount} />
+        {gTotal > 0 && <BigStat label="Gastos de caja" value={"-" + money(gTotal)} />}
+        {gTotal > 0 && <BigStat label="A cuadrar (efect. + datáfono)" value={money(round2(grandRevenue - gTotal))} />}
+        <BigStat label="Anulaciones" value={totalVoids} c={totalVoids > 0 ? "var(--red)" : undefined} />
+        <BigStat label="Puntos de venta" value={ev.puntos.length} />
+        {ev.advanced && <BigStat label="Efectivo (en caja)" value={money(round2(evSales.filter(s => !s.voided && s.pago === "efectivo").reduce((t, s) => t + s.price, 0)))} c="var(--green)" />}
+        {ev.advanced && <BigStat label="Tarjeta" value={money(round2(evSales.filter(s => !s.voided && s.pago === "tarjeta").reduce((t, s) => t + s.price, 0)))} />}
       </div>
 
       {/* ===== Copias de seguridad ===== */}
@@ -2654,11 +2740,19 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
         const mins = lastBackup ? Math.round((Date.now() - new Date(lastBackup).getTime()) / 60000) : null;
         const fresh = mins != null && mins <= 35;
         const pend = db.pendingCount();
+        const enOrden = fresh && !pend;
+        if (enOrden && !showBkPanel) return (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 13, color: "var(--muted)", margin: "-8px 0 20px" }}>
+            <span style={{ ...S.stDot, background: "var(--green)" }} />
+            <span>Copia en la nube: hace {mins} min · todo subido</span>
+            <button onClick={() => setShowBkPanel(true)} style={{ ...S.smallBtn, background: "transparent" }}>Opciones de copia</button>
+          </div>
+        );
         return (
           <div style={{ ...S.panel, marginBottom: 20, border: `1px solid ${fresh ? "var(--line)" : "var(--amber)"}` }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 800 }}>☁️ Copias de seguridad</div>
+                <div style={{ fontWeight: 800 }}>Copias de seguridad</div>
                 <div style={{ fontSize: 13, color: fresh ? "var(--green)" : "var(--amber)", fontWeight: 700, marginTop: 2 }}>
                   {lastBackup ? `Última copia en la nube: ${new Date(lastBackup).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} (hace ${mins} min)` : "Aún no hay copia en la nube desde este equipo"}
                 </div>
@@ -2673,7 +2767,7 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
               <button onClick={() => fileRef.current && fileRef.current.click()} style={{ ...S.btnGhost, flex: "1 1 160px" }}>📂 Importar copia</button>
               <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={e => { const f = e.target.files && e.target.files[0]; if (f) importEmergency(f); e.target.value = ""; }} />
             </div>
-            <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8 }}>¿El equipo va a apagarse sin internet? Descarga la copia de emergencia a un USB e impórtala en el otro ordenador. Nunca se duplica ninguna venta.</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>¿El equipo va a apagarse sin internet? Descarga la copia de emergencia a un USB e impórtala en el otro ordenador. Nunca se duplica ninguna venta.</div>
 
             {showBackups && (
               <div style={{ marginTop: 12, maxHeight: 320, overflow: "auto" }}>
@@ -2807,7 +2901,7 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
           <div style={{ fontWeight: 800, marginBottom: 12 }}>Actividad por hora</div>
           {hourKeys.length === 0 ? <div style={{ color: "var(--muted)", fontSize: 13 }}>Sin datos.</div> : (
             <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 130 }}>
-              {hourKeys.map(h => <div key={h} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}><div style={{ width: "100%", height: `${(hours[h] / maxHour) * 100}%`, background: "var(--accent)", borderRadius: "4px 4px 0 0", minHeight: 3 }} /><span style={{ fontSize: 10, color: "var(--muted)" }}>{h}h</span></div>)}
+              {hourKeys.map(h => <div key={h} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}><div style={{ width: "100%", height: `${(hours[h] / maxHour) * 100}%`, background: "var(--accent)", borderRadius: "4px 4px 0 0", minHeight: 3 }} /><span style={{ fontSize: 12, color: "var(--muted)" }}>{h}h</span></div>)}
             </div>
           )}
         </div>
@@ -2902,8 +2996,8 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
   );
 }
 
-function BigStat({ label, value, c }) {
-  return <div style={{ ...S.panel, padding: 18 }}><div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>{label}</div><div style={{ fontSize: 26, fontWeight: 800, color: c, marginTop: 4 }}>{value}</div></div>;
+function BigStat({ label, value, c = "var(--text)" }) {
+  return <div style={{ ...S.panel, padding: 18 }}><div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>{label}</div><div style={{ fontSize: 26, fontWeight: 800, color: c, marginTop: 4 }}>{value}</div></div>;
 }
 
 
@@ -2970,9 +3064,41 @@ function FondoPrevistoInput({ value, onSave }) {
   );
 }
 
+/* PIN oculto: «••••» + Cambiar. Avisa si sigue siendo el de fábrica. */
+const pinsDeFabrica = (ev) => !!ev.id && ((ev.pin_admin || "1234") === "1234" || (ev.pin_supervisor || "0000") === "0000");
+function PinField({ label, value, fabrica, onSave, flash }) {
+  const [edit, setEdit] = useState(false);
+  const [v, setV] = useState("");
+  const esFabrica = (value || fabrica) === fabrica;
+  const save = () => {
+    if (!/^\d{4,6}$/.test(v)) { flash("El PIN debe tener de 4 a 6 números", "warn"); return; }
+    if (v === fabrica) { flash("Elige un PIN distinto al de fábrica", "warn"); return; }
+    onSave(v); setEdit(false); setV("");
+  };
+  return (
+    <Field label={label}>
+      {edit ? (
+        <div style={{ display: "flex", gap: 6 }}>
+          <input autoFocus inputMode="numeric" autoComplete="off" aria-label={`Nuevo ${label}`} style={{ ...S.input, minWidth: 0 }} value={v} maxLength={6} onChange={e => setV(e.target.value.replace(/\D/g, ""))} placeholder="Nuevo PIN" onKeyDown={e => { if (e.key === "Enter") save(); }} />
+          <button onClick={save} style={{ ...S.smallBtn, flexShrink: 0, padding: "0 12px" }}>Guardar</button>
+          <button onClick={() => { setEdit(false); setV(""); }} style={{ ...S.smallBtn, flexShrink: 0, padding: "0 10px" }} aria-label="Cancelar">✕</button>
+        </div>
+      ) : (
+        <div style={{ ...S.input, display: "flex", alignItems: "center", gap: 8, padding: "7px 8px 7px 13px" }}>
+          <span style={{ flex: 1, letterSpacing: 3, fontWeight: 800 }} aria-label="PIN oculto">••••</span>
+          <button onClick={() => setEdit(true)} style={{ ...S.smallBtn, flexShrink: 0 }}>Cambiar PIN</button>
+        </div>
+      )}
+      {esFabrica && !edit && <div style={{ fontSize: 12, color: "var(--amber)", marginTop: 5 }}>Es el PIN de fábrica ({fabrica}). Cámbialo antes del evento.</div>}
+    </Field>
+  );
+}
 const Field = ({ label, children }) => <div style={{ marginBottom: 12, flex: 1 }}><div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 5 }}>{label}</div>{children}</div>;
 const Empty = ({ msg }) => <div style={{ textAlign: "center", padding: 50, color: "var(--muted)", border: "2px dashed var(--line)", borderRadius: 16 }}>{msg}</div>;
 
+// Color de texto legible sobre un color de producto: oscuro sobre tonos claros (verde, ámbar, amarillo…)
+function lumOf(hex) { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || "")); if (!m) return 0.2; const n = parseInt(m[1], 16); const c = [n >> 16, (n >> 8) & 255, n & 255].map(v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); }); return .2126 * c[0] + .7152 * c[1] + .0722 * c[2]; }
+function inkOn(hex) { const L = lumOf(hex) * .82; /* media del degradado (se oscurece hacia abajo) */ return (1.05 / (L + .05)) >= 3 ? "#fff" : "#14161d"; /* 3:1 = mínimo para texto grande */ }
 function shade(hex, p) { const n = parseInt(hex.slice(1), 16); let r = (n >> 16) + p * 2.55, g = ((n >> 8) & 255) + p * 2.55, b = (n & 255) + p * 2.55; r = Math.max(0, Math.min(255, r)); g = Math.max(0, Math.min(255, g)); b = Math.max(0, Math.min(255, b)); return `rgb(${r | 0},${g | 0},${b | 0})`; }
 
 /* ---------------------- styles ---------------------- */
@@ -3030,19 +3156,19 @@ const S = {
   noteBtn: { background: "var(--surface2)", color: "var(--text)", border: "2px solid var(--line)", borderRadius: 12, padding: "12px 6px", fontWeight: 900, fontSize: 15 },
   padBtn: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 12, padding: "16px 0", fontSize: 22, fontWeight: 800 },
   side: { width: 248, flexShrink: 0, background: "var(--surface)", borderRight: "1px solid var(--line)", padding: "calc(22px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom))", display: "flex", flexDirection: "column", overflowY: "auto" },
-  sideLabel: { fontSize: 10.5, fontWeight: 700, letterSpacing: 1.6, textTransform: "uppercase", color: "var(--muted)", margin: "0 0 8px 2px" },
+  sideLabel: { fontSize: 12, fontWeight: 700, letterSpacing: 1.6, textTransform: "uppercase", color: "var(--muted)", margin: "0 0 8px 2px" },
   sideDivider: { height: 1, background: "var(--line)", margin: "4px 0 6px" },
   menuRow: { display: "flex", alignItems: "center", gap: 11, width: "100%", background: "transparent", border: "none", borderRadius: 10, padding: "8px 8px", fontWeight: 650, fontSize: 13.5 },
   menuRowBig: { padding: "11px 12px", fontSize: 15, borderRadius: 0, borderBottom: "1px solid var(--line)" },
   menuIco: { width: 30, height: 30, borderRadius: 9, display: "grid", placeItems: "center", flexShrink: 0 },
   menuGroup: { background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 16, overflow: "hidden" },
-  onOff: { fontSize: 10, fontWeight: 800, letterSpacing: .8, color: "var(--muted)", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 20, padding: "3px 8px" },
+  onOff: { fontSize: 12, fontWeight: 800, letterSpacing: .8, color: "var(--muted)", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 20, padding: "3px 8px" },
   onOffOn: { color: "#1a1200", background: "var(--amber)", borderColor: "var(--amber)" },
   stDot: { width: 8, height: 8, borderRadius: "50%", flexShrink: 0, display: "inline-block" },
   mEvent: { fontSize: 15.5, fontWeight: 800, letterSpacing: "-.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.2 },
   mSub: { display: "flex", alignItems: "center", gap: 5, color: "var(--accent)", fontSize: 12, fontWeight: 700, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden" },
   mSelect: { background: "var(--surface2)", fontWeight: 800, padding: "9px 12px" },
-  miniLabel: { fontSize: 10.5, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: 700, marginBottom: 2 },
+  miniLabel: { fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: 700, marginBottom: 2 },
   topTitle: { fontFamily: "Inter,sans-serif", fontVariationSettings: "'opsz' 32", fontWeight: 800, fontSize: 21, letterSpacing: "-.03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   topSub: { display: "flex", alignItems: "center", gap: 10, color: "var(--muted)", fontSize: 12.5, marginTop: 4, flexWrap: "wrap" },
   barTag: { display: "inline-flex", alignItems: "center", gap: 5, color: "var(--accent)", background: "rgba(255,90,60,.1)", borderRadius: 20, padding: "3px 9px 3px 7px", fontWeight: 700, fontSize: 12 },
@@ -3056,7 +3182,7 @@ const S = {
   mTitle: { flex: 1, minWidth: 0 },
   iconBtn: { width: 42, height: 42, flexShrink: 0, borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 18, display: "grid", placeItems: "center", padding: 0 },
   bottomNav: { display: "flex", borderTop: "1px solid rgba(255,255,255,.18)", background: "var(--accent)", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0, boxShadow: "0 -6px 20px rgba(255,90,60,.25)" },
-  bTab: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "8px 4px 8px", background: "transparent", border: "none", color: "rgba(255,255,255,.85)", fontSize: 11, fontWeight: 700 },
+  bTab: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "8px 4px 8px", background: "transparent", border: "none", color: "rgba(255,255,255,.85)", fontSize: 12, fontWeight: 700 },
   bTabActive: { color: "#fff", fontWeight: 900 },
   sheetWrap: { position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", zIndex: 60, display: "flex", alignItems: "flex-end", backdropFilter: "blur(3px)" },
   sheet: { width: "100%", background: "var(--surface)", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, paddingBottom: "calc(20px + env(safe-area-inset-bottom))", maxHeight: "86dvh", overflow: "auto", borderTop: "1px solid var(--line)" },
@@ -3073,7 +3199,7 @@ const S = {
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px,1fr))", gap: 14 },
   tile: { position: "relative", border: "none", borderRadius: 18, padding: "20px 14px", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, minHeight: 148, justifyContent: "center" },
   tileBadge: { position: "absolute", top: 10, right: 10, background: "rgba(0,0,0,.45)", borderRadius: 20, padding: "3px 11px", fontWeight: 800, fontSize: 14 },
-  tileQR: { position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,.4)", borderRadius: 7, padding: "2px 7px", fontWeight: 800, fontSize: 11 },
+  tileQR: { position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,.4)", borderRadius: 7, padding: "2px 7px", fontWeight: 800, fontSize: 12 },
   soldOut: { position: "absolute", top: "50%", left: 0, right: 0, transform: "translateY(-50%) rotate(-8deg)", textAlign: "center", fontWeight: 800, fontSize: 20, color: "var(--red)", background: "rgba(0,0,0,.35)", padding: "4px 0", letterSpacing: 2 },
   qtyChip: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "9px 14px", fontWeight: 800 },
   qtyActive: { background: "var(--accent)", color: "#fff", borderColor: "var(--accent)" },
@@ -3084,7 +3210,7 @@ const S = {
   stepBtn: { width: 30, height: 30, borderRadius: 8, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", fontSize: 18, fontWeight: 800, lineHeight: 1 },
   consultBtn: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 12, padding: "12px 18px", fontWeight: 700 },
   printerStatusSm: { display: "flex", alignItems: "center", gap: 7, background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 20, padding: "8px 12px", color: "var(--text)", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" },
-  roleBadge: { fontSize: 10.5, fontWeight: 800, letterSpacing: .6, textTransform: "uppercase", borderRadius: 20, padding: "4px 9px" },
+  roleBadge: { fontSize: 12, fontWeight: 800, letterSpacing: .6, textTransform: "uppercase", borderRadius: 20, padding: "4px 9px" },
   cashierTop: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(14px + env(safe-area-inset-top)) 24px 14px", borderBottom: "1px solid var(--line)", background: "var(--surface)", flexWrap: "wrap", gap: 12 },
   gateWrap: { minHeight: "100%", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", padding: "calc(18px + env(safe-area-inset-top)) 18px calc(18px + env(safe-area-inset-bottom))", overflow: "auto", background: "radial-gradient(900px 480px at 50% -12%, rgba(255,90,60,.10), transparent 70%), var(--bg)" },
   gateCard: { width: 440, maxWidth: "100%", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 22, padding: 28, boxShadow: "0 30px 80px rgba(0,0,0,.55)" },
@@ -3098,7 +3224,7 @@ const S = {
   chipActive: { background: "var(--accent)", color: "#fff", borderColor: "var(--accent)" },
   toggleRow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line)" },
   switch: { width: 44, height: 26, borderRadius: 20, border: "none", position: "relative", padding: 0 },
-  knob: { position: "absolute", top: 2, width: 22, height: 22, borderRadius: "50%", background: "#fff", transition: "transform .2s", boxShadow: "0 1px 3px rgba(0,0,0,.4)" },
+  knob: { position: "absolute", top: 2, left: 0, width: 22, height: 22, borderRadius: "50%", background: "#fff", transition: "transform .2s", boxShadow: "0 1px 3px rgba(0,0,0,.4)" },
   input: { width: "100%", background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "11px 13px", fontSize: 15, outline: "none" },
   btnPrimary: { background: "var(--accent)", color: "#fff", border: "none", borderRadius: 12, padding: "12px 20px", fontWeight: 800, fontSize: 15, width: "100%" },
   btnGhost: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 12, padding: "12px 20px", fontWeight: 700 },
@@ -3113,19 +3239,21 @@ const S = {
   iniciarBtn: { background: "var(--green)", color: "#04241b", border: "3px solid #0b3b2d", borderRadius: 14, padding: "14px 22px", fontWeight: 900, fontSize: 17, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 4px 14px rgba(0,0,0,.25)" },
   abiertaPill: { display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "8px 14px", marginBottom: 14, borderRadius: 30, border: "1px solid rgba(34,211,166,.45)", background: "rgba(34,211,166,.1)", color: "var(--green)", fontSize: 13.5 },
   tilePrueba: { position: "absolute", left: 0, right: 0, bottom: 0, height: 20, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "0 0 18px 18px", background: "repeating-linear-gradient(135deg,#ffb400 0 10px,#1a1205 10px 20px)", pointerEvents: "none" },
-  tilePruebaTxt: { background: "#ffb400", color: "#1a1205", fontWeight: 900, fontSize: 11, letterSpacing: 2, padding: "1px 8px", borderRadius: 4 },
+  tilePruebaTxt: { background: "#ffb400", color: "#1a1205", fontWeight: 900, fontSize: 12, letterSpacing: 2, padding: "1px 8px", borderRadius: 4 },
   gastoBtn: { background: "rgba(255,180,0,.12)", color: "var(--amber)", border: "2px solid rgba(255,180,0,.55)", borderRadius: 12, padding: "8px 14px", fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, whiteSpace: "nowrap" },
   gastoBadge: { background: "var(--amber)", color: "#1a1205", borderRadius: 20, padding: "1px 8px", fontSize: 12, fontWeight: 900 },
   inviteBtn: { background: "rgba(168,85,247,.14)", color: "#d8b4fe", border: "2px solid rgba(168,85,247,.55)", borderRadius: 12, padding: "8px 16px", fontWeight: 800 },
   inviteBtnOn: { background: "#a855f7", color: "#fff", borderColor: "#e9d5ff", boxShadow: "0 0 0 4px rgba(168,85,247,.35), 0 0 24px rgba(168,85,247,.6)" },
   inviteBanner: { display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", marginBottom: 14, borderRadius: 16, background: "linear-gradient(135deg,#7e22ce,#a855f7)", color: "#fff", border: "2px solid #e9d5ff", boxShadow: "0 10px 30px rgba(168,85,247,.45)" },
   inviteCancel: { background: "rgba(0,0,0,.25)", color: "#fff", border: "1px solid rgba(255,255,255,.5)", borderRadius: 11, padding: "10px 14px", fontWeight: 800, flexShrink: 0 },
-  tileInvite: { position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)", background: "#a855f7", color: "#fff", borderRadius: 20, padding: "3px 10px", fontWeight: 900, fontSize: 11, whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(0,0,0,.35)" },
+  tileInvite: { position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)", background: "#a855f7", color: "#fff", borderRadius: 20, padding: "3px 10px", fontWeight: 900, fontSize: 12, whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(0,0,0,.35)" },
   updateBar: { position: "fixed", zIndex: 65, left: "50%", transform: "translateX(-50%)", bottom: "calc(16px + env(safe-area-inset-bottom))", width: "min(560px, calc(100vw - 24px))", display: "flex", alignItems: "center", gap: 10, background: "#1e2230", border: "1px solid var(--accent)", color: "var(--text)", borderRadius: 14, padding: "10px 10px 10px 14px", boxShadow: "0 16px 40px rgba(0,0,0,.55)" },
   updateBtn: { background: "var(--accent)", color: "#fff", border: "none", borderRadius: 10, padding: "9px 14px", fontWeight: 800, flexShrink: 0 },
   updateX: { background: "transparent", color: "var(--muted)", border: "none", padding: "6px 6px", fontSize: 16, flexShrink: 0 },
   arrangeBar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12, padding: "10px 10px 10px 14px", borderRadius: 14, background: "rgba(255,90,60,.12)", border: "1px solid rgba(255,90,60,.45)", color: "var(--accent)", fontSize: 13.5 },
   doneBtn: { background: "var(--accent)", color: "#fff", border: "none", borderRadius: 11, padding: "10px 18px", fontWeight: 800, fontSize: 14, flexShrink: 0 },
+  pinAviso: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 12px", marginBottom: 14, borderRadius: 12, background: "var(--amber)", color: "#1a1205", fontSize: 13.5 },
+  modoRow: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 12px", marginBottom: 14, borderRadius: 14, background: "var(--surface)", border: "1px solid var(--line)" },
   miniSeg: { display: "inline-flex", gap: 3, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 11, padding: 3 },
   miniSegBtn: { display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: "var(--muted)", borderRadius: 8, padding: "7px 11px", fontWeight: 700, fontSize: 12.5 },
   miniSegOn: { background: "var(--surface2)", color: "var(--text)", boxShadow: "inset 0 0 0 1px var(--line)" },

@@ -77,7 +77,7 @@ function VistaEvento({ R, anterior, isMobile }) {
         <div style={C.panel}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
             <div style={{ fontWeight: 900, display: "flex", alignItems: "center", gap: 8 }}><Icon n="receipt" s={17} c="var(--accent)" />En qué se va</div>
-            <div style={{ fontSize: 11, color: "var(--muted)" }}>▏ marca = previsto</div>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>▏ marca = previsto</div>
           </div>
           {cats.length === 0 ? <div style={C.empty}>Sin gastos todavía.</div> : cats.map(([k, v]) => (
             <div key={k} style={{ padding: "6px 0", borderTop: "1px solid var(--line)" }}>
@@ -97,9 +97,9 @@ function VistaEvento({ R, anterior, isMobile }) {
           {horas.length === 0 ? <div style={C.empty}>Sin ventas en el TPV.</div> : (
             <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 120 }}>
               {horas.map(h => <div key={h} style={{ flex: 1, textAlign: "center", minWidth: 0 }} title={`${h}:00 · ${R.horas[h]} tickets`}>
-                <div style={{ fontSize: 10, color: "var(--muted)", marginBottom: 2 }}>{R.horas[h]}</div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 2 }}>{R.horas[h]}</div>
                 <div style={{ height: Math.max(4, R.horas[h] / maxH * 86), background: h === pico ? "var(--accent)" : "rgba(255,90,60,.35)", borderRadius: 4 }} />
-                <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 3 }}>{h}h</div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}>{h}h</div>
               </div>)}
             </div>
           )}
@@ -164,7 +164,7 @@ function VistaTodos({ resumenes, periodo, setPeriodo, isMobile, onAbrir }) {
       <div style={{ ...C.panel, marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
           <div style={{ fontWeight: 900, display: "flex", alignItems: "center" }}><Icon n="trend" s={17} c="var(--accent)" style={{ verticalAlign: "-3px", marginRight: 6 }} />Por mes</div>
-          <div style={{ display: "flex", gap: 12, fontSize: 11.5, color: "var(--muted)" }}><Ley c="var(--accent)" t="Ingresos" /><Ley c="#5b6275" t="Gastos" /><Ley c="var(--green)" t="Beneficio" linea /></div>
+          <div style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--muted)" }}><Ley c="var(--accent)" t="Ingresos" /><Ley c="#5b6275" t="Gastos" /><Ley c="var(--green)" t="Beneficio" linea /></div>
         </div>
         {meses.length === 0 ? <div style={C.empty}>No hay eventos con fecha en este periodo.</div> : <GraficoMeses meses={meses} porMes={porMes} isMobile={isMobile} />}
       </div>
@@ -177,9 +177,9 @@ function VistaTodos({ resumenes, periodo, setPeriodo, isMobile, onAbrir }) {
             <span style={{ width: 28, fontWeight: 900, color: "var(--muted)", flexShrink: 0 }}>{i < 3 ? <span style={{ width: 24, height: 24, borderRadius: 8, display: "inline-grid", placeItems: "center", background: ["#ffb400", "#cbd5e1", "#d97706"][i], color: "#1a1206", fontSize: 13 }}>{i + 1}</span> : i + 1}</span>
             <span style={{ flex: 1, minWidth: 140, textAlign: "left" }}><b style={{ display: "block" }}>{r.ev.name}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>{r.ev.date ? fechaCorta(r.ev.date) + " " + r.ev.date.slice(0, 4) : "Sin fecha"}</span></span>
             <span style={{ display: "flex", gap: isMobile ? 10 : 18, fontSize: 13, textAlign: "right", flexShrink: 0 }}>
-              <span><span style={{ display: "block", color: "var(--muted)", fontSize: 11 }}>Ingresos</span>{money(r.ingresos)}</span>
-              <span><span style={{ display: "block", color: "var(--muted)", fontSize: 11 }}>Gastos</span>{money(r.gastos)}</span>
-              <span style={{ minWidth: 96 }}><span style={{ display: "block", color: "var(--muted)", fontSize: 11 }}>Beneficio{r.margen != null ? ` · ${r.margen} %` : ""}</span><b style={{ color: r.beneficio >= 0 ? "var(--green)" : "var(--red)", fontSize: 15 }}>{money(r.beneficio)}</b></span>
+              <span><span style={{ display: "block", color: "var(--muted)", fontSize: 12 }}>Ingresos</span>{money(r.ingresos)}</span>
+              <span><span style={{ display: "block", color: "var(--muted)", fontSize: 12 }}>Gastos</span>{money(r.gastos)}</span>
+              <span style={{ minWidth: 96 }}><span style={{ display: "block", color: "var(--muted)", fontSize: 12 }}>Beneficio{r.margen != null ? ` · ${r.margen} %` : ""}</span><b style={{ color: r.beneficio >= 0 ? "var(--green)" : "var(--red)", fontSize: 15 }}>{money(r.beneficio)}</b></span>
             </span>
           </button>
         ))}
@@ -215,7 +215,7 @@ function GraficoMeses({ meses, porMes, isMobile }) {
   );
 }
 
-const Big = ({ l, v, c, sub }) => <div style={C.card}><div style={C.label}>{l}</div><div style={{ fontSize: 24, fontWeight: 900, color: c || "var(--text)", lineHeight: 1.1 }}>{v}</div>{sub && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 4 }}>{sub}</div>}</div>;
+const Big = ({ l, v, c, sub }) => <div style={C.card}><div style={C.label}>{l}</div><div style={{ fontSize: 24, fontWeight: 900, color: c || "var(--text)", lineHeight: 1.1 }}>{v}</div>{sub && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>{sub}</div>}</div>;
 const Fila = ({ l, v, c }) => <div style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "7px 0", borderTop: "1px solid var(--line)", fontSize: 14 }}><span style={{ color: "var(--muted)" }}>{l}</span><b style={{ color: c || "var(--text)" }}>{v}</b></div>;
 const Ley = ({ c, t, linea }) => <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: linea ? 14 : 10, height: linea ? 3 : 10, borderRadius: 2, background: c }} />{t}</span>;
 const Delta = ({ d, txt }) => <span style={{ color: d >= 0 ? "var(--green)" : "var(--red)", fontWeight: 800 }}>{d >= 0 ? "▲" : "▼"} {Math.abs(d)} % {txt}</span>;

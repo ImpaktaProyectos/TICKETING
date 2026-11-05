@@ -157,7 +157,7 @@ function Resumen({ ev, d, S, isMobile, ir, alm }) {
     )}
   </>);
 }
-const Dato = ({ l, v, c, sub }) => <div style={{ padding: "9px 11px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", minWidth: 0 }}><div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>{l}</div><div style={{ fontWeight: 900, fontSize: 17, marginTop: 2, color: c || "var(--text)", whiteSpace: "nowrap" }}>{v}</div>{sub && <div style={{ fontSize: 11, color: "var(--muted)" }}>{sub}</div>}</div>;
+const Dato = ({ l, v, c, sub }) => <div style={{ padding: "9px 11px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", minWidth: 0 }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>{l}</div><div style={{ fontWeight: 900, fontSize: 17, marginTop: 2, color: c || "var(--text)", whiteSpace: "nowrap" }}>{v}</div>{sub && <div style={{ fontSize: 12, color: "var(--muted)" }}>{sub}</div>}</div>;
 const Check = ({ ok, t, accion }) => (
   <div style={{ ...C.row }}>
     <span style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 700, fontSize: 14 }}><span style={{ width: 26, height: 26, borderRadius: 8, display: "grid", placeItems: "center", background: ok ? "color-mix(in srgb, var(--green) 18%, transparent)" : "color-mix(in srgb, var(--amber) 18%, transparent)", color: ok ? "var(--green)" : "var(--amber)" }}><Icon n={ok ? "check" : "alert"} s={15} w={2.4} /></span>{t}</span>
@@ -228,7 +228,7 @@ function Entradas({ ev, d, S, busy, run, isMobile, ir, alm, recargarAlm, onRecar
         <button key={t.k} onClick={() => setForm({ tipo: t.k })} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 12px", borderRadius: 14, cursor: "pointer", textAlign: "left", minWidth: 0,
           border: "1px solid var(--line)", background: "var(--surface)", color: "var(--text)" }}>
           <span style={{ width: 34, height: 34, borderRadius: 10, display: "grid", placeItems: "center", flexShrink: 0, background: `color-mix(in srgb, ${t.c} 18%, transparent)`, color: t.c }}><Icon n={t.i} s={17} w={2.2} /></span>
-          <span style={{ minWidth: 0 }}><span style={{ display: "block", fontWeight: 900, fontSize: 14 }}>{t.t}</span><span style={{ display: "block", fontSize: 11.5, opacity: .8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{["Llega mercancía", "Vuelve al proveedor", "Rotura o derrame", "Personal, artistas"][i]}</span></span>
+          <span style={{ minWidth: 0 }}><span style={{ display: "block", fontWeight: 900, fontSize: 14 }}>{t.t}</span><span style={{ display: "block", fontSize: 12, opacity: .8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{["Llega mercancía", "Vuelve al proveedor", "Rotura o derrame", "Personal, artistas"][i]}</span></span>
         </button>))}
     </div>
     <Documentos ev={ev} d={d} busy={busy} run={run} onRecargarCRM={onRecargarCRM} />
@@ -269,7 +269,7 @@ const Stepper = ({ l, v, onChange, step = 1, big, sub }) => (
         style={{ ...C.input, textAlign: "center", fontWeight: 900, fontSize: big ? 28 : 22, padding: big ? "10px 4px" : "8px 4px", minWidth: 0 }} aria-label={l} />
       <button type="button" onClick={() => onChange(r2((Number(v) || 0) + step))} aria-label={`Añadir ${l}`} style={{ width: big ? 56 : 46, height: big ? 56 : 46, borderRadius: 14, border: "none", background: "var(--accent)", color: "#fff", cursor: "pointer", display: "grid", placeItems: "center", flexShrink: 0 }}><Icon n="plus" s={20} w={2.6} /></button>
     </div>
-    {sub && <div style={{ fontSize: 11.5, color: "var(--muted)", textAlign: "center", marginTop: 4 }}>{sub}</div>}
+    {sub && <div style={{ fontSize: 12, color: "var(--muted)", textAlign: "center", marginTop: 4 }}>{sub}</div>}
   </div>
 );
 
@@ -301,7 +301,7 @@ function ArtPicker({ articulos, valor, onChange }) {
         {lista.map((a, i) => { const f = famInfo(a.familia); return (
           <button key={a.id} type="button" onClick={() => onChange(a.id)} style={{ ...C.listBtn, borderTop: i ? "1px solid var(--line)" : "none", padding: "10px 10px" }}>
             <Tile n={f.i} c={f.c} s={32} />
-            <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block", fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nombre}</b><span style={{ fontSize: 11.5, color: "var(--muted)" }}>{formato(a) || f.t}{a.codigo ? ` · cód. ${a.codigo}` : ""}</span></span>
+            <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block", fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nombre}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>{formato(a) || f.t}{a.codigo ? ` · cód. ${a.codigo}` : ""}</span></span>
             <Icon n="right" s={16} c="var(--muted)" />
           </button>); })}
       </div>
@@ -351,7 +351,7 @@ function MovForm({ tipo0, articulos, busy, onClose, onSave }) {
         </div>
         {tipo === "entrada" && <Field l={porCaja > 1 ? "Precio de la caja, sin IVA" : `Precio por ${uniTxt(a.unidad, 1)}, sin IVA`}>
           <MoneyInput value={coste} onChange={(v) => { setCoste(v); setCosteTocado(true); }} />
-          <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>{coste !== "" && total > 0 ? `Esta entrada vale ${money(costeUnidad * total)}.` : "Sirve para calcular el valor del stock y de las diferencias."}</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{coste !== "" && total > 0 ? `Esta entrada vale ${money(costeUnidad * total)}.` : "Sirve para calcular el valor del stock y de las diferencias."}</div>
         </Field>}
         {(tipo === "entrada" || tipo === "devolucion") && <Field l="Nº de factura o albarán (opcional)"><input value={doc} maxLength={60} onChange={e => setDoc(e.target.value)} placeholder="Ej.: 2026/1862" style={C.input} /></Field>}
         <Field l="Nota (opcional)" mb={4}><input value={nota} maxLength={300} onChange={e => setNota(e.target.value)} placeholder={tipo === "merma" ? "Ej.: se cayó una botella en barra 2" : ""} style={C.input} /></Field>
@@ -404,7 +404,7 @@ function Recetas({ d, S, cfg, busy, run, isMobile, ajustes, onGuardarAjustes }) 
           </span>
           <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
             <Badge c={e[1]}>{e[0]}</Badge>
-            <span style={{ fontSize: 11.5, color: "var(--muted)" }}>{num(p.vendidas, 0)} vendidos{p.invitaciones ? ` · ${num(p.invitaciones, 0)} inv.` : ""}</span>
+            <span style={{ fontSize: 12, color: "var(--muted)" }}>{num(p.vendidas, 0)} vendidos{p.invitaciones ? ` · ${num(p.invitaciones, 0)} inv.` : ""}</span>
           </span>
         </button>); })}
     </section>
@@ -595,7 +595,7 @@ function Catalogo({ d, busy, run, isMobile }) {
               <b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nombre}</b>
               <span style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{formato(a) && <span>{formato(a)}</span>}{a.codigo && <span>cód. {a.codigo}</span>}{a.confirmar && <Badge c="var(--amber)">Confirmar con proveedor</Badge>}</span>
             </span>
-            <span style={{ textAlign: "right", flexShrink: 0 }}>{a.coste != null ? <><b style={{ display: "block", fontSize: 14.5 }}>{money(a.coste)}</b><span style={{ fontSize: 11, color: "var(--muted)" }}>por {uniTxt(a.unidad, 1)}</span></> : <span style={{ fontSize: 12, color: "var(--muted)" }}>Sin coste</span>}</span>
+            <span style={{ textAlign: "right", flexShrink: 0 }}>{a.coste != null ? <><b style={{ display: "block", fontSize: 14.5 }}>{money(a.coste)}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>por {uniTxt(a.unidad, 1)}</span></> : <span style={{ fontSize: 12, color: "var(--muted)" }}>Sin coste</span>}</span>
           </button>))}
       </section>); })}
     {ocultos.length > 0 && <div><button onClick={() => setVerOcultos(v => !v)} style={{ ...C.btnSm, color: "var(--muted)" }}><Icon n={verOcultos ? "eyeOff" : "eye"} s={14} />{verOcultos ? "Ocultar" : "Ver"} artículos ocultos ({ocultos.length})</button>
@@ -629,7 +629,7 @@ function ArtSheet({ a, busy, onClose, onSave }) {
       </Field>
       <Field l={`Coste por ${uniTxt(f.unidad, 1)}, sin IVA`}>
         <MoneyInput value={f.coste} onChange={(v) => set({ coste: v })} placeholder="0,00" />
-        {costeN != null && porCaja > 1 && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>= {money(costeN * porCaja)} la caja de {porCaja}</div>}
+        {costeN != null && porCaja > 1 && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>= {money(costeN * porCaja)} la caja de {porCaja}</div>}
       </Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field l="Proveedor"><input value={f.proveedor || ""} maxLength={80} onChange={e => set({ proveedor: e.target.value })} style={C.input} /></Field>

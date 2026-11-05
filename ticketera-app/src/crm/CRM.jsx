@@ -119,7 +119,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
 
       <nav style={{ ...C.tabs, padding: isMobile ? "0 12px" : "0 22px" }}>
         {[["dashboard", "chart", "Dashboard", "Panel"], ["ingresos", "wallet", "Ingresos", "Ingresos"], ["gastos", "receipt", "Gastos", "Gastos"], ["stock", "box", "Stock", "Stock"], ["liquidacion", "scale", "Liquidación", "Liquidar"], ["socios", "users", "Socios", "Socios"]].map(([k, ico, l, lm]) =>
-          <button key={k} onClick={() => setTab(k)} style={{ ...C.tab, display: "flex", alignItems: "center", gap: 8, ...(isMobile ? { flex: 1, padding: "9px 2px 7px", fontSize: 11.5, flexDirection: "column", gap: 3 } : {}), ...(tab === k ? C.tabOn : {}) }}>
+          <button key={k} onClick={() => setTab(k)} style={{ ...C.tab, display: "flex", alignItems: "center", gap: 8, ...(isMobile ? { flex: 1, padding: "9px 2px 7px", fontSize: 12, flexDirection: "column", gap: 3 } : {}), ...(tab === k ? C.tabOn : {}) }}>
             <Icon n={ico} s={isMobile ? 19 : 17} c={tab === k ? "var(--accent)" : "currentColor"} />{isMobile ? lm : l}</button>)}
       </nav>
 
