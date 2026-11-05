@@ -26,6 +26,7 @@ function explicar(r) {
     case "otro_evento": return { t: "DE OTRO EVENTO", d: `Este ticket es de «${r.evento || "otro evento"}». No vale aquí.` };
     case "anulado": return { t: "TICKET ANULADO", d: "Esa venta se anuló en caja. No sirvas." };
     case "caducado": return { t: "EVENTO TERMINADO", d: `El evento terminó${r.fin ? " el " + diaHora(r.fin) : ""}. Los tickets ya no valen.` };
+    case "repetido_aqui": return { t: "YA LO HAS ESCANEADO", d: `Lo validaste aquí a las ${hora(r.t)}. Si te lo enseñan otra vez, es el mismo ticket: no vuelvas a servir.` };
     case "prueba": return { t: "TICKET DE PRUEBA", d: "Se imprimió en modo prueba. No vale para servir." };
     case "no_encontrado": return { t: "FOLIO NO ENCONTRADO", d: "Revisa el número. Si la venta se hizo sin internet, puede que aún no haya subido: prueba con el QR." };
     case "falta_vale": return { t: "ES UN BONO", d: "Escribe también el número del vale que pone en el ticket (·1, ·2…)." };
@@ -66,6 +67,7 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
   const [folioAbierto, setFolioAbierto] = useState(false);
   const [folio, setFolio] = useState("");
   const [motor, setMotor] = useState("");
+  const [comprobando, setComprobando] = useState(false);
   const snd = useSonido();
   const evRef = useRef(ev); evRef.current = ev;
   const folioRef = useRef(false); folioRef.current = folioAbierto;
@@ -114,6 +116,14 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
     }
   };
   useEffect(() => {
+    // Sin pasos de más: si la cámara ya tiene permiso, se abre sola al entrar
+    let vivo = true;
+    (async () => { try { const st = await navigator.permissions?.query({ name: "camera" }); if (vivo && st?.state === "granted") arrancar(); } catch {} })();
+    const tocar = () => snd.activar();
+    window.addEventListener("pointerdown", tocar);
+    return () => { vivo = false; window.removeEventListener("pointerdown", tocar); };
+  }, []);
+  useEffect(() => {
     // Se descarga ya el lector (y su versión para iPhone) para que funcione aunque luego se vaya internet
     import("qr-scanner").catch(() => {});
     import("qr-scanner/qr-scanner-worker.min.js").catch(() => {});
@@ -128,12 +138,12 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
     const h = [{ tipo: r.tipo, t: Date.now(), nombre: r.nombre || "", titulo: r.tipo === "ok" ? (r.nombre || "Ticket válido") : explicar(r).t, offline: !!r.sinConexion }, ...leerHist(ev.id)];
     guardarHist(ev.id, h); setHist(h.slice(0, 60));
     clearTimeout(timerRes.current);
-    timerRes.current = setTimeout(() => setRes(null), r.tipo === "ok" ? 1500 : 3200);
+    timerRes.current = setTimeout(() => setRes(null), r.tipo === "ok" ? 1200 : 2600);
   };
   const cerrarRes = () => { clearTimeout(timerRes.current); setRes(null); };
 
   // Decide si un QR vale. Con internet manda el servidor; sin internet, el móvil.
-  const decidir = async (tk) => {
+  const decidir = async (tk) => {   // (el resultado se pinta en cuanto llega; la cámara nunca se para)
     const e = evRef.current;
     if (!tk) return { tipo: "mal", motivo: "no_tixfast" };
     const local = verificarToken(tk, e.qrClave);
@@ -146,9 +156,12 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
     const nombre = nombreProducto(tk.prod);
     const venta = salesRef.current.find(s => s.clientUuid === tk.ventaUuid || s.id === tk.ventaUuid);
     const usado = Q.usadosLocales(e.id)[tk.clave];
+    const id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
     if (navigator.onLine) {
       try {
-        const r = await Q.canjearQR({ eventoId: e.id, puntoId: punto.id, hex: tk.hex, ms: 5000 });
+        // Rapidez: si el servidor tarda más de 2,5 s, decide el móvil. El canje sube después con el
+        // MISMO id, así que si el servidor sí llegó a apuntarlo, no sale como copia.
+        const r = await Q.canjearQR({ eventoId: e.id, puntoId: punto.id, hex: tk.hex, canjeId: id, ms: 2500 });
         if (r?.ok) { Q.marcarUsado(e.id, tk.clave, { barra: punto.name, disp: "este móvil" }); return { tipo: "ok", nombre: r.nombre || nombre, unidades: r.unidades || 1 }; }
         if (r?.motivo === "ya_canjeado") Q.marcarUsado(e.id, tk.clave, { barra: r.barra, disp: r.dispositivo, t: new Date(r.canjeado_en).getTime() });
         return { tipo: "mal", ...r, nombre: r?.nombre || nombre };
@@ -161,7 +174,6 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
     if (usado) return { tipo: "mal", motivo: "ya_canjeado", t: usado.t, barra: usado.barra, disp: usado.disp, nombre };
     if (venta?.voided) return { tipo: "mal", motivo: "anulado", nombre };
     if (e.endsAt && Date.now() > new Date(e.endsAt).getTime()) return { tipo: "mal", motivo: "caducado", fin: e.endsAt, nombre };
-    const id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
     Q.encolarCanje(e.id, { id, hex: tk.hex, t: Date.now(), punto: punto.id, nombre });
     Q.marcarUsado(e.id, tk.clave, { barra: punto.name, disp: "este móvil", local: true });
     setCola(Q.colaCanjes(e.id).length);
@@ -172,14 +184,20 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
     if (ocupado.current || folioRef.current) return;
     const now = Date.now();
     const tk = leerToken(texto);
-    if (tk && recientes.current[tk.clave] && now - recientes.current[tk.clave] < 8000) return;   // el mismo ticket aún delante de la cámara
+    // El mismo ticket sigue delante de la cámara (se lee ~10 veces por segundo): no se repite el aviso.
+    // Si se retira y vuelve a aparecer más tarde, sí se comprueba (así una copia nunca pasa en silencio).
+    if (tk) { const visto = recientes.current[tk.clave]; recientes.current[tk.clave] = now; if (visto && now - visto < 2000) return; }
     if (!tk && ultimoMalo.current.t === texto && now - ultimoMalo.current.at < 4000) return;
     ocupado.current = true;
+    const previo = tk ? Q.usadosLocales(evRef.current.id)[tk.clave] : null;   // antes de que el servidor lo sobrescriba
+    const lento = setTimeout(() => setComprobando(true), 250);
     try {
       const r = await decidir(tk);
       if (tk) recientes.current[tk.clave] = Date.now(); else ultimoMalo.current = { t: texto, at: Date.now() };
+      // Lo acaba de servir este mismo móvil: aviso ámbar claro en vez de «copia»
+      if (tk && r.motivo === "ya_canjeado") { const u = previo; if (u && u.disp === "este móvil" && Date.now() - (u.t || 0) < 60000) { mostrar({ ...r, tipo: "aviso", motivo: "repetido_aqui", t: u.t }); return; } }
       mostrar(r);
-    } finally { setTimeout(() => { ocupado.current = false; }, 900); }
+    } finally { clearTimeout(lento); setComprobando(false); setTimeout(() => { ocupado.current = false; }, 250); }
   };
 
   procesarRef.current = procesar;
@@ -201,7 +219,8 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
   const okHoy = hist.filter(h => h.tipo === "ok").length;
   const malHoy = hist.filter(h => h.tipo === "mal").length;
   const exp = res && res.tipo !== "ok" ? explicar(res) : null;
-  const fondoRes = res ? (res.tipo === "ok" ? (res.sinConexion ? "#0f7a52" : "#0f9d63") : res.tipo === "aviso" ? "#b7791f" : "#c62828") : null;
+  // Verde algo translúcido: se sigue viendo la cámara para apuntar al siguiente ticket
+  const fondoRes = res ? (res.tipo === "ok" ? (res.sinConexion ? "rgba(15,122,82,.9)" : "rgba(15,157,99,.88)") : res.tipo === "aviso" ? "#b7791f" : "#c62828") : null;
   const tamNombre = (t) => { const n = String(t || "").length; return n <= 8 ? 64 : n <= 12 ? 52 : n <= 18 ? 40 : 30; };
 
   return (
@@ -248,7 +267,9 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
           </>
         )}
 
-        {/* Resultado a pantalla completa */}
+        {comprobando && !res && <div style={V.comprobando} role="status">Comprobando…</div>}
+
+        {/* Resultado a pantalla completa (la cámara sigue leyendo debajo) */}
         {res && (
           <button onClick={cerrarRes} style={{ ...V.res, background: fondoRes }} aria-live="assertive">
             <div style={V.icoRes}>
@@ -272,7 +293,7 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
                 <div style={{ fontSize: 17, fontWeight: 600, lineHeight: 1.35, maxWidth: 420 }}>{exp.d}</div>
               </>
             )}
-            <div style={{ position: "absolute", bottom: "calc(18px + env(safe-area-inset-bottom))", left: 0, right: 0, fontSize: 13, opacity: .75 }}>Toca para seguir</div>
+            <div style={{ position: "absolute", bottom: 18, left: 0, right: 0, fontSize: 14, fontWeight: 700, opacity: .85 }}>Escanea el siguiente: la cámara sigue activa</div>
           </button>
         )}
       </div>
@@ -330,6 +351,7 @@ const V = {
   btnGrande: { background: "linear-gradient(160deg,#ff6a3d,#ff3d2e)", color: "#fff", border: 0, borderRadius: 14, padding: "16px 26px", fontWeight: 800, fontSize: 17, cursor: "pointer" },
   marco: { position: "absolute", left: "50%", top: "46%", width: "min(64vw, 300px)", height: "min(64vw, 300px)", transform: "translate(-50%,-50%)", pointerEvents: "none" },
   esq: { position: "absolute", width: 38, height: 38, borderStyle: "solid", borderColor: "#fff", borderRadius: 6 },
+  comprobando: { position: "absolute", left: "50%", top: 16, transform: "translateX(-50%)", background: "rgba(0,0,0,.7)", borderRadius: 20, padding: "8px 16px", fontSize: 15, fontWeight: 800 },
   pista: { position: "absolute", left: 0, right: 0, bottom: 18, textAlign: "center", fontSize: 14, fontWeight: 700, textShadow: "0 1px 4px rgba(0,0,0,.8)" },
   res: { position: "absolute", inset: 0, border: 0, color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "24px 22px", cursor: "pointer", fontFamily: "inherit" },
   icoRes: { width: 104, height: 104, borderRadius: 104, background: "rgba(255,255,255,.18)", display: "grid", placeItems: "center", marginBottom: 14 },
