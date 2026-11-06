@@ -21,12 +21,16 @@ const guardarHist = (ev, h) => { try { localStorage.setItem(kHist(ev), JSON.stri
 function explicar(r) {
   const donde = [r.barra, r.dispositivo || r.disp].filter(Boolean).join(" · ");
   switch (r.motivo) {
-    case "ya_canjeado": return { t: "YA CANJEADO", d: `Se sirvió a las ${hora(r.canjeado_en || r.t)}${donde ? " en " + donde : ""}. Es una copia: no sirvas.` };
+    case "ya_canjeado": if (r.web) return { t: "YA HA ENTRADO", d: `Esta entrada se escaneó a las ${hora(r.canjeado_en || r.t)}${donde ? " en " + donde : ""}. Es una copia: no dejes pasar.` };
+      return { t: "YA CANJEADO", d: `Se sirvió a las ${hora(r.canjeado_en || r.t)}${donde ? " en " + donde : ""}. Es una copia: no sirvas.` };
     case "falso": return { t: "TICKET NO VÁLIDO", d: "La firma no es de TIXFAST: está manipulado o es falso. No sirvas." };
     case "otro_evento": return { t: "DE OTRO EVENTO", d: `Este ticket es de «${r.evento || "otro evento"}». No vale aquí.` };
     case "anulado": return { t: "TICKET ANULADO", d: "Esa venta se anuló en caja. No sirvas." };
     case "caducado": return { t: "EVENTO TERMINADO", d: `El evento terminó${r.fin ? " el " + diaHora(r.fin) : ""}. Los tickets ya no valen.` };
     case "repetido_aqui": return { t: "YA LO HAS ESCANEADO", d: `Lo validaste aquí a las ${hora(r.t)}. Si te lo enseñan otra vez, es el mismo ticket: no vuelvas a servir.` };
+    case "temprano": return { t: "AÚN NO ES LA HORA", d: `Esta entrada vale desde el ${diaHora(r.desde)}.` };
+    case "reemitida": return { t: "QR SUSTITUIDO", d: "Esta entrada se volvió a emitir y este QR ya no vale. Pide al titular el QR nuevo." };
+    case "prueba_ok": return { t: "ENTRADA DE PRUEBA", d: "Queda validada, pero es de prueba: no vale para entrar al evento." };
     case "prueba": return { t: "TICKET DE PRUEBA", d: "Se imprimió en modo prueba. No vale para servir." };
     case "no_encontrado": return { t: "FOLIO NO ENCONTRADO", d: "Revisa el número. Si la venta se hizo sin internet, puede que aún no haya subido: prueba con el QR." };
     case "falta_vale": return { t: "ES UN BONO", d: "Escribe también el número del vale que pone en el ticket (·1, ·2…)." };
@@ -86,6 +90,7 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
       if (!navigator.onLine) return;
       try { await Q.subirCola(ev.id, punto.id); } catch {}
       try { await Q.descargarCanjes(ev.id, ev.puntos); } catch {}
+      try { await Q.descargarWeb(ev.id); } catch {}
       if (vivo) setCola(Q.colaCanjes(ev.id).length);
     };
     ciclo();
@@ -135,7 +140,7 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
   const mostrar = (r) => {
     setRes(r);
     if (r.tipo === "ok") snd.bien(); else if (r.tipo === "aviso") snd.aviso(); else snd.mal();
-    const h = [{ tipo: r.tipo, t: Date.now(), nombre: r.nombre || "", titulo: r.tipo === "ok" ? (r.nombre || "Ticket válido") : explicar(r).t, offline: !!r.sinConexion }, ...leerHist(ev.id)];
+    const h = [{ tipo: r.tipo, t: Date.now(), nombre: r.nombre || "", titulo: r.tipo === "ok" ? (r.asistente || r.nombre || "Ticket válido") : explicar(r).t, offline: !!r.sinConexion }, ...leerHist(ev.id)];
     guardarHist(ev.id, h); setHist(h.slice(0, 60));
     clearTimeout(timerRes.current);
     timerRes.current = setTimeout(() => setRes(null), r.tipo === "ok" ? 1200 : 2600);
@@ -152,7 +157,7 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
       if (navigator.onLine) Q.canjearQR({ eventoId: e.id, puntoId: punto.id, hex: tk.hex, ms: 4000 }).catch(() => {});   // queda registrado el intento
       return { tipo: "mal", motivo: otro ? "otro_evento" : "falso", evento: otro?.name };
     }
-    if (tk.prueba) return { tipo: "aviso", motivo: "prueba" };
+    if (tk.ver === 2) return { tipo: "aviso", motivo: "prueba" };
     const nombre = nombreProducto(tk.prod);
     const venta = salesRef.current.find(s => s.clientUuid === tk.ventaUuid || s.id === tk.ventaUuid);
     const usado = Q.usadosLocales(e.id)[tk.clave];
@@ -162,7 +167,7 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
         // Rapidez: si el servidor tarda más de 2,5 s, decide el móvil. El canje sube después con el
         // MISMO id, así que si el servidor sí llegó a apuntarlo, no sale como copia.
         const r = await Q.canjearQR({ eventoId: e.id, puntoId: punto.id, hex: tk.hex, canjeId: id, ms: 2500 });
-        if (r?.ok) { Q.marcarUsado(e.id, tk.clave, { barra: punto.name, disp: "este móvil" }); return { tipo: "ok", nombre: r.nombre || nombre, unidades: r.unidades || 1 }; }
+        if (r?.ok) { Q.marcarUsado(e.id, tk.clave, { barra: punto.name, disp: "este móvil" }); return { ...r, tipo: "ok", nombre: r.nombre || nombre, unidades: r.unidades || 1 }; }
         if (r?.motivo === "ya_canjeado") Q.marcarUsado(e.id, tk.clave, { barra: r.barra, disp: r.dispositivo, t: new Date(r.canjeado_en).getTime() });
         return { tipo: "mal", ...r, nombre: r?.nombre || nombre };
       } catch (err) {
@@ -171,6 +176,21 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
       }
     }
     // ===== Sin internet =====
+    if (tk.web) {
+      const W = Q.webLocal(e.id), w = W.entradas[tk.ventaUuid];
+      const extra = w ? { web: true, asistente: w.n, nombre: w.t, numero: w.num, prueba: !!w.p } : { web: true, prueba: tk.prueba };
+      if (usado) return { tipo: "mal", motivo: "ya_canjeado", t: usado.t, barra: usado.barra, disp: usado.disp, ...extra };
+      if (w?.a) return { tipo: "mal", motivo: "anulado", ...extra };
+      if (w && tk.idx !== w.e - 1) return { tipo: "mal", motivo: "reemitida", ...extra };
+      const ini = e.startsAt ? new Date(e.startsAt).getTime() : null;   // hora local del evento
+      if (ini && Date.now() < ini - (W.horas ?? 24) * 3600000) return { tipo: "mal", motivo: "temprano", desde: new Date(ini - (W.horas ?? 24) * 3600000).toISOString(), ...extra };
+      if (e.endsAt && Date.now() > new Date(e.endsAt).getTime()) return { tipo: "mal", motivo: "caducado", fin: e.endsAt, ...extra };
+      const idw = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+      Q.encolarCanje(e.id, { id: idw, hex: tk.hex, t: Date.now(), punto: punto.id, nombre: extra.nombre || "" });
+      Q.marcarUsado(e.id, tk.clave, { barra: punto.name, disp: "este móvil", local: true });
+      setCola(Q.colaCanjes(e.id).length);
+      return { tipo: "ok", unidades: 1, sinConexion: true, desconocida: !w, ...extra };
+    }
     if (usado) return { tipo: "mal", motivo: "ya_canjeado", t: usado.t, barra: usado.barra, disp: usado.disp, nombre };
     if (venta?.voided) return { tipo: "mal", motivo: "anulado", nombre };
     if (e.endsAt && Date.now() > new Date(e.endsAt).getTime()) return { tipo: "mal", motivo: "caducado", fin: e.endsAt, nombre };
@@ -192,7 +212,8 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
     const previo = tk ? Q.usadosLocales(evRef.current.id)[tk.clave] : null;   // antes de que el servidor lo sobrescriba
     const lento = setTimeout(() => setComprobando(true), 250);
     try {
-      const r = await decidir(tk);
+      let r = await decidir(tk);
+      if (r.tipo === "ok" && r.web && r.prueba) r = { ...r, tipo: "aviso", motivo: "prueba_ok" };
       if (tk) recientes.current[tk.clave] = Date.now(); else ultimoMalo.current = { t: texto, at: Date.now() };
       // Lo acaba de servir este mismo móvil: aviso ámbar claro en vez de «copia»
       if (tk && r.motivo === "ya_canjeado") { const u = previo; if (u && u.disp === "este móvil" && Date.now() - (u.t || 0) < 60000) { mostrar({ ...r, tipo: "aviso", motivo: "repetido_aqui", t: u.t }); return; } }
@@ -281,15 +302,19 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
             </div>
             {res.tipo === "ok" ? (
               <>
-                <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: 2, opacity: .9 }}>SIRVE</div>
-                <div style={{ fontSize: tamNombre(res.nombre), fontWeight: 900, lineHeight: 1.02, margin: "8px 0 10px", overflowWrap: "anywhere" }}>{res.nombre || "TICKET VÁLIDO"}</div>
+                <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: 2, opacity: .9 }}>{res.web ? "ADELANTE" : "SIRVE"}</div>
+                {res.web ? (<>
+                  <div style={{ fontSize: tamNombre(res.asistente), fontWeight: 900, lineHeight: 1.02, margin: "8px 0 6px", overflowWrap: "anywhere" }}>{res.asistente || "ENTRADA VÁLIDA"}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, opacity: .92 }}>{[res.nombre, res.numero ? `nº ${res.numero}` : null].filter(Boolean).join(" · ")}</div>
+                  {res.desconocida && <div style={V.etq}>Firma correcta · aún no estaba en la lista de este móvil</div>}
+                </>) : <div style={{ fontSize: tamNombre(res.nombre), fontWeight: 900, lineHeight: 1.02, margin: "8px 0 10px", overflowWrap: "anywhere" }}>{res.nombre || "TICKET VÁLIDO"}</div>}
                 {res.unidades > 1 && <div style={{ fontSize: 28, fontWeight: 900 }}>× {res.unidades}</div>}
                 {res.sinConexion && <div style={V.etq}>Sin conexión · se subirá solo</div>}
               </>
             ) : (
               <>
                 <div style={{ fontSize: 40, fontWeight: 900, lineHeight: 1.05, margin: "6px 0 12px" }}>{exp.t}</div>
-                {res.nombre && <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8, opacity: .95 }}>{res.nombre}</div>}
+                {(res.asistente || res.nombre) && <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8, opacity: .95 }}>{[res.asistente, res.nombre].filter(Boolean).join(" · ")}</div>}
                 <div style={{ fontSize: 17, fontWeight: 600, lineHeight: 1.35, maxWidth: 420 }}>{exp.d}</div>
               </>
             )}

@@ -468,7 +468,15 @@ export async function webVentas(eventoId) {
     supabase.from("ticket_web_pedidos").select("id, codigo, email, nombre, datos, total, estado, prueba, creado_en").eq("evento_id", eventoId).order("creado_en", { ascending: false }).limit(5000),
     supabase.from("ticket_web_entradas").select("id, pedido_id, numero, asistente, dni, tramo_nombre, precio, estado, prueba, creado_en").eq("evento_id", eventoId).order("numero").limit(20000),
   ]);
-  return { pedidos: ok(p), entradas: ok(e) };
+  const [c, r] = await Promise.all([
+    supabase.from("ticket_canjes").select("venta_uuid, idx, canjeado_en, dispositivo, sin_conexion, punto_id").eq("evento_id", eventoId).eq("origen", "web").limit(20000),
+    supabase.from("ticket_canje_rechazos").select("venta_uuid, motivo, detalle, dispositivo, creado_en").eq("evento_id", eventoId).order("creado_en", { ascending: false }).limit(500),
+  ]);
+  return { pedidos: ok(p), entradas: ok(e), canjes: c.error ? [] : c.data || [], rechazos: r.error ? [] : (r.data || []).filter(x => x.detalle?.web || ["falso", "otro_evento", "ilegible"].includes(x.motivo)) };
+}
+export async function webReemitir(id, asistente) {
+  const r = ok(await supabase.rpc("web_reemitir_entrada", { p_id: id, p_asistente: asistente || null }));
+  if (!r?.ok) { const e = new Error(r?.motivo === "nombre" ? "Escribe el nombre completo" : "No se ha podido reemitir"); e.mostrar = true; throw e; }
 }
 export async function webAnularEntrada(id, anular = true) {
   const r = ok(await supabase.rpc("web_anular_entrada", { p_id: id, p_anular: anular }));

@@ -381,6 +381,10 @@ function Ventas({ ev, flash, isMobile }) {
   const pedidoDe = useMemo(() => Object.fromEntries((v?.pedidos || []).map(p => [p.id, p])), [v]);
   const lista = (v?.entradas || []).filter(e => verPruebas || !e.prueba).filter(e => { if (!q.trim()) return true; const p = pedidoDe[e.pedido_id] || {}; const s = `${e.asistente} ${e.dni || ""} ${p.email || ""} ${p.codigo || ""} ${e.numero}`.toLowerCase(); return s.includes(q.trim().toLowerCase()); });
   const validas = (v?.entradas || []).filter(e => e.estado === "valida");
+  const canjeDe = useMemo(() => { const m = {}; (v?.canjes || []).forEach(c => { if (!m[c.venta_uuid] || c.canjeado_en > m[c.venta_uuid].canjeado_en) m[c.venta_uuid] = c; }); return m; }, [v]);
+  const dentro = validas.filter(e => canjeDe[e.id]).length;
+  const [titular, setTitular] = useState(null);   // entrada a reemitir / cambiar titular
+  const MOTIVO = { ya_canjeado: "Copia (ya había entrado)", anulado: "Entrada anulada", reemitida: "QR sustituido", temprano: "Antes de la hora", caducado: "Evento terminado", falso: "QR falso", otro_evento: "De otro evento", no_encontrado: "No encontrada", ilegible: "No es de TIXFAST" };
   const csv = () => {
     const cel = (x) => { let s = String(x ?? "").replace(/[;\r\n]+/g, " "); if (/^[=+\-@\t]/.test(s)) s = "'" + s; return s; };
     const filas = [["Nº", "Asistente", "DNI asistente", "Tramo", "Precio", "Estado", "Prueba", "Pedido", "Comprador", "Correo", "Fecha"], ...lista.map(e => { const p = pedidoDe[e.pedido_id] || {}; return [e.numero, e.asistente, e.dni || "", e.tramo_nombre, e.precio, e.estado, e.prueba ? "sí" : "no", p.codigo, p.nombre, p.email, new Date(e.creado_en).toLocaleString("es-ES")]; })];
@@ -396,6 +400,9 @@ function Ventas({ ev, flash, isMobile }) {
           <span style={C.tag}>{(v.pedidos || []).length} pedidos</span>
           <span style={C.tag}>{validas.length} entradas válidas</span>
           {validas.some(e => e.prueba) && <span style={{ ...C.tag, color: "var(--amber)" }}>{validas.filter(e => e.prueba).length} de prueba</span>}
+          <span style={{ ...C.tag, color: "var(--green)" }}><Icon n="check" s={13} w={2.4} />{dentro} dentro</span>
+          <span style={C.tag}>{validas.length - dentro} por entrar</span>
+          {(v.rechazos || []).length > 0 && <span style={{ ...C.tag, color: "var(--red)" }}>{v.rechazos.length} intentos rechazados</span>}
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar…" aria-label="Buscar asistente" style={{ ...C.input, flex: "1 1 220px", width: "auto" }} />
@@ -411,10 +418,26 @@ function Ventas({ ev, flash, isMobile }) {
             <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
               {e.prueba && <Badge c="var(--amber)">Prueba</Badge>}
               {e.estado === "anulada" && <Badge c="var(--red)">Anulada</Badge>}
+              {canjeDe[e.id] && <Badge c="var(--green)"><Icon n="check" s={11} w={2.6} />Dentro {new Date(canjeDe[e.id].canjeado_en).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</Badge>}
+              {e.estado === "valida" && <button onClick={() => setTitular({ e, nombre: e.asistente })} style={C.btnSm}>Titular / reemitir</button>}
               <b>{money(e.precio)}</b>
               <button onClick={() => anular(e)} style={C.btnSm}>{e.estado === "valida" ? "Anular" : "Recuperar"}</button>
             </span>
           </div>); })}
+        {(v.rechazos || []).length > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontWeight: 900, marginBottom: 6 }}>Intentos rechazados en la puerta</div>
+            {v.rechazos.slice(0, 30).map((x, i) => (
+              <div key={i} style={{ ...C.row, fontSize: 13 }}>
+                <span style={{ minWidth: 0 }}><b style={{ color: "var(--red)" }}>{MOTIVO[x.motivo] || x.motivo}</b>{x.detalle?.asistente ? ` · ${x.detalle.asistente}` : ""}{x.detalle?.numero ? ` · nº ${x.detalle.numero}` : ""}</span>
+                <span style={{ color: "var(--muted)", flexShrink: 0 }}>{new Date(x.creado_en).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}{x.dispositivo ? ` · ${x.dispositivo}` : ""}</span>
+              </div>))}
+          </div>)}
+        {titular && <Sheet title={`Entrada nº ${titular.e.numero}`} onClose={() => setTitular(null)}
+          footer={<button disabled={titular.busy} onClick={async () => { setTitular(t => ({ ...t, busy: true })); try { await crm.webReemitir(titular.e.id, titular.nombre); flash("Entrada reemitida: el QR anterior ya no vale"); setTitular(null); cargar(); } catch (er) { flash(er.message || "No se ha podido", "warn"); setTitular(t => ({ ...t, busy: false })); } }} style={{ ...C.btnPrimary, width: "100%" }}><Icon n="refresh" s={16} />Reemitir con este titular</button>}>
+          <div style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 12, lineHeight: 1.45 }}>Se genera un QR nuevo y <b style={{ color: "var(--text)" }}>el anterior deja de valer</b>. Úsalo si alguien ha perdido la entrada, si la ha compartido o si cambia de titular. El comprador la verá actualizada en su enlace «Mis entradas».</div>
+          <Field l="Nombre del titular"><input style={C.input} value={titular.nombre} maxLength={120} onChange={e => setTitular(t => ({ ...t, nombre: e.target.value }))} /></Field>
+        </Sheet>}
         {lista.length > 300 && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>Se muestran 300 de {lista.length}. Usa el buscador o descarga el CSV.</div>}
       </>)}
     </Seccion>

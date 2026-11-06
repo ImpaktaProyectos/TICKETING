@@ -85,3 +85,19 @@ export async function cargarInformeQR(eventoId) {
   if (r.error) throw r.error;
   return { canjes: c.data || [], rechazos: r.data || [] };
 }
+
+/* ---------- Entradas online del evento (para validar también SIN internet) ----------
+   Se descarga la lista (anuladas, reemitidas, titular) y desde cuándo vale el QR. */
+const kWeb = (ev) => scopedKey("tixfast_qr_web_" + ev);
+export const webLocal = (ev) => leer(kWeb(ev), { horas: 24, entradas: {} });
+export async function descargarWeb(eventoId) {
+  const [f, x] = await Promise.all([
+    supabase.from("ticket_web_eventos").select("qr_horas_antes").eq("evento_id", eventoId).maybeSingle(),
+    supabase.from("ticket_web_entradas").select("id, emision, estado, asistente, tramo_nombre, numero, prueba").eq("evento_id", eventoId).limit(50000),
+  ]);
+  if (f.error || x.error) throw f.error || x.error;
+  const entradas = {};
+  (x.data || []).forEach(e => { entradas[e.id] = { e: e.emision, a: e.estado === "anulada" ? 1 : 0, n: e.asistente, t: e.tramo_nombre, num: e.numero, p: e.prueba ? 1 : 0 }; });
+  guardar(kWeb(eventoId), { horas: f.data?.qr_horas_antes ?? 24, entradas, t: Date.now() });
+  return Object.keys(entradas).length;
+}

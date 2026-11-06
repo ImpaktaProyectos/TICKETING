@@ -13,6 +13,9 @@
 
 export const QR_PREFIJO = "TX";
 export const VER_REAL = 1, VER_PRUEBA = 2;
+// Entradas vendidas online (las firma el servidor con la misma clave): 3 = real · 4 = de prueba.
+// En ellas el byte 17 es el nº de emisión (al reemitir, el QR anterior deja de valer).
+export const VER_WEB = 3, VER_WEB_PRUEBA = 4;
 
 /* ---------- SHA-256 / HMAC síncronos (la venta no espera a nada) ---------- */
 const K = new Uint32Array([
@@ -106,7 +109,7 @@ export function leerToken(texto) {
   const h = bytesToHex(b);
   return {
     texto: t, bytes: b, hex: h,
-    ver: b[0], prueba: b[0] === VER_PRUEBA,
+    ver: b[0], prueba: b[0] === VER_PRUEBA || b[0] === VER_WEB_PRUEBA, web: b[0] === VER_WEB || b[0] === VER_WEB_PRUEBA,
     ventaUuid: hexToUuid(h.slice(2, 34)), idx: b[17], unidades: b[18] || 1, prod: h.slice(38, 50),
     clave: `${hexToUuid(h.slice(2, 34))}:${b[17]}`,   // identifica el ticket (lo que solo se canjea una vez)
   };
