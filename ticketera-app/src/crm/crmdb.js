@@ -384,3 +384,93 @@ export async function loadPrevision(eventoId) {
 export async function savePrevision(eventoId, datos) {
   ok(await supabase.from("ticket_crm_previsiones").upsert({ evento_id: eventoId, datos, actualizado_en: new Date().toISOString() }, { onConflict: "evento_id" }));
 }
+
+/* ===================== TICKETERA ONLINE (gestor «Entradas») ===================== */
+// Todo lo de la venta online cuelga del mismo evento del TPV. Las compras las hace el servidor (web_comprar).
+const sinAcentos = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "");
+export const slugDe = (t) => sinAcentos(t).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50) || "evento";
+export const FORM_DEF = { telefono: "no", dni: "no", nacimiento: "no", cp: "no", direccion: "no", ciudad: "no", genero: "no", dni_asistente: "no" };
+export const AVISOS_DEF = { activo: true, umbralPct: 15, umbralN: "", mostrarVendido: true, siguientePrecio: true };
+export const DISENO_DEF = { color: "#ff5a3c", fondo: "oscuro", fondoFlyer: true, letra: "inter" };
+
+export async function webListar() {
+  const [f, t] = await Promise.all([
+    supabase.from("ticket_web_eventos").select("evento_id, slug, estado, modo, flyer_url, venta_inicio"),
+    supabase.from("ticket_web_tramos").select("evento_id, cantidad, vendidas"),
+  ]);
+  const fichas = ok(f), tramos = ok(t);
+  return Object.fromEntries(fichas.map(x => {
+    const ts = tramos.filter(y => y.evento_id === x.evento_id);
+    return [x.evento_id, { ...x, vendidas: ts.reduce((s, y) => s + y.vendidas, 0), aforo: ts.every(y => y.cantidad != null) ? ts.reduce((s, y) => s + y.cantidad, 0) : null }];
+  }));
+}
+export async function webCargar(eventoId) {
+  const [f, t] = await Promise.all([
+    supabase.from("ticket_web_eventos").select("*").eq("evento_id", eventoId).maybeSingle(),
+    supabase.from("ticket_web_tramos").select("*").eq("evento_id", eventoId).order("orden").order("creado_en"),
+  ]);
+  return { ficha: ok(f), tramos: ok(t) || [] };
+}
+// Activa la venta online de un evento (con un enlace libre a partir del nombre)
+export async function webActivar(evento) {
+  const base = slugDe(evento.name);
+  for (let i = 0; i < 30; i++) {
+    const slug = i ? `${base}-${i + 1}` : base;
+    const r = await supabase.from("ticket_web_eventos").insert({ evento_id: evento.id, slug, formulario: FORM_DEF, avisos: AVISOS_DEF, diseno: DISENO_DEF }).select("*").single();
+    if (!r.error) return r.data;
+    if (r.error.code !== "23505" || !/slug/.test(r.error.message || "")) throw r.error;
+  }
+  throw new Error("No hay un enlace libre para este nombre");
+}
+export async function webGuardarFicha(eventoId, patch) {
+  ok(await supabase.from("ticket_web_eventos").update({ ...patch, actualizado_en: new Date().toISOString() }).eq("evento_id", eventoId));
+}
+export async function webCambiarSlug(eventoId, slug) {
+  const r = await supabase.from("ticket_web_eventos").update({ slug }).eq("evento_id", eventoId);
+  if (r.error) { const e = new Error(r.error.code === "23505" ? "Ese enlace ya lo usa otro evento" : "Enlace no válido: solo letras, números y guiones"); e.mostrar = true; throw e; }
+}
+// Datos que comparte con el TPV (nombre, fechas, recinto)
+export async function webGuardarEvento(eventoId, patch) { ok(await supabase.from("ticket_eventos").update(patch).eq("id", eventoId)); }
+export async function webGuardarTramo(t) {
+  const fila = { evento_id: t.evento_id, nombre: t.nombre, descripcion: t.descripcion || null, precio: t.precio, cantidad: t.cantidad, orden: t.orden,
+    venta_inicio: t.venta_inicio || null, venta_fin: t.venta_fin || null, max_por_compra: t.max_por_compra, visible: t.visible, copas: t.copas };
+  if (t.id) { ok(await supabase.from("ticket_web_tramos").update(fila).eq("id", t.id)); return t.id; }
+  return ok(await supabase.from("ticket_web_tramos").insert(fila).select("id").single()).id;
+}
+export async function webBorrarTramo(id) { ok(await supabase.from("ticket_web_tramos").delete().eq("id", id).eq("vendidas", 0)); }
+// Archivos públicos del evento (flyer, logo, autorización): carpeta del usuario/evento
+export async function webSubir(eventoId, tipo, file) {
+  const { data: u } = await supabase.auth.getUser();
+  const ext = (file.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5);
+  const path = `${u.user.id}/${eventoId}/${tipo}-${Date.now()}.${ext}`;
+  ok(await supabase.storage.from("web-eventos").upload(path, file, { cacheControl: "31536000", upsert: false, contentType: file.type }));
+  return supabase.storage.from("web-eventos").getPublicUrl(path).data.publicUrl;
+}
+// Nuevo evento desde el CRM (con una barra por defecto para que el TPV lo pueda abrir)
+export async function webNuevoEvento(nombre, inicio) {
+  const id = crypto.randomUUID(), fecha = (inicio || new Date().toISOString()).slice(0, 10);
+  ok(await supabase.from("ticket_eventos").insert({ id, nombre: nombre.toUpperCase(), fecha, inicio: inicio || null, recinto: "", plantilla: "festival", papel: 80, pie: "", mostrar_evento: true, mostrar_fecha: true, mostrar_hora: true, mostrar_precio: true, anular_pin: false, pin_admin: "1234", pin_supervisor: "0000" }));
+  ok(await supabase.from("ticket_puntos").insert({ id: crypto.randomUUID(), evento_id: id, nombre: "Barra", archivado: false }));
+  return id;
+}
+// Duplicar: evento nuevo + ficha + tramos (sin ventas)
+export async function webDuplicar(evento, ficha, tramos, nombre) {
+  const id = await webNuevoEvento(nombre, null);
+  await webGuardarEvento(id, { recinto: evento.venue || "" });
+  const nueva = await webActivar({ id, name: nombre });
+  const { evento_id, owner_id, slug, contador, actualizado_en, estado, ...resto } = ficha || {};
+  if (ficha) await webGuardarFicha(id, { ...resto, estado: "borrador", venta_inicio: null });
+  for (const t of tramos || []) await webGuardarTramo({ ...t, id: null, evento_id: id, venta_inicio: null, venta_fin: null });
+  return { id, slug: nueva.slug };
+}
+export async function webVentas(eventoId) {
+  const [p, e] = await Promise.all([
+    supabase.from("ticket_web_pedidos").select("id, codigo, email, nombre, datos, total, estado, prueba, creado_en").eq("evento_id", eventoId).order("creado_en", { ascending: false }).limit(5000),
+    supabase.from("ticket_web_entradas").select("id, pedido_id, numero, asistente, dni, tramo_nombre, precio, estado, prueba, creado_en").eq("evento_id", eventoId).order("numero").limit(20000),
+  ]);
+  return { pedidos: ok(p), entradas: ok(e) };
+}
+export async function webAnularEntrada(id, anular = true) {
+  const r = ok(await supabase.rpc("web_anular_entrada", { p_id: id, p_anular: anular }));
+  if (!r?.ok) { const e = new Error(r?.motivo === "sin_sitio" ? "Ese tramo ya está lleno: no se puede recuperar" : "No se ha podido cambiar"); e.mostrar = true; throw e; }
+}
