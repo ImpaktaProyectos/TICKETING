@@ -39,20 +39,66 @@ function explicar(r) {
   }
 }
 
-// Sonidos (se activan con el primer toque: en iPhone el audio necesita un gesto)
+// ===== Sonidos de escaneo =====
+// Pitido de «correcto», zumbido de «error» y tono de «aviso». Se generan aquí (sin descargar nada) como
+// pequeños WAV y suenan con un <audio>: así van por el canal multimedia del teléfono → el volumen se sube
+// y se baja con sus botones (y en iPhone suenan aunque el interruptor de silencio esté puesto).
+// En iPhone el audio necesita un primer toque en la pantalla: se «desbloquea» con él.
+const K_MUDO = "tixfast_validador_mudo";
+function wav(notas, { vol = 0.9, rate = 22050 } = {}) {
+  // notas: [{ f, ini, dur, forma }] en segundos
+  const total = Math.max(...notas.map(n => n.ini + n.dur)) + 0.03;
+  const n = Math.ceil(total * rate), pcm = new Int16Array(n);
+  notas.forEach(({ f, ini, dur, forma = "sine" }) => {
+    const a = Math.floor(ini * rate), z = Math.floor(dur * rate);
+    for (let i = 0; i < z && a + i < n; i++) {
+      const t = i / rate, fase = 2 * Math.PI * f * t;
+      let v = forma === "square" ? Math.sign(Math.sin(fase)) * 0.6 : forma === "triangle" ? 2 / Math.PI * Math.asin(Math.sin(fase)) : Math.sin(fase);
+      const env = Math.min(1, i / (rate * 0.006)) * Math.min(1, (z - i) / (rate * 0.03));   // sin chasquidos
+      pcm[a + i] = Math.max(-32767, Math.min(32767, pcm[a + i] + v * env * vol * 32767));
+    }
+  });
+  const buf = new ArrayBuffer(44 + n * 2), d = new DataView(buf);
+  const str = (o, t) => [...t].forEach((c, i) => d.setUint8(o + i, c.charCodeAt(0)));
+  str(0, "RIFF"); d.setUint32(4, 36 + n * 2, true); str(8, "WAVE"); str(12, "fmt "); d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true);
+  d.setUint32(24, rate, true); d.setUint32(28, rate * 2, true); d.setUint16(32, 2, true); d.setUint16(34, 16, true); str(36, "data"); d.setUint32(40, n * 2, true);
+  new Int16Array(buf, 44).set(pcm);
+  return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+}
+const SONIDOS = {
+  bien: [{ f: 988, ini: 0, dur: 0.11 }, { f: 1319, ini: 0.1, dur: 0.2 }],                                   // «ding-ding» ascendente
+  mal: [{ f: 220, ini: 0, dur: 0.28, forma: "square" }, { f: 165, ini: 0.32, dur: 0.42, forma: "square" }],  // zumbido grave doble
+  aviso: [{ f: 660, ini: 0, dur: 0.16, forma: "triangle" }, { f: 660, ini: 0.22, dur: 0.16, forma: "triangle" }],
+};
 function useSonido() {
-  const ctx = useRef(null);
-  const activar = () => { try { if (!ctx.current) ctx.current = new (window.AudioContext || window.webkitAudioContext)(); ctx.current.resume?.(); } catch {} };
-  const tono = (f, dur, delay = 0, tipo = "sine", vol = 0.25) => {
-    const c = ctx.current; if (!c) return;
-    const o = c.createOscillator(), g = c.createGain(); o.type = tipo; o.frequency.value = f;
-    const t0 = c.currentTime + delay; g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-    o.connect(g); g.connect(c.destination); o.start(t0); o.stop(t0 + dur + 0.02);
+  const aud = useRef(null);
+  const [mudo, setMudo] = useState(() => { try { return localStorage.getItem(K_MUDO) === "1"; } catch { return false; } });
+  const mudoRef = useRef(mudo); mudoRef.current = mudo;
+  const preparar = () => {
+    if (aud.current) return aud.current;
+    try { aud.current = Object.fromEntries(Object.entries(SONIDOS).map(([k, notas]) => { const a = new Audio(wav(notas, { vol: k === "mal" ? 0.75 : 0.9 })); a.preload = "auto"; a.dataset.sonido = k; return [k, a]; })); }
+    catch { aud.current = {}; }
+    return aud.current;
   };
-  const bien = () => { tono(988, 0.12); tono(1319, 0.18, 0.11); try { navigator.vibrate?.(60); } catch {} };
-  const mal = () => { tono(196, 0.28, 0, "square", 0.18); tono(175, 0.34, 0.32, "square", 0.18); try { navigator.vibrate?.([220, 90, 220]); } catch {} };
-  const aviso = () => { tono(660, 0.16, 0, "triangle"); try { navigator.vibrate?.([80, 60, 80]); } catch {} };
-  return { activar, bien, mal, aviso };
+  // Primer toque: crea los sonidos y los «desbloquea» (play mudo y pausa)
+  const listo = useRef(false);
+  const activar = () => {
+    if (listo.current) return; listo.current = true;   // solo con el primer toque
+    const A = preparar();
+    Object.values(A).forEach(a => { try { a.muted = true; const p = a.play(); if (p?.then) p.then(() => { a.pause(); a.currentTime = 0; a.muted = false; }).catch(() => { a.muted = false; }); else { a.pause(); a.muted = false; } } catch {} });
+  };
+  const sonar = (k) => {
+    if (mudoRef.current) return;
+    const a = preparar()[k]; if (!a) return;
+    try { a.pause(); a.currentTime = 0; a.muted = false; a.volume = 1; a.play()?.catch?.(() => {}); } catch {}
+  };
+  const vib = (p) => { try { navigator.vibrate?.(p); } catch {} };
+  const bien = () => { sonar("bien"); vib(60); };
+  const mal = () => { sonar("mal"); vib([220, 90, 220]); };
+  const aviso = () => { sonar("aviso"); vib([80, 60, 80]); };
+  const alternarMudo = () => setMudo(m => { const n = !m; try { localStorage.setItem(K_MUDO, n ? "1" : "0"); } catch {} if (!n) setTimeout(() => sonar("bien"), 50); return n; });
+  useEffect(() => () => { Object.values(aud.current || {}).forEach(a => { try { URL.revokeObjectURL(a.src); } catch {} }); }, []);
+  return { activar, bien, mal, aviso, mudo, alternarMudo };
 }
 
 export default function Validador({ ev, punto, events = [], sales = [], onExit }) {
@@ -257,6 +303,13 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
           <span style={{ width: 8, height: 8, borderRadius: 8, background: online && !cola ? "#22d3a6" : "#ffb400" }} />
           {online ? (cola ? `${cola} por subir` : "En línea") : `Sin conexión${cola ? " · " + cola : ""}`}
         </span>
+        <button onClick={() => { snd.activar(); snd.alternarMudo(); }} aria-pressed={snd.mudo} aria-label={snd.mudo ? "Activar el sonido" : "Silenciar los pitidos"} title={snd.mudo ? "Sonido apagado" : "Sonido encendido"}
+          style={{ ...V.salir, padding: "7px 9px", display: "grid", placeItems: "center", ...(snd.mudo ? { background: "rgba(255,77,77,.18)", borderColor: "rgba(255,77,77,.6)", color: "#ff8a80" } : {}) }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M4 9h4l5-4v14l-5-4H4z" />
+            {snd.mudo ? <path d="M17 9l5 6M22 9l-5 6" /> : <path d="M16.5 8.5a5 5 0 0 1 0 7M19.5 5.5a9 9 0 0 1 0 13" />}
+          </svg>
+        </button>
         <button onClick={onExit} style={V.salir}>Salir</button>
       </header>
 
