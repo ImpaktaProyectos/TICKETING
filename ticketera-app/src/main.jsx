@@ -26,12 +26,20 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+// Páginas públicas de venta (/e/<evento>) y de entradas (/mis-entradas/<acceso>): sin sesión ni TPV
+const PUBLICA = /^\/(e|mis-entradas)\//.test(window.location.pathname);
+const Publico = React.lazy(() => import("./web/Publico.jsx"));
+
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <RequireSession>
-        <App />
-      </RequireSession>
+      {PUBLICA ? (
+        <React.Suspense fallback={<div style={{ minHeight: "100dvh", background: "#08090d" }} />}><Publico /></React.Suspense>
+      ) : (
+        <RequireSession>
+          <App />
+        </RequireSession>
+      )}
     </ErrorBoundary>
   </React.StrictMode>
 );
@@ -40,7 +48,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
 window.addEventListener("unhandledrejection", (e) => { console.warn("Promesa no controlada:", e.reason); e.preventDefault(); });
 
 // PWA: la app abre sin wifi, pero SIEMPRE se actualiza si hay versión nueva
-if ("serviceWorker" in navigator) {
+if (!PUBLICA && "serviceWorker" in navigator) {   // la página pública no instala la app
   window.addEventListener("load", async () => {
     try {
       const reg = await navigator.serviceWorker.register("/sw.js");
@@ -72,7 +80,7 @@ if ("serviceWorker" in navigator) {
 (() => {
   const actual = () => { const s = document.querySelector('script[type="module"][src*="/assets/"]'); return s ? s.getAttribute("src") : null; };
   const mio = actual();
-  if (!mio) return;                                    // modo desarrollo
+  if (!mio || PUBLICA) return;                                    // modo desarrollo
   const check = async () => {
     if (!navigator.onLine || window.__tixfastUpdate) return;
     try {
