@@ -57,7 +57,7 @@ export function Prevision({ ev, events, ingresos, gastos, G, F, ajustes, vinculo
   const tarifas = useMemo(() => {
     const m = {};
     ingresos.filter(i => esTicketera(i) && (i.unidades || i.importe)).forEach(i => {
-      const k = i.concepto || i.categoria; const x = m[k] = m[k] || { ref: k, nombre: k.replace(/^Fourvenues · /, ""), unidades: 0, importe: 0 };
+      const k = i.concepto || i.categoria; const x = m[k] = m[k] || { ref: k, nombre: k.replace(/^(Fourvenues|TIXFAST) · /, ""), unidades: 0, importe: 0 };
       x.unidades += Number(i.unidades) || 0; x.importe = r2(x.importe + i.importe);
     });
     return Object.values(m);

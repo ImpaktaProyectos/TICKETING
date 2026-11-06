@@ -51,7 +51,7 @@ export function fiscalEvento({ ev, sales, ingresos, gastos, fuentes, ajustes }) 
   const tarjetaMan = sum(manual.filter(i => i.metodo === "tarjeta"), i => i.importe);
   const bizum = sum(manual.filter(i => i.metodo === "bizum"), i => i.importe);
   const transf = sum(manual.filter(i => i.metodo === "transferencia"), i => i.importe);
-  const tick = cob.filter(esTicketera);
+  const tick = cob.filter(i => esTicketera(i) && i.origen !== "tixfast");   // la venta online propia no paga la comisión de una ticketera externa
   const tickImp = sum(tick, i => i.importe);
   const tickUds = tick.reduce((t, i) => t + (Number(i.unidades) || 0), 0);
   const lineas = [

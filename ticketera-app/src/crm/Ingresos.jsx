@@ -9,7 +9,7 @@ const metodo = (k) => METODOS.find(m => m.k === k) || METODOS[4];
 const FUENTES_PUNTO = [["barra", "Barra"], ["entradas", "Entradas"], ["merch", "Merch"], ["otros", "Otros"]];
 
 const haceTxt = (iso) => { if (!iso) return "nunca"; const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000); return m < 1 ? "ahora mismo" : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : new Date(iso).toLocaleDateString("es-ES", { day: "2-digit", month: "short" }); };
-export const esExterno = (i) => i.origen === "api" || i.origen === "csv";
+export const esExterno = (i) => i.origen === "api" || i.origen === "csv" || i.origen === "tixfast";   // tixfast = venta online propia
 
 export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById, conexion, vinculo, sincronizando, onNuevo, onEditar, onFuente, onEntregar, onSync, onImportar, onAjustes }) {
   const isMobile = useIsMobile();
@@ -109,11 +109,11 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
             <Tile n="ticket" c="#a855f7" />
             <span style={{ flex: 1, minWidth: 0 }}>
               <span style={{ display: "block", fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.concepto}</span>
-              <span style={{ fontSize: 12, color: "var(--muted)" }}>{i.unidades != null ? `${i.unidades} entradas · ` : ""}{i.origen === "api" ? "sincronizado" : "importado de CSV"}</span>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>{i.unidades != null ? `${i.unidades} entradas · ` : ""}{i.origen === "tixfast" ? "venta online TIXFAST · al momento" : i.origen === "api" ? "sincronizado" : "importado de CSV"}</span>
             </span>
             <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
               <b style={{ fontSize: 16 }}>{money(i.importe)}</b>
-              <Badge c="#a855f7"><Icon n="lock" s={11} w={2.2} />{i.origen === "api" ? "Automático" : "CSV"}</Badge>
+              <Badge c="#a855f7"><Icon n="lock" s={11} w={2.2} />{i.origen === "tixfast" ? "TIXFAST" : i.origen === "api" ? "Automático" : "CSV"}</Badge>
             </span>
           </div>))}
         {externos.length > 0 && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>{udsExt} entradas. Importe sin gastos de gestión ni devoluciones.</div>}
