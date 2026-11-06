@@ -31,9 +31,18 @@ export function resCfg(ev) {
     tarifas: Array.isArray(c.tarifas) ? c.tarifas : [],
     extras: Array.isArray(c.extras) ? c.extras : [],
     promotores: Array.isArray(c.promotores) ? c.promotores : [],
+    socios: Array.isArray(c.socios) ? c.socios : [],
   };
 }
 export const resActivo = (ev) => { const c = resCfg(ev); return c.tarifas.length + c.extras.length > 0; };
+// Ventas hechas por un socio desde su móvil (sin ticket): el operario queda como «SOCIO:Nombre»
+export const esSocio = (s) => /^SOCIO:/.test(s?.operario || "");
+export const socioDe = (s) => String(s?.operario || "").replace(/^SOCIO:/, "");
+export function efectivoSocios(sales) {
+  const m = {};
+  (sales || []).forEach(s => { if (!s.voided && esSocio(s) && s.pago === "efectivo" && !/^invitacion/.test(s.pago || "")) { const n = socioDe(s) || "Socio"; m[n] = r2((m[n] || 0) + s.price); } });
+  return Object.entries(m).map(([nombre, importe]) => ({ nombre, importe }));
+}
 export const vendeAqui = (ev, puntoId) => resCfg(ev).puntos.includes(puntoId);
 
 /* ---------- Datos de los reservados (con modo sin internet) ---------- */
@@ -235,7 +244,7 @@ const Linea = ({ t, v, c }) => <div style={{ display: "flex", justifyContent: "s
 /* ============================================================
    MENÚ «RESERVADOS»: mapa + configuración
    ============================================================ */
-export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, onGuardarCfg, onCobrarTarifa, onCerrar }) {
+export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, onGuardarCfg, onCobrarTarifa, onVentaSocio, onCerrar }) {
   const cfg = resCfg(ev);
   const [tab, setTab] = useState("mapa");
   const [ficha, setFicha] = useState(null);
@@ -253,7 +262,8 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
           <div style={{ fontSize: 22, fontWeight: 800 }}>⭐ Reservados VIP</div>
           <div style={R.sub}>{ev.name}{cfg.puntos.length ? ` · se cobran en ${ev.puntos.filter(p => cfg.puntos.includes(p.id)).map(p => p.name).join(", ")}` : " · aún sin punto de venta elegido"}</div>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {onVentaSocio && (role === "admin" || role === "supervisor") && tab === "mapa" && <button onClick={() => onVentaSocio(null)} style={{ ...R.small, background: "var(--green)", color: "#04231a", border: "none", padding: "9px 13px" }}>💶 Vender sin ticket</button>}
           {role === "admin" && <div style={{ display: "inline-flex", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: 3 }}>
             {[["mapa", "Mapa"], ["config", "Configuración"]].map(([k, t]) => <button key={k} onClick={() => setTab(k)} style={{ border: "none", borderRadius: 9, padding: "8px 14px", fontWeight: 800, fontSize: 13.5, cursor: "pointer", background: tab === k ? "var(--accent)" : "transparent", color: tab === k ? "#fff" : "var(--text)" }}>{t}</button>)}
           </div>}
@@ -298,6 +308,7 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
 
       {ficha && (() => { const r = res.reservados.find(x => x.id === ficha); if (!r) return null; return (
         <FichaReservado ev={ev} cfg={cfg} r={r} stats={stats[r.id]} puedeCobrar={cfg.puntos.includes(punto.id)} puntoNombre={punto.name}
+          onVentaSocio={onVentaSocio && (role === "admin" || role === "supervisor") ? (x) => { if (JSON.stringify(x) !== JSON.stringify(r)) res.guardar(x); setFicha(null); onVentaSocio(r.id); } : null}
           onClose={() => setFicha(null)}
           onGuardar={(x) => { res.guardar(x); flash(`${x.nombre} guardado`); setFicha(null); }}
           onCobrar={(x, t) => { res.guardar(x); setFicha(null); onCobrarTarifa(t, x); }} />); })()}
@@ -307,7 +318,7 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
 const Kpi = ({ l, v, c }) => <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: "12px 14px", minWidth: 0 }}><div style={{ fontSize: 11.5, color: "var(--muted)", textTransform: "uppercase", letterSpacing: .6, fontWeight: 700 }}>{l}</div><div style={{ fontSize: 24, fontWeight: 800, color: c || "var(--text)", lineHeight: 1.2 }}>{v}</div></div>;
 
 /* ---------- Ficha de un reservado: reserva previa, señal, llegada y consumos ---------- */
-function FichaReservado({ ev, cfg, r, stats, puedeCobrar, puntoNombre, onClose, onGuardar, onCobrar }) {
+function FichaReservado({ ev, cfg, r, stats, puedeCobrar, puntoNombre, onClose, onGuardar, onCobrar, onVentaSocio }) {
   const [x, setX] = useState({ ...r, senal: r.senal ? String(r.senal).replace(".", ",") : "" });
   const set = (k, v) => setX(o => ({ ...o, [k]: v }));
   const limpio = () => ({ ...x, senal: r2(Math.max(0, num(x.senal))), llegadaEn: x.estado === "llegado" ? (x.llegadaEn || new Date().toISOString()) : x.estado === "libre" ? null : x.llegadaEn });
@@ -319,6 +330,7 @@ function FichaReservado({ ev, cfg, r, stats, puedeCobrar, puntoNombre, onClose, 
     <Hoja title={`Reservado ${r.nombre}`} sub={`${TAMANOS[r.tamano]}${r.personas ? ` · ${r.personas} personas` : ""}`} onClose={onClose}
       footer={<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {puedeCobrar && t && stats && !stats.tarifaCobrada && <button onClick={() => onCobrar(limpio(), t)} style={{ ...R.primary, flex: "2 1 220px", background: "var(--green)", color: "#04231a" }}>💶 Cobrar en taquilla · {money(r2(num(t.precio) - Math.min(num(x.senal), num(t.precio))))}</button>}
+        {onVentaSocio && <button onClick={() => onVentaSocio(limpio())} style={{ ...R.ghost, flex: "1 1 140px", borderColor: "var(--green)", color: "var(--green)" }}>💶 Vender sin ticket</button>}
         <button onClick={() => onGuardar(limpio())} disabled={!cambiado} style={{ ...R.primary, flex: "1 1 140px", opacity: cambiado ? 1 : .45 }}>Guardar</button>
       </div>}>
       <Field label="Estado">
@@ -374,7 +386,8 @@ function ConfigReservados({ ev, cfg, res, isMobile, flash, onGuardarCfg }) {
     const limpio = { ...d,
       tarifas: d.tarifas.map(t => ({ ...t, nombre: String(t.nombre || "").trim().toUpperCase() || "RESERVADO", precio: r2(Math.max(0, num(t.precio))), botellas: Math.max(0, Math.min(50, parseInt(t.botellas, 10) || 0)) })),
       extras: d.extras.map(t => ({ ...t, nombre: String(t.nombre || "").trim().toUpperCase() || "EXTRA", precio: r2(Math.max(0, num(t.precio))), botellas: Math.max(0, Math.min(50, parseInt(t.botellas, 10) || 0)) })),
-      promotores: d.promotores.filter(p => String(p.nombre || "").trim()).map(p => ({ ...p, nombre: String(p.nombre).trim().slice(0, 60), telefono: String(p.telefono || "").trim().slice(0, 30) })) };
+      promotores: d.promotores.filter(p => String(p.nombre || "").trim()).map(p => ({ ...p, nombre: String(p.nombre).trim().slice(0, 60), telefono: String(p.telefono || "").trim().slice(0, 30) })),
+      socios: d.socios.filter(p => String(p.nombre || "").trim()).map(p => ({ ...p, nombre: String(p.nombre).trim().slice(0, 60) })) };
     onGuardarCfg(limpio); setD(limpio); flash("Configuración de reservados guardada");
   };
   // Reservados (mesas): se guardan al momento
@@ -453,7 +466,17 @@ function ConfigReservados({ ev, cfg, res, isMobile, flash, onGuardarCfg }) {
           <button onClick={() => set("promotores", [...d.promotores, { id: uid(), nombre: "", telefono: "" }])} style={R.ghost}>+ Añadir promotor</button>
         </>)}
 
-      {bloque("6 · Ticket", null,
+      {bloque("6 · Socios", "Quienes pueden vender reservados y botellas desde su móvil, en cualquier punto de la sala (sin ticket, con el PIN de administrador). Si cobran en efectivo, el cierre Z de la caja elegida les recuerda que deben entregarlo.",
+        <>
+          {d.socios.map(p => (
+            <div key={p.id} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <input value={p.nombre} maxLength={60} onChange={e => upd("socios", p.id, { nombre: e.target.value })} placeholder="Nombre del socio" style={{ ...R.input, flex: 1 }} />
+              <button onClick={() => del("socios", p.id)} style={{ ...R.small, color: "var(--red)" }}>Quitar</button>
+            </div>))}
+          <button onClick={() => set("socios", [...d.socios, { id: uid(), nombre: "" }])} style={R.ghost}>+ Añadir socio</button>
+        </>)}
+
+      {bloque("7 · Ticket", null,
         <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, fontWeight: 700, cursor: "pointer" }}>
           <span>Añadir la línea «RESERVADO R3» al ticket<span style={{ display: "block", ...R.sub }}>El resto del ticket sale igual (misma plantilla y opciones). Si hay señal, se imprime también lo pagado antes y ahora.</span></span>
           <input type="checkbox" checked={d.lineaTicket} onChange={e => set("lineaTicket", e.target.checked)} style={{ width: 22, height: 22, flexShrink: 0 }} />
@@ -464,6 +487,74 @@ function ConfigReservados({ ev, cfg, res, isMobile, flash, onGuardarCfg }) {
         <button onClick={guardar} disabled={!cambiado} style={{ ...R.primary, opacity: cambiado ? 1 : .45 }}>Guardar configuración</button>
       </div>
     </div>
+  );
+}
+
+/* ============================================================
+   VENTA DE UN SOCIO DESDE EL MÓVIL (sin ticket, con PIN de admin)
+   ============================================================ */
+export function VentaSocio({ ev, res, sales, fijo, defCaja, onVender, onClose }) {
+  const cfg = resCfg(ev);
+  const porUuid = useMemo(() => mapaVentas(sales), [sales]);
+  const cajas = ev.puntos.filter(p => !p.archivado);
+  const items = [...cfg.tarifas.map(t => ({ ...t, tipo: "tarifa" })), ...cfg.extras.map(x => ({ ...x, tipo: "extra" }))];
+  const [sel, setSel] = useState(fijo || null);
+  const [itemId, setItemId] = useState(null);
+  const [metodo, setMetodo] = useState("");
+  const [caja, setCaja] = useState(cajas.some(p => p.id === defCaja) ? defCaja : (cfg.puntos.find(id => cajas.some(p => p.id === id)) || cajas[0]?.id || ""));
+  const [socio, setSocio] = useState(cfg.socios.length === 1 ? cfg.socios[0].nombre : "");
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState("");
+  const r = sel ? res.reservados.find(x => x.id === sel) : null;
+  const item = items.find(x => x.id === itemId);
+  const cobro = r && item?.tipo === "tarifa" ? cobroTarifa(r, item, res.ventas, porUuid) : null;
+  const precio = item ? (cobro ? cobro.aCobrar : r2(num(item.precio))) : 0;
+  const cajaObj = cajas.find(p => p.id === caja);
+  const listo = r && item && metodo && cajaObj && socio.trim() && pin;
+  const vender = () => {
+    if (!listo) { setErr("Falta: " + [!r && "reservado", !item && "producto", !metodo && "efectivo o tarjeta", !cajaObj && "caja", !socio.trim() && "socio", !pin && "PIN"].filter(Boolean).join(", ")); return; }
+    if (!ev.pin_admin || pin !== String(ev.pin_admin)) { setErr("PIN de administrador incorrecto"); setPin(""); return; }
+    onVender({ item, reservado: r, precio, cobro, metodo, caja: cajaObj, socio: socio.trim().slice(0, 60) });
+  };
+  const paso = (n, t) => <div style={{ fontWeight: 800, fontSize: 14, margin: "14px 0 8px", display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 22, height: 22, borderRadius: 22, background: "var(--accent)", color: "#fff", display: "inline-grid", placeItems: "center", fontSize: 12 }}>{n}</span>{t}</div>;
+  const chip = (on) => ({ ...R.chip, borderColor: on ? "var(--accent)" : "var(--line)", background: on ? "rgba(255,90,60,.14)" : "transparent" });
+  return (
+    <Hoja title="💶 Vender sin ticket" sub="Venta de un socio desde su móvil. No se imprime nada." onClose={onClose}
+      footer={<>
+        {err && <div style={{ color: "var(--red)", fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>{err}</div>}
+        <button onClick={vender} style={{ ...R.primary, width: "100%", padding: 15, fontSize: 17, opacity: listo ? 1 : .55 }}>Vender {item ? money(precio) : ""}{cajaObj ? ` · a ${cajaObj.name}` : ""}</button>
+      </>}>
+      {paso(1, "Reservado")}
+      {res.reservados.length === 0 ? <div style={{ color: "var(--muted)", fontSize: 13 }}>Aún no hay reservados creados.</div> :
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(84px,1fr))", gap: 8 }}>
+          {res.reservados.map(x => { const e = ESTADOS[x.estado] || ESTADOS.libre; const on = sel === x.id; return (
+            <button key={x.id} onClick={() => { setSel(x.id); setErr(""); }} style={{ textAlign: "left", background: on ? e.bg : "transparent", border: `2px solid ${on ? e.c : "var(--line)"}`, borderRadius: 12, padding: "8px 10px", color: "var(--text)", cursor: "pointer" }}>
+              <div style={{ fontSize: 18, fontWeight: 900 }}>{x.nombre}</div>
+              <div style={{ fontSize: 11, color: e.c, fontWeight: 800 }}>{e.t}</div>
+              {x.cliente && <div style={{ fontSize: 11.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{x.cliente}</div>}
+            </button>); })}
+        </div>}
+      {paso(2, "Qué se vende")}
+      {items.length === 0 ? <div style={{ color: "var(--muted)", fontSize: 13 }}>No hay tarifas ni extras configurados.</div> :
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {items.map(it => <button key={it.id} onClick={() => { setItemId(it.id); setErr(""); }} style={chip(itemId === it.id)}>{it.emoji || (it.tipo === "tarifa" ? "🛋️" : "🍾")} {it.nombre} · {money(it.precio)}</button>)}
+        </div>}
+      {cobro && cobro.senal > 0 && <div style={{ fontSize: 13, marginTop: 8, color: "var(--green)", fontWeight: 700 }}>Se descuenta la señal: {money(cobro.total)} − {money(cobro.senal)} = {money(cobro.aCobrar)}</div>}
+      {cobro?.yaCobrada && <div style={{ fontSize: 13, marginTop: 8, color: "var(--amber)", fontWeight: 700 }}>⚠️ Este reservado ya tiene una tarifa cobrada.</div>}
+      {paso(3, "Cómo ha pagado")}
+      <div style={{ display: "flex", gap: 8 }}>
+        {[["efectivo", "💶 Efectivo"], ["tarjeta", "💳 Tarjeta"]].map(([k, t]) => <button key={k} onClick={() => { setMetodo(k); setErr(""); }} style={{ ...chip(metodo === k), flex: 1, justifyContent: "center", padding: "12px" }}>{t}</button>)}
+      </div>
+      {paso(4, "A qué caja va el dinero")}
+      <select value={caja} onChange={e => setCaja(e.target.value)} style={R.input}>{cajas.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+      {cajaObj && (cajaObj.estado || "prueba") !== "abierta" && <div style={{ fontSize: 12.5, color: "var(--amber)", marginTop: 5 }}>{cajaObj.name} no está vendiendo ahora: la venta contará en su próximo cierre Z.</div>}
+      {paso(5, "Socio que vende")}
+      {cfg.socios.length ? <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{cfg.socios.map(x => <button key={x.id} onClick={() => { setSocio(x.nombre); setErr(""); }} style={chip(socio === x.nombre)}>{x.nombre}</button>)}</div>
+        : <input value={socio} maxLength={60} onChange={e => setSocio(e.target.value)} placeholder="Nombre del socio (añade la lista en Configuración)" style={R.input} />}
+      {metodo === "efectivo" && socio && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 6 }}>El cierre Z de {cajaObj?.name || "la caja"} indicará que {socio} tiene {item ? money(precio) : "este dinero"} y debe entregarlo.</div>}
+      {paso(6, "PIN de administrador")}
+      <input value={pin} onChange={e => { setPin(e.target.value.replace(/\D/g, "").slice(0, 8)); setErr(""); }} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ ...R.input, fontSize: 22, letterSpacing: 6, textAlign: "center", fontWeight: 900 }} />
+    </Hoja>
   );
 }
 
@@ -497,6 +588,11 @@ export function InformeReservados({ ev, res, sales, isMobile }) {
         <Kpi l="Señales (promotores)" v={money(tot.sen)} c="var(--amber)" />
         <Kpi l="Total reservados" v={money(r2(tot.cob + tot.sen))} />
       </div>
+      {(() => { const es = efectivoSocios(sales); return es.length ? (
+        <div style={{ background: "rgba(255,180,0,.08)", border: "1px solid rgba(255,180,0,.35)", borderRadius: 12, padding: "10px 12px", marginBottom: 12, fontSize: 13.5 }}>
+          <b style={{ color: "var(--amber)" }}>💶 Efectivo que tienen los socios</b> <span style={{ color: "var(--muted)" }}>(vendido sin ticket; deben entregarlo en su caja)</span>
+          {es.map(x => <div key={x.nombre} style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}><span>{x.nombre}</span><b>{money(x.importe)}</b></div>)}
+        </div>) : null; })()}
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead><tr style={{ color: "var(--muted)", textAlign: "right" }}>

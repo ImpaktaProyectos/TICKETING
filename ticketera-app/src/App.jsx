@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { uid } from "./supabase";
 import { logout } from "./auth";
 import * as db from "./db";
-import { useReservados, LineaReservados, CobrarReservado, ReservadosVista, InformeReservados, copiarReservados, resCfg } from "./reservados";
+import { useReservados, LineaReservados, CobrarReservado, ReservadosVista, InformeReservados, copiarReservados, resCfg, VentaSocio, efectivoSocios } from "./reservados";
 import { nextFolios, prefijoDePunto, peekFolio, getDeviceTag, resetFolios, seedFolio } from "./folio";
 
 /* ============================================================================
@@ -31,7 +31,7 @@ const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.06a";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.06b";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -281,6 +281,12 @@ function ZTicket({ ev, z }) {
         </>)}
         {z.advanced && <div style={{ ...row, marginTop: "1.5mm" }}><span>Tarjeta (no en cajón)</span><span>{money(z.tarjeta || 0)}</span></div>}
       </>)}
+      {(z.socios || []).length > 0 && (<>
+        <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
+        <div style={{ textAlign: "center", fontWeight: 900, fontSize: 13 }}>EFECTIVO EN MANOS DE SOCIOS</div>
+        {z.socios.map((x, i) => <div key={i} style={row}><span style={{ minWidth: 0, overflowWrap: "anywhere", paddingRight: "2mm" }}>{x.nombre}</span><span>{money(x.importe)}</span></div>)}
+        <div style={{ textAlign: "center", fontSize: 10.5, fontWeight: 700 }}>(ya sumado arriba: deben entregarlo en esta caja)</div>
+      </>)}
       <div style={{ ...row, marginTop: "1mm" }}><span>Tickets</span><span>{z.count}</span></div>
       <div style={row}><span>Anulaciones</span><span>{z.voids}</span></div>
       {z.invites ? <div style={row}><span>Invitaciones ({z.invites})</span><span>{money(z.invitesValue || 0)}</span></div> : null}
@@ -328,6 +334,7 @@ export default function App() {
   const res = useReservados(ev.id);
   const [resCobro, setResCobro] = useState(null);   // { item, fijo }
   const [resMapa, setResMapa] = useState(false);     // mapa a pantalla completa (cajero)
+  const [resSocio, setResSocio] = useState(null);    // venta sin ticket de un socio: { fijo }
   const livePuntoSales = useMemo(() => evSales.filter(s => s.puntoId === punto.id && !s.voided && !s.closureId), [evSales, punto.id]);
   const totals = useMemo(() => {
     const perProduct = {}; let revenue = 0;
@@ -631,15 +638,34 @@ export default function App() {
     if (navigator.vibrate) navigator.vibrate(45);
     flash(`⭐ ${item.nombre} · ${reservado.nombre}`);
     db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: item.nombre, price: precio }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
-    // Quien compra está dentro: el reservado pasa a «Ha llegado» (con la tarifa queda apuntada)
+    enlazarRes(d, cu);
+  };
+  // Quien compra está dentro: el reservado pasa a «Ha llegado» (con la tarifa queda apuntada) y la venta se suma a su cuenta
+  const enlazarRes = ({ item, reservado, precio, cobro }, cu) => {
     const actual = res.reservados.find(x => x.id === reservado.id) || reservado;
     const tarifa = item.tipo === "tarifa";
     if (actual.estado !== "llegado" || (tarifa && actual.tarifaId !== item.id)) res.guardar({ ...actual, estado: "llegado", tarifaId: tarifa ? item.id : actual.tarifaId, llegadaEn: actual.llegadaEn || new Date().toISOString() });
     res.enlazar({ clientUuid: cu, reservadoId: reservado.id, tipo: tarifa ? "tarifa" : "extra", itemId: item.id, nombre: item.nombre, botellas: Number(item.botellas) || 0, total: tarifa ? cobro.total : precio, senal: tarifa ? cobro.senal : 0 }).then(r => { if (r?.offline) setPending(db.pendingCount()); });
   };
+  // Venta de un socio desde el móvil: sin ticket, a la caja que elija, con efectivo/tarjeta y PIN de admin
+  const venderSocio = (d) => {
+    if (!ev.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return; }
+    if (ev.closed) { flash("Caja cerrada · no se puede vender", "warn"); return; }
+    setResSocio(null);
+    const { item, reservado, precio, metodo, caja, socio } = d;
+    const folio = nextFolios(ev.id, caja.id, prefijoDePunto(caja), 1)[0];
+    const cu = uid();
+    const operario = "SOCIO:" + socio;
+    const saleRow = { id: cu, clientUuid: cu, code: folio, num: evSales.length + 1, eventId: ev.id, puntoId: caja.id, productId: null, name: item.nombre, price: precio, ts: Date.now(), synced: online, voided: false, closureId: null, operario, pago: metodo, invite: false, inviteValue: 0, entregado: null, cambio: null };
+    baseDispatch({ type: "SELL", rows: [saleRow] });
+    if (navigator.vibrate) navigator.vibrate(45);
+    flash(`💶 ${item.nombre} · ${reservado.nombre} · ${money(precio)} ${metodo} → ${caja.name}`);
+    db.vender({ eventoId: ev.id, puntoId: caja.id, producto: { id: null, name: item.nombre, price: precio }, qty: 1, operario, folios: [folio], clientUuids: [cu], pago: metodo, entregado: null, cambio: null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+    enlazarRes(d, cu);
+  };
   const guardarCfgRes = (cfg) => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { style: { ...(ev.style || {}), reservados: cfg } } });
   const lineaRes = <LineaReservados ev={ev} punto={punto} res={res} testMode={testMode} isMobile={isMobile} onElegir={(it) => abrirCobroRes(it)} onVerMapa={() => { if (role === "cajero") setResMapa(true); else setView("reservados"); }} />;
-  const vistaRes = (extra = {}) => <ReservadosVista ev={ev} punto={punto} role={role} res={res} sales={evSales} isMobile={isMobile} flash={flash} onGuardarCfg={guardarCfgRes} onCobrarTarifa={(t, r) => abrirCobroRes({ ...t, tipo: "tarifa" }, r.id)} {...extra} />;
+  const vistaRes = (extra = {}) => <ReservadosVista ev={ev} punto={punto} role={role} res={res} sales={evSales} isMobile={isMobile} flash={flash} onGuardarCfg={guardarCfgRes} onCobrarTarifa={(t, r) => abrirCobroRes({ ...t, tipo: "tarifa" }, r.id)} onVentaSocio={(role === "admin" || role === "supervisor") ? (fijo) => setResSocio({ fijo }) : null} {...extra} />;
 
   const voidOne = async (sale, by) => { baseDispatch({ type: "VOID_ONE", saleId: sale.id, by }); const r = await db.anularVenta(sale.clientUuid || sale.id, by); if (r.offline) setPending(db.pendingCount()); };
 
@@ -687,7 +713,8 @@ export default function App() {
     // Lo que debe haber: con venta avanzada, en el cajón; sin ella, cajón + datáfono
     const esperado = round2(fondo + (ev.advanced ? efectivo : revenue) + entradas - gastos);
     const descuadre = contado == null ? null : round2(contado - esperado);
-    const z = { puntoName: puntoObj.name, lines: Object.values(map).map(l => ({ ...l, total: round2(l.total) })), revenue, efectivo, tarjeta, fondo, esperado, contado, descuadre, gastos, entradas, gastosList: gTurno.filter(g => !isEntrada(g)).map(g => ({ concepto: g.concepto, importe: g.importe })), entradasList: gTurno.filter(isEntrada).map(g => ({ concepto: g.concepto, importe: g.importe })), showArqueo: !!ev.advanced || ev.pedirFondo !== false || gastos > 0 || entradas > 0, advanced: !!ev.advanced, count: sales.length, voids, invites: invs.n, invitesValue: invs.valor, ts: Date.now() };
+    const socios = efectivoSocios(sales);
+    const z = { socios, puntoName: puntoObj.name, lines: Object.values(map).map(l => ({ ...l, total: round2(l.total) })), revenue, efectivo, tarjeta, fondo, esperado, contado, descuadre, gastos, entradas, gastosList: gTurno.filter(g => !isEntrada(g)).map(g => ({ concepto: g.concepto, importe: g.importe })), entradasList: gTurno.filter(isEntrada).map(g => ({ concepto: g.concepto, importe: g.importe })), showArqueo: !!ev.advanced || ev.pedirFondo !== false || gastos > 0 || entradas > 0, advanced: !!ev.advanced, count: sales.length, voids, invites: invs.n, invitesValue: invs.valor, ts: Date.now() };
     const closureId = uid();
     // Cierra el turno EN LOCAL (funciona sin wifi) y encola el cierre para el servidor
     baseDispatch({ type: "ADD_CLOSURE", closure: { id: closureId, eventId: ev.id, puntoId: puntoObj.id, ...z } });
@@ -981,6 +1008,7 @@ export default function App() {
 
       {/* ===== Reservados VIP: cobro y mapa ===== */}
       {resCobro && <CobrarReservado ev={ev} item={resCobro.item} res={res} sales={evSales} fijo={resCobro.fijo} onCobrar={cobrarRes} onClose={() => setResCobro(null)} />}
+      {resSocio && <VentaSocio ev={ev} res={res} sales={evSales} fijo={resSocio.fijo} defCaja={punto.id} onVender={venderSocio} onClose={() => setResSocio(null)} />}
       {resMapa && role && (
         <div style={{ position: "fixed", inset: 0, zIndex: 60, background: "var(--bg)", overflow: "auto", padding: "calc(14px + env(safe-area-inset-top)) 14px calc(18px + env(safe-area-inset-bottom))" }}>
           <div style={{ maxWidth: 1100, margin: "0 auto" }}>{vistaRes({ onCerrar: () => setResMapa(false) })}</div>
@@ -2677,7 +2705,7 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
                 const fondo = round2(b.punto.fondo || 0);
                 const gas = gTurnoDe(b.punto.id), ent = eTurnoDe(b.punto.id);
                 const base = ev.advanced ? efe : fact;
-                setCountZ({ punto: b.punto, advanced: !!ev.advanced, fondo, efectivo: base, gastos: gas, entradas: ent, esperado: round2(fondo + base + ent - gas), valor: "" });
+                setCountZ({ punto: b.punto, advanced: !!ev.advanced, fondo, efectivo: base, gastos: gas, entradas: ent, esperado: round2(fondo + base + ent - gas), socios: efectivoSocios(abiertas), valor: "" });
               }} style={{ ...S.smallBtn, marginTop: 8, width: "100%", color: "var(--accent)", borderColor: "var(--accent)" }}>Cierre Z 🧾</button>}
               {role === "admin" && onPasarPrueba && b.punto.estado !== "prueba" && !(b.punto.estado === "abierta" && evSales.some(x => x.puntoId === b.punto.id && !x.closureId && !x.voided)) && (confirmPrueba === b.punto.id
                 ? <div style={{ display: "flex", gap: 6, marginTop: 8 }}><button onClick={() => { onPasarPrueba(b.punto); setConfirmPrueba(null); }} style={{ ...S.smallBtn, flex: 1, color: "var(--amber)", borderColor: "var(--amber)" }}>✓ Sí, a prueba</button><button onClick={() => setConfirmPrueba(null)} style={S.smallBtn}>✗</button></div>
@@ -2841,6 +2869,13 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
               {countZ.gastos > 0 && <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}><span style={{ color: "var(--amber)" }}>− Gastos de caja</span><b style={{ color: "var(--amber)" }}>{money(countZ.gastos)}</b></div>}
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)", fontSize: 16 }}><span>Debe haber {countZ.advanced ? "en el cajón" : "(cajón + datáfono)"}</span><b style={{ color: "var(--green)" }}>{money(countZ.esperado)}</b></div>
             </div>
+            {(countZ.socios || []).length > 0 && (
+              <div style={{ background: "rgba(255,180,0,.1)", border: "1px solid rgba(255,180,0,.4)", borderRadius: 12, padding: "10px 12px", marginBottom: 12, fontSize: 13.5 }}>
+                <b style={{ color: "var(--amber)" }}>💶 Efectivo que tienen los socios</b>
+                {countZ.socios.map(x => <div key={x.nombre} style={{ display: "flex", justifyContent: "space-between", marginTop: 3 }}><span>{x.nombre}</span><b>{money(x.importe)}</b></div>)}
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Está incluido en «Debe haber»: pídeselo antes de contar.</div>
+              </div>
+            )}
             <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>{countZ.advanced ? "¿Cuánto has contado en el cajón?" : "¿Cuánto suman cajón + datáfono?"} (puedes dejarlo vacío)</div>
             <input autoFocus type="number" inputMode="decimal" value={countZ.valor} onChange={e => setCountZ({ ...countZ, valor: e.target.value })} style={{ ...S.input, fontSize: 24, fontWeight: 900, textAlign: "center", padding: "14px" }} placeholder="0.00" />
             {has && (
