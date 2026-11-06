@@ -338,7 +338,23 @@ const Check = ({ v, on, children }) => (
 function MisEntradas({ acceso }) {
   const [d, setD] = useState(undefined);
   const [pdf, setPdf] = useState(false);
+  const [correo, setCorreo] = useState("");      // estado del envío por correo
   const nueva = new URLSearchParams(window.location.search).has("nueva");
+  const enviarCorreo = async (auto = false) => {
+    setCorreo("enviando");
+    try {
+      const { data } = await supabase.functions.invoke("web-enviar-entradas", { body: { acceso, origen: window.location.origin } });
+      const m = data?.ok ? "enviado" : data?.motivo || "error";
+      setCorreo(auto && m !== "enviado" ? "" : m);
+    } catch { setCorreo(auto ? "" : "error"); }
+  };
+  // Recién compradas: se mandan al correo una vez (si el envío está activado)
+  useEffect(() => {
+    if (!nueva) return;
+    const k = "tixfast_correo_" + acceso;
+    try { if (sessionStorage.getItem(k)) return; sessionStorage.setItem(k, "1"); } catch {}
+    enviarCorreo(true);
+  }, [acceso]);
   useEffect(() => {
     if (!/^[0-9a-f-]{36}$/i.test(acceso)) { setD(null); return; }
     supabase.rpc("web_pedido", { p_acceso: acceso }).then(({ data, error }) => setD(error ? "error" : data || null));
@@ -375,7 +391,11 @@ function MisEntradas({ acceso }) {
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
           <button onClick={descargar} disabled={pdf} style={{ ...btn(T.d.color, T.tinta), flex: "1 1 200px" }}>{pdf ? "Creando PDF…" : "Descargar PDF"}</button>
           <button onClick={copiar} style={{ ...btn("var(--card2)", "var(--text)"), flex: "1 1 140px", border: "1px solid var(--line)" }}>Copiar enlace</button>
+          <button onClick={() => enviarCorreo(false)} disabled={correo === "enviando"} style={{ ...btn("var(--card2)", "var(--text)"), flex: "1 1 100%", border: "1px solid var(--line)", fontSize: 15 }}>{correo === "enviando" ? "Enviando…" : `Enviar a ${p.email}`}</button>
         </div>
+        {correo && correo !== "enviando" && <div role="status" style={{ ...card, marginBottom: 14, fontWeight: 700, fontSize: 14, borderColor: correo === "enviado" ? "#0f9d63" : "var(--line)" }}>
+          {{ enviado: `Enviadas a ${p.email}. Si no las ves, mira en «Spam» o «Promociones».`, sin_correo: "El envío por correo aún no está activado. Descarga el PDF o guarda este enlace.", espera: "Acabamos de enviarlas: espera un par de minutos antes de pedirlo otra vez.", limite: "Ya se han enviado varias veces. Descarga el PDF o guarda este enlace." }[correo] || "No se ha podido enviar el correo. Descarga el PDF o guarda este enlace."}
+        </div>}
         {d.entradas.map(x => (
           <div key={x.numero} style={{ ...card, marginBottom: 12, padding: 0, overflow: "hidden" }}>
             <div style={{ padding: "14px 16px", background: "linear-gradient(135deg, var(--c), color-mix(in srgb, var(--c) 55%, #000))", color: T.tinta }}>
