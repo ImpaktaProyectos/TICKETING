@@ -203,6 +203,18 @@ async function runItem(it) {
     const { error } = await supabase.from("ticket_puntos").update({ estado: "prueba", fondo: null, fondo_en: null, fondo_por: null }).eq("id", it.punto);
     if (error) throw error;
   }
+  else if (it.op === "resGuardar") {
+    const { error } = await supabase.from("ticket_reservados").upsert(it.row, { onConflict: "id" });
+    if (error) throw error;
+  }
+  else if (it.op === "resBorrar") {
+    const { error } = await supabase.from("ticket_reservados").delete().eq("id", it.id);
+    if (error) throw error;
+  }
+  else if (it.op === "resVenta") {
+    const { error } = await supabase.from("ticket_reservado_ventas").insert(it.row);
+    if (error && !isDuplicate(error)) throw error;          // ya subida = correcta
+  }
   else if (it.op === "setFondo") {
     const { error } = await supabase.from("ticket_puntos").update({ fondo: it.fondo, fondo_en: it.fecha, fondo_por: it.por }).eq("id", it.punto);
     if (error) throw error;
@@ -324,7 +336,7 @@ export function pendingFondo(puntoId) {
 // Borra de la cola lo pendiente de un evento (para que un reset no "resucite" ventas de prueba)
 export function dropPendingForEvent(eventId, puntoIds = []) {
   const pts = new Set(puntoIds);
-  saveQ(loadQ().filter(it => !((it.args && it.args.p_evento === eventId) || it.evento === eventId || (it.punto && pts.has(it.punto)))));
+  saveQ(loadQ().filter(it => !((it.args && it.args.p_evento === eventId) || it.evento === eventId || (it.punto && pts.has(it.punto)) || (it.op === "resVenta" && it.row?.evento_id === eventId))));
 }
 
 /* ===================== COPIAS DE SEGURIDAD ===================== */
@@ -353,7 +365,7 @@ export async function loadBackups(eventId, limit = 48) {
 export function exportPending() {
   return JSON.stringify({ app: "ticketera", version: 1, dispositivo: deviceName(), exportado: new Date().toISOString(), cola: loadQ() }, null, 1);
 }
-const OPS_OK = new Set(["vender", "anularUltima", "anularVenta", "cerrarZ", "backup", "setFondo", "gasto", "anularGasto", "abrirBarra", "pasarPrueba"]);
+const OPS_OK = new Set(["vender", "anularUltima", "anularVenta", "cerrarZ", "backup", "setFondo", "gasto", "anularGasto", "abrirBarra", "pasarPrueba", "resGuardar", "resBorrar", "resVenta"]);
 export function importPending(text) {
   if (typeof text !== "string" || text.length > 5 * 1024 * 1024) throw new Error("Archivo demasiado grande");
   const obj = JSON.parse(text);
@@ -379,6 +391,10 @@ export async function resetStats(eventId) {
   const b = await supabase.from("ticket_cierres").delete().eq("evento_id", eventId);
   if (b.error) throw b.error;
   await supabase.from("ticket_backups").delete().eq("evento_id", eventId);
+  // Reservados: se borra lo vendido de prueba; las reservas apuntadas se conservan (los que «llegaron» vuelven a reservado o libre)
+  await supabase.from("ticket_reservado_ventas").delete().eq("evento_id", eventId);
+  await supabase.from("ticket_reservados").update({ estado: "reservado", llegada_en: null }).eq("evento_id", eventId).eq("estado", "llegado").not("cliente", "is", null);
+  await supabase.from("ticket_reservados").update({ estado: "libre", llegada_en: null }).eq("evento_id", eventId).eq("estado", "llegado");
   // Las barras vuelven a modo prueba, sin fondo (listas para el evento real)
   await supabase.from("ticket_puntos").update({ estado: "prueba", fondo: null, fondo_en: null, fondo_por: null, abierta_en: null, abierta_por: null, cerrada_en: null, cerrada_por: null }).eq("evento_id", eventId);
   return true;
@@ -399,6 +415,44 @@ export function subscribeEvento(eventoId, onChange) {
     .on("postgres_changes", { event: "*", schema: "public", table: "ticket_ventas", filter: `evento_id=eq.${eventoId}` }, onChange)
     .on("postgres_changes", { event: "*", schema: "public", table: "ticket_cierres", filter: `evento_id=eq.${eventoId}` }, onChange)
     .on("postgres_changes", { event: "*", schema: "public", table: "ticket_gastos", filter: `evento_id=eq.${eventoId}` }, onChange)
+    .subscribe();
+  return () => supabase.removeChannel(ch);
+}
+
+/* ===================== RESERVADOS VIP =====================
+   Cada reservado (estado, cliente, señal…) y el enlace venta → reservado.
+   Todo pasa por la misma cola que las ventas: sin internet se guarda en el equipo y sube solo. */
+const resFromDb = (r) => ({ id: r.id, eventId: r.evento_id, nombre: r.nombre, tamano: r.tamano, personas: r.personas, orden: r.orden ?? 0, estado: r.estado, cliente: r.cliente || "", telefono: r.telefono || "", nota: r.nota || "", tarifaId: r.tarifa_id || "", senal: Number(r.senal || 0), senalMetodo: r.senal_metodo || "", promotorId: r.promotor_id || "", llegadaEn: r.llegada_en, actualizadoEn: r.actualizado_en });
+const resToDb = (r) => ({ id: r.id, evento_id: r.eventId, nombre: String(r.nombre || "").trim().slice(0, 40) || "R", tamano: r.tamano === "grande" ? "grande" : "pequeno", personas: r.personas === "" || r.personas == null ? null : Math.max(0, Math.min(500, parseInt(r.personas, 10) || 0)), orden: r.orden ?? 0, estado: ["libre", "reservado", "llegado", "novino"].includes(r.estado) ? r.estado : "libre", cliente: String(r.cliente || "").trim().slice(0, 120) || null, telefono: String(r.telefono || "").trim().slice(0, 40) || null, nota: String(r.nota || "").trim().slice(0, 500) || null, tarifa_id: r.tarifaId || null, senal: Math.max(0, Math.round((Number(r.senal) || 0) * 100) / 100), senal_metodo: ["efectivo", "bizum", "transferencia", "tarjeta"].includes(r.senalMetodo) ? r.senalMetodo : null, promotor_id: r.promotorId || null, llegada_en: r.llegadaEn || null, actualizado_en: new Date().toISOString() });
+const resVentaFromDb = (v) => ({ clientUuid: v.client_uuid, eventId: v.evento_id, reservadoId: v.reservado_id, tipo: v.tipo, itemId: v.item_id || "", nombre: v.nombre || "", botellas: v.botellas || 0, total: Number(v.total || 0), senal: Number(v.senal || 0), ts: new Date(v.creado_en).getTime() });
+
+export async function loadReservados(eventoId) {
+  const [a, b] = await Promise.all([
+    supabase.from("ticket_reservados").select("*").eq("evento_id", eventoId).order("orden").order("creado_en"),
+    fetchAll(() => supabase.from("ticket_reservado_ventas").select("*").eq("evento_id", eventoId).order("creado_en").order("client_uuid")),
+  ]);
+  if (a.error) throw a.error;
+  return { reservados: (a.data || []).map(resFromDb), ventas: b.map(resVentaFromDb) };
+}
+export function guardarReservado(r) { return doOrQueue({ op: "resGuardar", evento: r.eventId, row: resToDb(r) }); }
+export function borrarReservado(r) { return doOrQueue({ op: "resBorrar", evento: r.eventId, id: r.id }); }
+export function enlazarVentaReservado(v) {
+  return doOrQueue({ op: "resVenta", row: { client_uuid: v.clientUuid, evento_id: v.eventId, reservado_id: v.reservadoId, tipo: v.tipo === "tarifa" ? "tarifa" : "extra", item_id: v.itemId || null, nombre: String(v.nombre || "").slice(0, 120), botellas: Math.max(0, Math.min(100, v.botellas | 0)), total: Math.max(0, Number(v.total) || 0), senal: Math.max(0, Number(v.senal) || 0), creado_en: new Date(v.ts || Date.now()).toISOString() } });
+}
+// Lo aún sin subir de este equipo (para que la pantalla no «vuelva atrás» antes de sincronizar)
+export function pendingReservados(eventoId) {
+  const guardar = new Map(), borrar = new Set(), ventas = [];
+  loadQ().forEach(it => {
+    if (it.op === "resGuardar" && it.row?.evento_id === eventoId) { guardar.set(it.row.id, resFromDb(it.row)); borrar.delete(it.row.id); }
+    else if (it.op === "resBorrar" && it.evento === eventoId) { borrar.add(it.id); guardar.delete(it.id); }
+    else if (it.op === "resVenta" && it.row?.evento_id === eventoId) ventas.push(resVentaFromDb(it.row));
+  });
+  return { guardar, borrar, ventas };
+}
+export function subscribeReservados(eventoId, onChange) {
+  const ch = supabase.channel("res-" + eventoId)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_reservados", filter: `evento_id=eq.${eventoId}` }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_reservado_ventas", filter: `evento_id=eq.${eventoId}` }, onChange)
     .subscribe();
   return () => supabase.removeChannel(ch);
 }

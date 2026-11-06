@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { uid } from "./supabase";
 import { logout } from "./auth";
 import * as db from "./db";
+import { useReservados, LineaReservados, CobrarReservado, ReservadosVista, InformeReservados, copiarReservados, resCfg } from "./reservados";
 import { nextFolios, prefijoDePunto, peekFolio, getDeviceTag, resetFolios, seedFolio } from "./folio";
 
 /* ============================================================================
@@ -30,7 +31,7 @@ const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.04e";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.06a";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -110,7 +111,7 @@ function ThermalTicket(props) {
   const band = <div style={{ background: "#000", color: "#fff", textAlign: "center", fontFamily: "'Roboto Mono', monospace", fontWeight: 900, fontSize: 13, letterSpacing: 1, padding: "1mm 0", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>✕ PRUEBA · NO VÁLIDO ✕</div>;
   return <div style={{ width: mm + "mm", background: "#fff" }}>{band}<ThermalTicketBody {...props} />{band}</div>;
 }
-function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio }) {
+function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio, notas }) {
   const mm = ev.paper === 58 ? 46 : 68;          // ancho del ticket con margen de seguridad (la impresora pierde ~3 mm a la derecha)
   const st = ev.style || {};
   const nd = st.nameSize === "xl" ? 18 : st.nameSize === "lg" ? 8 : 0;  // tamaño del nombre
@@ -234,6 +235,7 @@ function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio }) {
   return (
     <div style={{ ...base, ...(st.border ? { border: "2px solid #000", borderRadius: 4 } : {}) }}>
       {inner}
+      {notas?.length ? <div style={{ marginTop: "1.5mm", borderTop: "2px dashed #000", paddingTop: "1mm", textAlign: "center", color: "#000" }}>{notas.map((n, i) => <div key={i} style={{ fontSize: n.b ? 14 : 11.5, fontWeight: n.b ? 900 : 700, lineHeight: 1.25 }}>{n.t}</div>)}</div> : null}
       {st.message && <div style={{ marginTop: "2mm", textAlign: "center", fontWeight: 900, fontSize: 13, border: "2px solid #000", borderRadius: 3, padding: "1.5mm 2mm", textTransform: "uppercase" }}>{st.message}</div>}
     </div>
   );
@@ -322,6 +324,10 @@ export default function App() {
   const evGastos = useMemo(() => (state.gastos || []).filter(g => g.eventId === ev.id), [state.gastos, ev.id]);
   const turnoMovs = useMemo(() => evGastos.filter(g => g.puntoId === punto.id && !g.voided && !g.closureId), [evGastos, punto.id]);
   const testMode = !ev.id || !punto?.id || (punto.estado || "prueba") !== "abierta";
+  // Reservados VIP: mapa compartido por todas las barras; se cobran solo en los puntos elegidos
+  const res = useReservados(ev.id);
+  const [resCobro, setResCobro] = useState(null);   // { item, fijo }
+  const [resMapa, setResMapa] = useState(false);     // mapa a pantalla completa (cajero)
   const livePuntoSales = useMemo(() => evSales.filter(s => s.puntoId === punto.id && !s.voided && !s.closureId), [evSales, punto.id]);
   const totals = useMemo(() => {
     const perProduct = {}; let revenue = 0;
@@ -595,6 +601,46 @@ export default function App() {
     flash((inviteVal != null ? "🎁 Invitación · " : "") + (tickets.length ? `🎟️ ${combo.name} · ${tickets.length} tickets` : `✅ Venta guardada · ${combo.name} (sin ticket)`));
     db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: combo.name, price }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
   };
+  // ===== Reservados VIP =====
+  const abrirCobroRes = (item, fijo = null) => {
+    if (!ev.id || !punto?.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return; }
+    if (ev.closed) { flash("Caja cerrada · no se puede vender", "warn"); return; }
+    if (!resCfg(ev).puntos.includes(punto.id)) { flash(`Los reservados no se cobran en ${punto.name}`, "warn"); return; }
+    setResCobro({ item, fijo });
+  };
+  const notasRes = ({ item, reservado, precio, cobro }) => {
+    const n = [];
+    if (resCfg(ev).lineaTicket) n.push({ t: `RESERVADO ${reservado.nombre}`.toUpperCase(), b: true });
+    if (cobro && cobro.senal > 0) { n.push({ t: `Total ${money(cobro.total)}` }); n.push({ t: `Señal pagada -${money(cobro.senal)}` }); n.push({ t: `Pagado ahora ${money(precio)}` }); }
+    return n;
+  };
+  const cobrarRes = (d) => {
+    setResCobro(null);
+    const product = { id: d.item.id, name: d.item.nombre, price: d.precio };
+    if (testMode) { setPrintJob({ kind: "ticket", product, time: timeNow(), num: null, folio: "PRUEBA", qty: 1, notas: notasRes(d), n: Date.now() }); flash("🧪 Prueba (no cuenta)"); return; }
+    if (ev.advanced) { setPayFlow({ kind: "reservado", res: d, total: d.precio }); return; }
+    doSellRes(d);
+  };
+  const doSellRes = (d, pay = null) => {
+    const { item, reservado, precio, cobro } = d;
+    const folio = nextFolios(ev.id, punto.id, prefijoDePunto(punto), 1)[0];
+    const cu = uid();
+    const saleRow = { id: cu, clientUuid: cu, code: folio, num: evSales.length + 1, eventId: ev.id, puntoId: punto.id, productId: null, name: item.nombre, price: precio, ts: Date.now(), synced: online, voided: false, closureId: null, pago: pay?.pago || null, invite: false, inviteValue: 0, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null };
+    baseDispatch({ type: "SELL", rows: [saleRow] });
+    setPrintJob({ kind: "ticket", product: { id: item.id, name: item.nombre, price: precio }, time: timeNow(), num: saleRow.num, folio, qty: 1, notas: notasRes(d), n: Date.now() });
+    if (navigator.vibrate) navigator.vibrate(45);
+    flash(`⭐ ${item.nombre} · ${reservado.nombre}`);
+    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: item.nombre, price: precio }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+    // Quien compra está dentro: el reservado pasa a «Ha llegado» (con la tarifa queda apuntada)
+    const actual = res.reservados.find(x => x.id === reservado.id) || reservado;
+    const tarifa = item.tipo === "tarifa";
+    if (actual.estado !== "llegado" || (tarifa && actual.tarifaId !== item.id)) res.guardar({ ...actual, estado: "llegado", tarifaId: tarifa ? item.id : actual.tarifaId, llegadaEn: actual.llegadaEn || new Date().toISOString() });
+    res.enlazar({ clientUuid: cu, reservadoId: reservado.id, tipo: tarifa ? "tarifa" : "extra", itemId: item.id, nombre: item.nombre, botellas: Number(item.botellas) || 0, total: tarifa ? cobro.total : precio, senal: tarifa ? cobro.senal : 0 }).then(r => { if (r?.offline) setPending(db.pendingCount()); });
+  };
+  const guardarCfgRes = (cfg) => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { style: { ...(ev.style || {}), reservados: cfg } } });
+  const lineaRes = <LineaReservados ev={ev} punto={punto} res={res} testMode={testMode} isMobile={isMobile} onElegir={(it) => abrirCobroRes(it)} onVerMapa={() => { if (role === "cajero") setResMapa(true); else setView("reservados"); }} />;
+  const vistaRes = (extra = {}) => <ReservadosVista ev={ev} punto={punto} role={role} res={res} sales={evSales} isMobile={isMobile} flash={flash} onGuardarCfg={guardarCfgRes} onCobrarTarifa={(t, r) => abrirCobroRes({ ...t, tipo: "tarifa" }, r.id)} {...extra} />;
+
   const voidOne = async (sale, by) => { baseDispatch({ type: "VOID_ONE", saleId: sale.id, by }); const r = await db.anularVenta(sale.clientUuid || sale.id, by); if (r.offline) setPending(db.pendingCount()); };
 
   // ===== Gastos / retiradas de caja =====
@@ -633,7 +679,7 @@ export default function App() {
     const gastos = sumMov(gTurno, "gasto"), entradas = sumMov(gTurno, "entrada");
     if (allOpen.length === 0 && voids === 0 && gTurno.length === 0 && puntoObj.estado !== "abierta") { flash("Sin ventas en el turno actual", "warn"); return; }
     const map = {};
-    sales.forEach(s => { map[s.productId] = map[s.productId] || { name: s.name, qty: 0, total: 0 }; map[s.productId].qty++; map[s.productId].total += s.price; });
+    sales.forEach(s => { const k = s.productId || "n:" + s.name; map[k] = map[k] || { name: s.name, qty: 0, total: 0 }; map[k].qty++; map[k].total += s.price; });
     const revenue = round2(sales.reduce((t, s) => t + s.price, 0));
     const efectivo = round2(sales.filter(s => s.pago === "efectivo").reduce((t, s) => t + s.price, 0));
     const tarjeta = round2(sales.filter(s => s.pago === "tarjeta").reduce((t, s) => t + s.price, 0));
@@ -741,6 +787,7 @@ export default function App() {
     { id: "pos", label: "TPV", icon: "pos", roles: ["admin", "supervisor"] },
     { id: "template", label: "Plantilla", icon: "template", roles: ["admin"] },
     { id: "config", label: "Evento", icon: "config", roles: ["admin"] },
+    { id: "reservados", label: "Reservados", icon: "vip", roles: ["admin", "supervisor"] },
     { id: "reports", label: "Informes", icon: "reports", roles: ["admin", "supervisor"] },
     { id: "history", label: "Histórico", icon: "history", roles: ["admin"] },
   ];
@@ -794,7 +841,7 @@ export default function App() {
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn} aria-label="Menú"><Ic n="menu" /></button>
           </header>
           <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={() => { if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={() => { if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
           </div>
         </div>
       ) : (
@@ -807,7 +854,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.topBtn}><Ic n="lock" s={16} />Salir</button></div>
           </header>
           <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={() => { if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={() => { if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
           </div>
         </div>
       ))}
@@ -828,10 +875,12 @@ export default function App() {
                 <button onClick={() => setAskRevenue(true)} style={{ ...S.iconBtn, color: "var(--accent)" }} aria-label="Consultar facturación"><Ic n="euro" /></button>
               </div>
             </div>
-            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={() => { if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
+            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={() => { if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
+            {safeView === "reservados" && vistaRes()}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
             {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
             {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
+            {safeView === "reports" && <InformeReservados ev={ev} res={res} sales={evSales} isMobile={isMobile} />}
             {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
           </div>
           <nav style={S.bottomNav}>
@@ -872,10 +921,12 @@ export default function App() {
               </div>
             </header>
             <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={() => { if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
-              {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
+              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} onToggleAdvanced={toggleAdvanced} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={() => { if (ev.pedirFondo !== false) setOpening(true); else iniciarVenta(null); }} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
+              {safeView === "reservados" && vistaRes()}
+            {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
               {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
               {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
+            {safeView === "reports" && <InformeReservados ev={ev} res={res} sales={evSales} isMobile={isMobile} />}
             {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
             </div>
           </main>
@@ -928,12 +979,21 @@ export default function App() {
         onVoid={(g) => { if (role === "cajero") setAskGastoVoid(g); else anularGasto(g); }} />}
       {askGastoVoid && <PinModal correct={ev.pin_supervisor} onClose={() => setAskGastoVoid(null)} onOk={() => { const g = askGastoVoid; setAskGastoVoid(null); anularGasto(g); }} label="PIN de supervisor para anular el movimiento" />}
 
+      {/* ===== Reservados VIP: cobro y mapa ===== */}
+      {resCobro && <CobrarReservado ev={ev} item={resCobro.item} res={res} sales={evSales} fijo={resCobro.fijo} onCobrar={cobrarRes} onClose={() => setResCobro(null)} />}
+      {resMapa && role && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 60, background: "var(--bg)", overflow: "auto", padding: "calc(14px + env(safe-area-inset-top)) 14px calc(18px + env(safe-area-inset-bottom))" }}>
+          <div style={{ maxWidth: 1100, margin: "0 auto" }}>{vistaRes({ onCerrar: () => setResMapa(false) })}</div>
+        </div>
+      )}
+
       {/* ===== Cobro avanzado ===== */}
       {payFlow && (
         <PayFlow
           total={payFlow.total}
           lines={payFlow.kind === "single" ? [{ qty: payFlow.qty, name: payFlow.product.name, total: round2(payFlow.product.price * payFlow.qty) }]
             : payFlow.kind === "many" ? payFlow.items.map(it => ({ qty: it.qty, name: it.product.name, total: round2(it.product.price * it.qty) }))
+            : payFlow.kind === "reservado" ? [{ qty: 1, name: `${payFlow.res.item.nombre} · ${payFlow.res.reservado.nombre}`, total: payFlow.total }]
             : [{ qty: 1, name: payFlow.combo.name, total: payFlow.total }]}
           changeHelp={ev.changeHelp !== false}
           onCancel={() => setPayFlow(null)}
@@ -943,6 +1003,7 @@ export default function App() {
             if (f.kind === "single") doSell(f.product, f.qty, pay);
             else if (f.kind === "many") doSellMany(f.items, pay);
             else if (f.kind === "combo") doSellCombo(f.combo, f.vouchers, f.total, pay);
+            else if (f.kind === "reservado") doSellRes(f.res, pay);
           }}
         />
       )}
@@ -973,7 +1034,7 @@ export default function App() {
 
       {/* ===== Zona de impresión oculta (fuera de pantalla; en impresión se coloca en 0,0) ===== */}
       {createPortal(<div id="thermal-print-area" aria-hidden style={{ position: "absolute", left: -9999, top: 0 }}>
-        {printJob?.kind === "ticket" && <div className="ticket-page"><ThermalTicket ev={ev} product={printJob.product} time={printJob.time} num={printJob.num} qty={printJob.qty} folio={printJob.folio} /></div>}
+        {printJob?.kind === "ticket" && <div className="ticket-page"><ThermalTicket ev={ev} product={printJob.product} time={printJob.time} num={printJob.num} qty={printJob.qty} folio={printJob.folio} notas={printJob.notas} /></div>}
         {printJob?.kind === "z" && <div className="ticket-page z-page"><ZTicket ev={ev} z={printJob.z} /></div>}
         {printJob?.kind === "multi" && printJob.tickets.map((t, i) => (
           <div key={i} className="ticket-page">
@@ -1125,6 +1186,7 @@ const IC = {
   template: "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3",
   config: "M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1M15 4a2 2 0 1 0 0 4a2 2 0 1 0 0-4M9 10a2 2 0 1 0 0 4a2 2 0 1 0 0-4M17 16a2 2 0 1 0 0 4a2 2 0 1 0 0-4",
   reports: "M3 20h18M6 16v-5M11 16V6M16 16v-8",
+  vip: "M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z",
   menu: "M4 7h16M4 12h16M4 17h16",
   close: "M6 6l12 12M18 6L6 18",
   check: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M8.5 12.2l2.4 2.3 4.6-4.8",
@@ -1556,7 +1618,7 @@ function CheckCard({ state, title, value, note, children }) {
 /* ============================================================
    POS
    ============================================================ */
-function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onInvite, onComboInvite, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, onToggleAdvanced, onGasto, gastoTotal = 0, entradaTotal = 0, fondo = null, onIniciar }) {
+function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onInvite, onComboInvite, onSellMany, onVoid, onReprint, canReprint, onCombo, extra = null, testMode, closed, advanced, onToggleAdvanced, onGasto, gastoTotal = 0, entradaTotal = 0, fondo = null, onIniciar }) {
   const isMobile = useIsMobile();
   const combos = punto.combos || [];
   const [qty, setQty] = useState(1);
@@ -1789,6 +1851,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
               </div>
             </div>
           )}
+          {!grouping && !arranging && extra}
         </div>
 
         {/* panel comanda */}
@@ -2003,8 +2066,11 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
     puntos.forEach(p => { p.combos = (p._src.combos || []).map(c => ({ ...c, id: uid(), items: (c.items || []).map(it => ({ ...it, productId: pmap[it.productId] || it.productId })) })); delete p._src; });
     const st = { ...(src.style || {}) };
     if (st.comisiones) { const nc = {}; Object.entries(st.comisiones).forEach(([pid, l]) => { const last = l && l[l.length - 1]; if (pmap[pid] && last && last.proveedor) nc[pmap[pid]] = [{ ...last, desde: 0 }]; }); st.comisiones = nc; }
+    if (st.reservados) { const pm = {}; src.puntos.forEach(p => { const n = puntos.find(x => x.name === p.name); if (n) pm[p.id] = n.id; }); st.reservados = { ...st.reservados, puntos: (st.reservados.puntos || []).map(id => pm[id]).filter(Boolean) }; }
     const event = { ...src, id: uid(), name, date, venue, closed: false, startsAt: "", style: st, puntos };
     dispatch({ type: "ADD_EVENT", event });
+    // Los reservados (mesas) se copian libres, sin clientes ni señales, cuando el evento ya está guardado
+    setTimeout(() => { copiarReservados(src.id, event.id); }, 2500);
     flash(`Evento duplicado: ${puntos.length} barras y ${puntos.reduce((t, p) => t + p.products.length, 0)} productos copiados`);
   };
   const createEvent = () => {
