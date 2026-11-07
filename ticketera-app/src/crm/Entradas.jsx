@@ -5,6 +5,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as crm from "./crmdb";
 import { money, useIsMobile, C, Icon, Tile, Badge, Seg, Sheet, Field, Seccion } from "./ui";
+import { Landing, PLANTILLAS_WEB } from "../web/Publico.jsx";
 
 const urlVenta = (slug) => `${window.location.origin}/e/${slug}`;
 const ESTADOS = { borrador: { t: "Borrador", c: "var(--muted)" }, publicado: { t: "A la venta", c: "var(--green)" }, cerrado: { t: "Venta cerrada", c: "var(--red)" } };
@@ -14,13 +15,13 @@ const CAMPOS = [
   { k: "dni_asistente", t: "DNI de cada asistente" },
 ];
 const LETRAS = [{ k: "inter", t: "Moderna" }, { k: "serif", t: "Elegante" }, { k: "mono", t: "Techno" }];
-const FUENTE = { inter: "Inter, system-ui, sans-serif", serif: "Georgia, 'Times New Roman', serif", mono: "'JetBrains Mono', ui-monospace, Menlo, monospace" };
 const COLORES = ["#ff5a3c", "#a855f7", "#3b82f6", "#22d3a6", "#ffb400", "#ec4899", "#f97316", "#eceef5"];
 const PASOS = [
   { k: "evento", t: "Evento", i: "calendar", sub: "Nombre, día y hora de inicio y de fin, y dónde es." },
-  { k: "flyer", t: "Flyer", i: "upload", sub: "El flyer es lo primero que se ve en la página y sale en cada entrada." },
+  { k: "flyer", t: "Fotos", i: "upload", sub: "El flyer (sale en cada entrada) y las fotos de la marca o de otras ediciones para la galería." },
   { k: "entradas", t: "Entradas", i: "ticket", sub: "Los tramos: precio, cantidad y cuándo se vende cada uno." },
-  { k: "opciones", t: "Opciones", i: "gear", sub: "Avisos de urgencia, datos del comprador, diseño, QR y límites. Ya vienen con valores que funcionan." },
+  { k: "diseno", t: "Diseño", i: "sparkle", sub: "Elige la plantilla de la página, tus colores y los textos. Todo está pensado para que compren." },
+  { k: "opciones", t: "Opciones", i: "gear", sub: "Avisos de urgencia, datos del comprador, QR y límites. Ya vienen con valores que funcionan." },
   { k: "publicar", t: "Publicar", i: "sparkle", sub: "Revisa que esté todo y ponlo a la venta." },
 ];
 // fecha-hora local «2026-12-31T23:30» <-> ISO
@@ -259,6 +260,20 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
   const form = { ...crm.FORM_DEF, ...(f.formulario || {}) };
   const avisos = { ...crm.AVISOS_DEF, ...(f.avisos || {}) };
   const diseno = { ...crm.DISENO_DEF, ...(f.diseno || {}) };
+  const fRef = useRef(f); fRef.current = f;
+  const setDiseno = (patch) => setFicha({ diseno: { ...crm.DISENO_DEF, ...(fRef.current.diseno || {}), ...patch } });
+  const galeria = Array.isArray(diseno.galeria) ? diseno.galeria : [];
+  const subirGaleria = async (files) => {
+    const hueco = 12 - galeria.length; const lista = [...files].filter(x => /^image\//.test(x.type)).slice(0, Math.max(0, hueco));
+    if (!lista.length) { flash(hueco <= 0 ? "Máximo 12 fotos" : "Elige fotos (JPG, PNG o WEBP)", "warn"); return; }
+    const urls = [];
+    for (const fl of lista) {
+      if (fl.size > 25 * 1024 * 1024) continue;
+      try { urls.push(await crm.webSubir(ev.id, "galeria", await reducirImagen(fl, 1600, "image/jpeg"))); } catch {}
+    }
+    if (urls.length) { const act = Array.isArray(fRef.current.diseno?.galeria) ? fRef.current.diseno.galeria : []; setDiseno({ galeria: [...act, ...urls].slice(0, 12) }); }
+    flash(urls.length === lista.length ? `${urls.length} foto${urls.length > 1 ? "s" : ""} añadida${urls.length > 1 ? "s" : ""}` : `Se han subido ${urls.length} de ${lista.length}`, urls.length === lista.length ? undefined : "warn");
+  };
   const est = ESTADOS[f.estado] || ESTADOS.borrador;
   const finMal = !!(evLocal.fin && evLocal.inicio && new Date(evLocal.fin) <= new Date(evLocal.inicio));
   // Lo imprescindible para poder publicar
@@ -270,21 +285,28 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
     { k: "tramo", t: "Al menos un tramo de entradas visible", ok: d.tramos.some(t => t.visible), paso: 2 },
   ];
   const listo = req.every(r => r.ok);
-  const hecho = [req[0].ok && req[1].ok && req[2].ok, req[3].ok, req[4].ok, true, f.estado === "publicado"];
+  const hecho = [req[0].ok && req[1].ok && req[2].ok, req[3].ok, req[4].ok, true, true, f.estado === "publicado"];
 
   const [vista, setVista] = useState(f.estado === "publicado" ? "ventas" : "config");
-  const [paso, setPasoRaw] = useState(() => { if (f.estado !== "borrador") return 4; const i = req.findIndex(r => !r.ok); return i < 0 ? 4 : req[i].paso; });
+  const [paso, setPasoRaw] = useState(() => { if (f.estado !== "borrador") return 5; const i = req.findIndex(r => !r.ok); return i < 0 ? 5 : req[i].paso; });
   const arriba = useRef(null);
   const setPaso = (i) => { setPasoRaw(i); setVista("config"); setTimeout(() => arriba.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 30); };
   const [verPrevia, setVerPrevia] = useState(false);
   const [confirmarCierre, setConfirmarCierre] = useState(false);
   const cambiarEstado = (v) => {
-    if (v === "publicado" && !listo) { flash("Falta algo para publicar: mira la lista", "warn"); setPaso(4); return; }
+    if (v === "publicado" && !listo) { flash("Falta algo para publicar: mira la lista", "warn"); setPaso(5); return; }
     setFicha({ estado: v }); setConfirmarCierre(false);
     flash(v === "publicado" ? "¡Publicado! Ya se puede comprar en el enlace" : v === "cerrado" ? "Venta cerrada" : "Pasado a borrador: la página ya no es pública");
   };
   const wa = `https://wa.me/?text=${encodeURIComponent(`${evLocal.nombre} · ${fechaTxt(evLocal.inicio)} · Entradas: ${url}`)}`;
-  const previa = <VistaMovil ev={ev} evLocal={evLocal} f={f} tramos={d.tramos} diseno={diseno} />;
+  const evPrevia = {
+    slug: f.slug, estado: f.estado, modo: f.modo, vista_previa: true, nombre: evLocal.nombre || ev.name, fecha: (evLocal.inicio || "").slice(0, 10) || ev.date,
+    inicio: evLocal.inicio, fin: aIso(evLocal.fin), recinto: evLocal.recinto, descripcion: f.descripcion, direccion: f.direccion, maps_url: f.maps_url,
+    edad_minima: f.edad_minima, autorizacion_url: f.autorizacion_url, autorizacion_edad: f.autorizacion_edad, vestimenta: f.vestimenta,
+    flyer_url: f.flyer_url, logo_url: f.logo_url, diseno, formulario: form, avisos, venta_inicio: f.venta_inicio,
+    tramos: d.tramos.filter(t => t.visible).map(t => ({ id: t.id, nombre: t.nombre, descripcion: t.descripcion, precio: t.precio, cantidad: t.cantidad, max_por_compra: t.max_por_compra, copas: t.copas, venta_inicio: t.venta_inicio, venta_fin: t.venta_fin, estado: "venta", quedan: t.cantidad == null ? null : Math.max(0, t.cantidad - (t.vendidas || 0)) })),
+  };
+  const previa = <MovilReal ev={evPrevia} />;
   const tarjeta = (i, t, sub, children, extra) => (
     <section style={{ ...C.panel, padding: isMobile ? 14 : 18 }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
@@ -326,6 +348,9 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
       {tarjeta("upload", "Flyer o cartel", "Vertical u horizontal. JPG, PNG o WEBP. Se reduce solo para que la página cargue rápido.", (
         <Subida t="Flyer" url={f.flyer_url} img grande accept="image/*" onFile={(fl) => subir("flyer", fl, "flyer_url")} onQuitar={() => setFicha({ flyer_url: null })} alto={isMobile ? 300 : 360} />
       ))}
+      {tarjeta("eye", `Galería de fotos (${galeria.length}/12)`, "Fotos de la fiesta, del local o de otras ediciones. Pasan solas en la página y se pueden ampliar.", (
+        <GaleriaEditor fotos={galeria} isMobile={isMobile} onOrden={(arr) => setDiseno({ galeria: arr })} onSubir={subirGaleria} />
+      ))}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14 }}>
         {tarjeta("sparkle", "Logo", "Opcional. Se muestra arriba en la página.", (
           <Subida t="Logo" url={f.logo_url} img accept="image/*" onFile={(fl) => subir("logo", fl, "logo_url")} onQuitar={() => setFicha({ logo_url: null })} alto={130} />
@@ -340,7 +365,39 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
     /* ---------- 3 · Entradas ---------- */
     <Tramos key="entradas" ev={ev} d={d} setD={setD} ficha={f} setFicha={setFicha} flash={flash} isMobile={isMobile} inicio={evLocal.inicio} />,
 
-    /* ---------- 4 · Opciones ---------- */
+    /* ---------- 4 · Diseño ---------- */
+    <div key="diseno" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {tarjeta("sparkle", "Plantilla de la página", lateral ? "Mira el cambio en el móvil de la derecha." : "Toca una y mírala en «Ver cómo queda».", (
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,minmax(0,1fr))", gap: 10 }}>
+          {PLANTILLAS_WEB.map(pl => { const on = (diseno.plantilla || "clasica") === pl.k; return (
+            <button key={pl.k} onClick={() => setDiseno({ plantilla: pl.k })} aria-pressed={on} style={{ textAlign: "left", padding: 8, borderRadius: 14, cursor: "pointer", color: "var(--text)", border: `2px solid ${on ? "var(--accent)" : "var(--line)"}`, background: on ? "color-mix(in srgb, var(--accent) 8%, var(--surface))" : "var(--surface)" }}>
+              <Esquema k={pl.k} color={diseno.color} oscuro={diseno.fondo !== "claro"} />
+              <b style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 14.5 }}>{on && <Icon n="check" s={14} w={3} c="var(--accent)" />}{pl.t}</b>
+              <span style={{ display: "block", fontSize: 11.5, color: "var(--muted)", marginTop: 2, lineHeight: 1.35 }}>{pl.sub}</span>
+            </button>); })}
+        </div>
+      ), <button onClick={() => setVerPrevia(true)} style={{ ...C.btnSm, flexShrink: 0 }}><Icon n="eye" s={14} />{isMobile ? "Ver" : "Ver en grande"}</button>)}
+      {tarjeta("sparkle", "Colores y letra", null, <>
+        <Field l="Color principal (botones y precios)">
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            {COLORES.map(c => <button key={c} onClick={() => setDiseno({ color: c })} aria-label={`Color ${c}`} aria-pressed={diseno.color === c} style={{ width: 38, height: 38, borderRadius: 12, background: c, cursor: "pointer", border: diseno.color === c ? "3px solid var(--text)" : "3px solid transparent" }} />)}
+            <input type="color" value={diseno.color} onChange={e => setDiseno({ color: e.target.value })} aria-label="Otro color" style={{ width: 48, height: 38, border: "none", background: "transparent", cursor: "pointer" }} />
+          </div>
+        </Field>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+          <Field l="Fondo"><Seg full valor={diseno.fondo} onChange={(v) => setDiseno({ fondo: v })} opciones={[{ k: "oscuro", t: "Oscuro", i: "moon" }, { k: "claro", t: "Claro", i: "sun" }]} /></Field>
+          <Field l="Tipo de letra"><Seg full valor={diseno.letra} onChange={(v) => setDiseno({ letra: v })} opciones={LETRAS} /></Field>
+        </div>
+        <Sw on={diseno.fondoFlyer} onClick={() => setDiseno({ fondoFlyer: !diseno.fondoFlyer })} l="Usar el flyer difuminado de fondo" sub="En la plantilla Inmersiva el fondo son tus fotos." />
+      </>)}
+      {tarjeta("megaphone", "Textos que venden", "Cortos y directos. Si los dejas vacíos, la página funciona igual.", <>
+        <Field l="Frase bajo el nombre"><input style={C.input} value={diseno.lema || ""} maxLength={120} placeholder="Ej. La fiesta más grande del año vuelve a KM Cero" onChange={e => setDiseno({ lema: e.target.value })} /></Field>
+        <Field l="Texto del botón de compra"><input style={C.input} value={diseno.textoBoton || ""} maxLength={28} placeholder="Comprar entradas" onChange={e => setDiseno({ textoBoton: e.target.value })} /><div style={ayuda}>Ej. «Quiero mi entrada», «Reserva ya». Junto al botón sale el precio «desde».</div></Field>
+        <Field l="Line-up (uno por línea)" mb={0}><textarea style={{ ...C.input, minHeight: 100, resize: "vertical", fontFamily: "inherit" }} value={diseno.lineup || ""} maxLength={800} placeholder={"CABEZA DE CARTEL\nDJ INVITADO\nRESIDENTES"} onChange={e => setDiseno({ lineup: e.target.value })} /><div style={ayuda}>El primero sale más grande.</div></Field>
+      </>)}
+    </div>,
+
+    /* ---------- 5 · Opciones ---------- */
     <div key="opciones" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {tarjeta("bolt", "Avisos de urgencia", "Siempre con datos reales: solo salen cuando de verdad quedan pocas.", <>
         <Sw primero on={avisos.activo} onClick={() => setFicha({ avisos: { ...avisos, activo: !avisos.activo } })} l="Mostrar «¡Quedan pocas!» y «Últimas entradas»" />
@@ -364,20 +421,6 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
           </div>))}
         <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>Pide solo lo que necesites: cuantos menos datos, más gente termina la compra (y menos datos personales que custodiar).</div>
       </>)}
-      {tarjeta("sparkle", "Diseño de la página", lateral ? "Mira el cambio en el móvil de la derecha." : "Colores de tu marca. La página siempre es sencilla: el flyer, las entradas y comprar.", <>
-        <Field l="Color principal (botones y precios)">
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            {COLORES.map(c => <button key={c} onClick={() => setFicha({ diseno: { ...diseno, color: c } })} aria-label={`Color ${c}`} aria-pressed={diseno.color === c} style={{ width: 38, height: 38, borderRadius: 12, background: c, cursor: "pointer", border: diseno.color === c ? "3px solid var(--text)" : "3px solid transparent" }} />)}
-            <input type="color" value={diseno.color} onChange={e => setFicha({ diseno: { ...diseno, color: e.target.value } })} aria-label="Otro color" style={{ width: 48, height: 38, border: "none", background: "transparent", cursor: "pointer" }} />
-          </div>
-        </Field>
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
-          <Field l="Fondo"><Seg full valor={diseno.fondo} onChange={(v) => setFicha({ diseno: { ...diseno, fondo: v } })} opciones={[{ k: "oscuro", t: "Oscuro", i: "moon" }, { k: "claro", t: "Claro", i: "sun" }]} /></Field>
-          <Field l="Tipo de letra"><Seg full valor={diseno.letra} onChange={(v) => setFicha({ diseno: { ...diseno, letra: v } })} opciones={LETRAS} /></Field>
-        </div>
-        <Sw on={diseno.fondoFlyer} onClick={() => setFicha({ diseno: { ...diseno, fondoFlyer: !diseno.fondoFlyer } })} l="Usar el flyer difuminado de fondo" />
-        {!lateral && <button onClick={() => setVerPrevia(true)} style={{ ...C.btnGhost, marginTop: 10, width: isMobile ? "100%" : "auto" }}><Icon n="phone" s={16} />Ver cómo queda</button>}
-      </>)}
       {tarjeta("clock", "Lanzamiento, QR y límites", "Cuenta atrás, desde cuándo vale el QR y cuántas entradas por persona.", <>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: "0 12px" }}>
           <Field l="La venta empieza (cuenta atrás)"><FechaHora valor={aLocal(f.venta_inicio)} onChange={(v) => setFicha({ venta_inicio: aIso(v) })} titulo="¿Cuándo se abre la venta?" placeholder="En cuanto publiques" /><div style={ayuda}>Si es futura, la página muestra una cuenta atrás.</div></Field>
@@ -388,7 +431,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
       </>)}
     </div>,
 
-    /* ---------- 5 · Publicar ---------- */
+    /* ---------- 6 · Publicar ---------- */
     <div key="publicar" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {tarjeta("check", listo ? "Todo listo para vender" : "Antes de publicar", listo ? "Lo imprescindible está completo." : "Toca lo que falta para ir directo.", (
         <div>{req.map(r => (
@@ -431,7 +474,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
         </>}
       </section>
       {tarjeta("link", "Comparte el enlace", null, <Compartir url={url} wa={wa} copiar={copiar} borrador={f.estado === "borrador"} onDuplicar={onDuplicar} />)}
-      {!lateral && tarjeta("phone", "Así lo verá el comprador", "Aproximado: el flyer, las entradas y el botón de comprar.", <div style={{ display: "flex", justifyContent: "center" }}>{previa}</div>)}
+      {!lateral && tarjeta("phone", "Así lo verá el comprador", "Es la página de verdad, con tu plantilla, fotos y entradas.", <div style={{ display: "flex", justifyContent: "center" }}>{previa}</div>)}
     </div>,
   ];
 
@@ -459,16 +502,16 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
 
     {vista === "ventas" ? <Ventas ev={ev} flash={flash} isMobile={isMobile} /> : (<>
       {/* ===== Pasos ===== */}
-      <nav ref={arriba} aria-label="Pasos" style={{ display: "grid", gridTemplateColumns: "repeat(5,minmax(0,1fr))", gap: isMobile ? 4 : 8, scrollMarginTop: 12 }}>
-        {PASOS.map((p, i) => { const on = i === paso; const ok = hecho[i] && i !== 3; return (
+      <nav ref={arriba} aria-label="Pasos" style={{ display: "grid", gridTemplateColumns: "repeat(6,minmax(0,1fr))", gap: isMobile ? 3 : 8, scrollMarginTop: 12 }}>
+        {PASOS.map((p, i) => { const on = i === paso; const ok = hecho[i] && i !== 3 && i !== 4; return (
           <button key={p.k} onClick={() => setPaso(i)} aria-current={on ? "step" : undefined}
             style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: "center", gap: isMobile ? 4 : 10, padding: isMobile ? "9px 2px" : "11px 12px", borderRadius: 14, cursor: "pointer", minWidth: 0, textAlign: "left",
               border: `2px solid ${on ? "var(--accent)" : "var(--line)"}`, background: on ? "color-mix(in srgb, var(--accent) 9%, var(--surface))" : "var(--surface)", color: "var(--text)" }}>
             <span style={{ width: isMobile ? 26 : 30, height: isMobile ? 26 : 30, borderRadius: 30, display: "grid", placeItems: "center", flexShrink: 0, fontWeight: 900, fontSize: 13,
               background: ok ? "var(--green)" : on ? "var(--accent)" : "var(--surface2)", color: ok ? "#04231a" : on ? "#fff" : "var(--muted)" }}>{ok ? <Icon n="check" s={14} w={3} /> : i + 1}</span>
             <span style={{ minWidth: 0 }}>
-              <b style={{ display: "block", fontSize: isMobile ? 11.5 : 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.t}</b>
-              {!isMobile && <span style={{ display: "block", fontSize: 11.5, color: ok ? "var(--green)" : "var(--muted)", fontWeight: 700 }}>{i === 3 ? "Opcional" : ok ? "Hecho" : i === 4 ? (listo ? "Listo" : "Pendiente") : "Pendiente"}</span>}
+              <b style={{ display: "block", fontSize: isMobile ? 10.5 : 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.t}</b>
+              {!isMobile && <span style={{ display: "block", fontSize: 11.5, color: ok ? "var(--green)" : "var(--muted)", fontWeight: 700 }}>{i === 3 ? (PLANTILLAS_WEB.find(x => x.k === diseno.plantilla) || PLANTILLAS_WEB[0]).t : i === 4 ? "Opcional" : ok ? "Hecho" : i === 5 ? (listo ? "Listo" : "Pendiente") : "Pendiente"}</span>}
             </span>
           </button>); })}
       </nav>
@@ -476,7 +519,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
       <div style={{ display: "grid", gridTemplateColumns: lateral ? "minmax(0,1fr) 330px" : "1fr", gap: 18, alignItems: "start" }}>
         <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 900, color: "var(--accent)", textTransform: "uppercase", letterSpacing: 1.4 }}>Paso {paso + 1} de 5</div>
+            <div style={{ fontSize: 12, fontWeight: 900, color: "var(--accent)", textTransform: "uppercase", letterSpacing: 1.4 }}>Paso {paso + 1} de 6</div>
             <div style={{ fontSize: isMobile ? 22 : 26, fontWeight: 900, letterSpacing: "-.01em" }}>{PASOS[paso].t}</div>
             <div style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 2 }}>{PASOS[paso].sub}</div>
           </div>
@@ -484,17 +527,17 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
           {/* Atrás / Siguiente */}
           <div style={{ position: "sticky", bottom: isMobile ? -12 : -22, zIndex: 5, display: "flex", gap: 8, padding: "12px 0", paddingBottom: isMobile ? "calc(12px + env(safe-area-inset-bottom))" : 12, background: "linear-gradient(180deg, transparent, var(--bg) 35%)" }}>
             {paso > 0 && <button onClick={() => setPaso(paso - 1)} style={{ ...C.btnGhost, minHeight: 50, flex: "0 0 auto" }}><Icon n="right" s={16} style={{ transform: "rotate(180deg)" }} />Atrás</button>}
-            {paso < 4 && <button onClick={() => setPaso(paso + 1)} style={{ ...C.btnPrimary, minHeight: 50, flex: 1, fontSize: 15.5 }}>Siguiente: {PASOS[paso + 1].t}<Icon n="right" s={16} /></button>}
+            {paso < 5 && <button onClick={() => setPaso(paso + 1)} style={{ ...C.btnPrimary, minHeight: 50, flex: 1, fontSize: 15.5 }}>Siguiente: {PASOS[paso + 1].t}<Icon n="right" s={16} /></button>}
           </div>
         </div>
         {lateral && <aside style={{ position: "sticky", top: 0 }}>
           <div style={{ ...C.label, textAlign: "center" }}>Así lo verá el comprador</div>
           <div style={{ display: "flex", justifyContent: "center" }}>{previa}</div>
-          <div style={{ fontSize: 11.5, color: "var(--muted)", textAlign: "center", marginTop: 8 }}>Vista aproximada. <a href={url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", fontWeight: 800 }}>Abrir la página real</a></div>
+          <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 10 }}><button onClick={() => setVerPrevia(true)} style={C.btnSm}><Icon n="eye" s={14} />Ver en grande</button><a href={url} target="_blank" rel="noopener noreferrer" style={{ ...C.btnSm, textDecoration: "none" }}><Icon n="link" s={14} />Página real</a></div>
         </aside>}
       </div>
     </>)}
-    {verPrevia && <Sheet title="Así lo verá el comprador" onClose={() => setVerPrevia(false)}><div style={{ display: "flex", justifyContent: "center" }}>{previa}</div></Sheet>}
+    {verPrevia && <PreviaGrande ev={evPrevia} url={url} isMobile={isMobile} onClose={() => setVerPrevia(false)} />}
   </>);
 }
 const sufijo = { position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", fontWeight: 800, pointerEvents: "none", fontSize: 13.5 };
@@ -512,37 +555,81 @@ function Compartir({ url, wa, copiar, borrador, onDuplicar }) {
   </>);
 }
 
-/* ===================== Vista del móvil del comprador (aproximada) ===================== */
-function VistaMovil({ ev, evLocal, f, tramos, diseno }) {
-  const oscuro = diseno.fondo !== "claro";
-  const bg = oscuro ? "#0b0c10" : "#f5f6f8", tx = oscuro ? "#f3f4f6" : "#15171a", mu = oscuro ? "#9aa0ad" : "#6b7280", card = oscuro ? "rgba(255,255,255,.06)" : "#fff", line = oscuro ? "rgba(255,255,255,.1)" : "#e5e7eb";
-  const visibles = tramos.filter(t => t.visible);
+/* ===================== Vista previa: la página de verdad, en pequeño ===================== */
+function MovilReal({ ev, ancho = 270, alto = 560 }) {
   return (
-    <div style={{ width: 290, height: 590, borderRadius: 38, padding: 10, background: "#111", boxShadow: "0 18px 50px rgba(0,0,0,.35), inset 0 0 0 2px #2a2a2a", flexShrink: 0 }}>
-      <div style={{ position: "relative", width: "100%", height: "100%", borderRadius: 29, overflow: "hidden", background: bg, color: tx, fontFamily: FUENTE[diseno.letra] || FUENTE.inter }}>
-        {diseno.fondoFlyer && f.flyer_url && <img src={f.flyer_url} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", filter: "blur(28px) saturate(1.3)", opacity: oscuro ? .45 : .3, transform: "scale(1.2)" }} />}
-        <div style={{ position: "relative", height: "100%", overflow: "auto", padding: "26px 14px 16px", scrollbarWidth: "none" }}>
-          {f.logo_url && <img src={f.logo_url} alt="" style={{ display: "block", maxHeight: 30, maxWidth: 120, margin: "0 auto 10px", objectFit: "contain" }} />}
-          {f.flyer_url ? <img src={f.flyer_url} alt="" style={{ display: "block", width: "100%", borderRadius: 14, objectFit: "cover", maxHeight: 300 }} />
-            : <div style={{ height: 200, borderRadius: 14, border: `2px dashed ${line}`, display: "grid", placeItems: "center", color: mu, fontSize: 12, fontWeight: 700 }}>Aquí irá tu flyer</div>}
-          <div style={{ fontSize: 21, fontWeight: 900, lineHeight: 1.1, marginTop: 12, overflowWrap: "anywhere" }}>{evLocal.nombre || ev.name}</div>
-          <div style={{ fontSize: 12, color: mu, marginTop: 5 }}>{evLocal.inicio ? fechaTxt(evLocal.inicio, true) : "Fecha por decidir"}</div>
-          {(evLocal.recinto || f.direccion) && <div style={{ fontSize: 12, color: mu, marginTop: 2 }}>{[evLocal.recinto, f.direccion].filter(Boolean).join(" · ")}</div>}
-          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-            {visibles.length === 0 && <div style={{ fontSize: 12, color: mu, border: `1px dashed ${line}`, borderRadius: 12, padding: 12, textAlign: "center" }}>Aquí saldrán tus entradas</div>}
-            {visibles.slice(0, 4).map(t => (
-              <div key={t.id} style={{ background: card, border: `1px solid ${line}`, borderRadius: 12, padding: "10px 12px", display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block", fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.nombre}</b>{t.descripcion && <span style={{ display: "block", fontSize: 11, color: mu, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.descripcion}</span>}</span>
-                <b style={{ color: diseno.color, fontSize: 15 }}>{Number(t.precio) ? money(t.precio) : "Gratis"}</b>
-              </div>))}
-          </div>
-          <div style={{ marginTop: 12, background: diseno.color, color: /^#(?:f|e)/i.test(diseno.color) ? "#111" : "#fff", borderRadius: 12, padding: "12px", textAlign: "center", fontWeight: 900, fontSize: 14 }}>Comprar entradas</div>
-          {f.descripcion && <div style={{ fontSize: 11.5, color: mu, marginTop: 12, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{f.descripcion.slice(0, 280)}</div>}
-        </div>
+    <div style={{ width: ancho + 20, height: alto + 20, borderRadius: 40, padding: 10, background: "#111", boxShadow: "0 18px 50px rgba(0,0,0,.35), inset 0 0 0 2px #2a2a2a", flexShrink: 0 }}>
+      <div aria-label="Vista previa de la página de venta" style={{ width: ancho, height: alto, borderRadius: 30, overflow: "auto", overscrollBehavior: "contain", scrollbarWidth: "none", background: "#000" }}>
+        <div style={{ width: 390, zoom: ancho / 390, pointerEvents: "none", minHeight: alto * 390 / ancho }}><Landing ev={ev} previa /></div>
       </div>
     </div>
   );
 }
+function PreviaGrande({ ev, url, isMobile, onClose }) {
+  const [modo, setModo] = useState(isMobile ? "movil" : "ordenador");
+  const ancho = useAncho();
+  const anchoPc = Math.min(1280, ancho - 48), zoomPc = anchoPc / 1280;
+  return (
+    <div role="dialog" aria-label="Vista previa" style={{ position: "fixed", inset: 0, zIndex: 95, background: "rgba(8,9,13,.92)", backdropFilter: "blur(6px)", display: "flex", flexDirection: "column", alignItems: "center", padding: "14px 12px calc(14px + env(safe-area-inset-bottom))", gap: 12 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
+        {!isMobile && <Seg valor={modo} onChange={setModo} opciones={[{ k: "movil", t: "Móvil", i: "phone" }, { k: "ordenador", t: "Ordenador", i: "pos" }]} />}
+        <a href={url} target="_blank" rel="noopener noreferrer" style={{ ...C.btnSm, textDecoration: "none" }}><Icon n="link" s={14} />Abrir la página real</a>
+        <button onClick={onClose} style={{ ...C.btnSm, background: "#fff", color: "#111" }}><Icon n="x" s={14} />Cerrar</button>
+      </div>
+      {modo === "movil"
+        ? <MovilReal ev={ev} ancho={Math.min(390, ancho - 44)} alto={Math.min(780, window.innerHeight - 110)} />
+        : <div style={{ width: anchoPc, flex: 1, minHeight: 0, borderRadius: 14, overflow: "auto", background: "#000", boxShadow: "0 18px 50px rgba(0,0,0,.5)" }}>
+            <div style={{ width: 1280, zoom: zoomPc, pointerEvents: "none" }}><Landing ev={ev} previa /></div>
+          </div>}
+    </div>
+  );
+}
+// Dibujo de cada plantilla (para elegir de un vistazo)
+function Esquema({ k, color, oscuro }) {
+  const bg = oscuro ? "#0f1117" : "#f3f4f6", blk = oscuro ? "rgba(255,255,255,.16)" : "rgba(0,0,0,.12)", foto = `linear-gradient(135deg, ${color}, #3b1d5e)`;
+  const b = (st) => <span style={{ position: "absolute", borderRadius: 3, ...st }} />;
+  return (
+    <span style={{ position: "relative", display: "block", height: 92, borderRadius: 10, overflow: "hidden", background: bg, border: "1px solid var(--line)" }}>
+      {k === "clasica" && <>{b({ left: 8, top: 10, width: "38%", bottom: 10, background: foto, borderRadius: 6 })}{b({ left: "50%", top: 12, width: "40%", height: 9, background: blk })}{b({ left: "50%", top: 27, width: "28%", height: 5, background: blk })}{[0, 1, 2].map(i => b({ key: i, left: "50%", top: 40 + i * 13, width: "42%", height: 9, background: blk }))}</>}
+      {k === "inmersiva" && <>{b({ inset: 0, background: foto, borderRadius: 0 })}{b({ inset: 0, background: "linear-gradient(180deg,transparent 30%,rgba(0,0,0,.75))", borderRadius: 0 })}{b({ left: 10, bottom: 30, width: "62%", height: 12, background: "rgba(255,255,255,.9)" })}{b({ left: 10, bottom: 12, width: "34%", height: 10, background: color, borderRadius: 5 })}</>}
+      {k === "festival" && <>{b({ left: 6, right: 6, top: 6, height: 38, background: foto, borderRadius: 6 })}{b({ left: 0, right: 0, top: 50, height: 16, background: color, borderRadius: 0 })}{b({ left: 8, top: 54, width: "50%", height: 8, background: "rgba(255,255,255,.9)" })}{b({ left: 8, top: 72, width: "42%", height: 12, background: blk })}{b({ right: 8, top: 72, width: "40%", height: 12, background: blk })}</>}
+      {k === "minimal" && <>{b({ left: "30%", right: "30%", top: 8, height: 7, background: blk })}{b({ left: "34%", right: "34%", top: 20, height: 40, background: foto, borderRadius: 6 })}{b({ left: "26%", right: "26%", top: 66, height: 8, background: blk })}{b({ left: "26%", right: "26%", top: 78, height: 8, background: color })}</>}
+    </span>
+  );
+}
+function GaleriaEditor({ fotos, isMobile, onOrden, onSubir }) {
+  const ref = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [encima, setEncima] = useState(false);
+  const subir = async (files) => { if (!files?.length) return; setBusy(true); try { await onSubir(files); } finally { setBusy(false); } };
+  const mover = (i, dir) => { const j = i + dir; if (j < 0 || j >= fotos.length) return; const a = [...fotos]; [a[i], a[j]] = [a[j], a[i]]; onOrden(a); };
+  return (
+    <div onDragOver={e => { e.preventDefault(); setEncima(true); }} onDragLeave={() => setEncima(false)} onDrop={e => { e.preventDefault(); setEncima(false); subir(e.dataTransfer.files); }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,minmax(0,1fr))" : "repeat(4,minmax(0,1fr))", gap: 10 }}>
+        {fotos.map((u, i) => (
+          <div key={u + i} style={{ position: "relative", aspectRatio: "4/3", borderRadius: 12, overflow: "hidden", background: "var(--surface2)", border: "1px solid var(--line)" }}>
+            <img src={u} alt={`Foto ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+            {i === 0 && <span style={{ position: "absolute", top: 6, left: 6, background: "rgba(0,0,0,.6)", color: "#fff", fontSize: 11, fontWeight: 800, borderRadius: 6, padding: "2px 7px" }}>Portada</span>}
+            <span style={{ position: "absolute", left: 6, right: 6, bottom: 6, display: "flex", gap: 4, justifyContent: "space-between" }}>
+              <span style={{ display: "flex", gap: 4 }}>
+                <button onClick={() => mover(i, -1)} disabled={i === 0} aria-label="Mover a la izquierda" style={{ ...fotoBtn, opacity: i === 0 ? .4 : 1 }}><Icon n="right" s={14} style={{ transform: "rotate(180deg)" }} /></button>
+                <button onClick={() => mover(i, 1)} disabled={i === fotos.length - 1} aria-label="Mover a la derecha" style={{ ...fotoBtn, opacity: i === fotos.length - 1 ? .4 : 1 }}><Icon n="right" s={14} /></button>
+              </span>
+              <button onClick={() => onOrden(fotos.filter((_, k) => k !== i))} aria-label={`Quitar foto ${i + 1}`} style={fotoBtn}><Icon n="trash" s={14} /></button>
+            </span>
+          </div>))}
+        {fotos.length < 12 && (
+          <button onClick={() => !busy && ref.current?.click()} style={{ aspectRatio: "4/3", borderRadius: 12, border: `2px dashed ${encima ? "var(--accent)" : "var(--line)"}`, background: encima ? "color-mix(in srgb, var(--accent) 8%, var(--surface2))" : "var(--surface2)", color: "var(--muted)", cursor: busy ? "wait" : "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, fontWeight: 800, fontSize: 13 }}>
+            <span style={{ width: 40, height: 40, borderRadius: 12, background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)", display: "grid", placeItems: "center" }}><Icon n={busy ? "refresh" : "plus"} s={20} w={2.4} /></span>
+            {busy ? "Subiendo…" : "Añadir fotos"}
+          </button>)}
+      </div>
+      <input ref={ref} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { const fl = e.target.files; subir(fl ? [...fl] : []); e.target.value = ""; }} />
+      <div style={ayuda}>{isMobile ? "Puedes elegir varias a la vez." : "Puedes elegir o arrastrar varias a la vez."} La primera es la portada en las plantillas Inmersiva y Festival.</div>
+    </div>
+  );
+}
+const fotoBtn = { width: 30, height: 30, borderRadius: 8, border: "none", background: "rgba(0,0,0,.6)", color: "#fff", display: "grid", placeItems: "center", cursor: "pointer", padding: 0 };
 
 /* ===================== Piezas ===================== */
 const Sw = ({ on, onClick, l, sub, primero }) => (
