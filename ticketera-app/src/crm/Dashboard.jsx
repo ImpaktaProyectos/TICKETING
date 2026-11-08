@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import * as crm from "./crmdb";
 import { money, r2, fechaCorta, useIsMobile, C, Icon, Tile } from "./ui";
-import { GRUPOS, resumenEvento } from "./modelo";
+import { GRUPOS_VISTA, resumenEvento } from "./modelo";
 import { gcatInfo } from "./Gastos";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -22,7 +22,7 @@ export function Dashboard({ ev, events, sales, gastosCaja, ajustes, onSelectEven
 
   const resumenes = useMemo(() => {
     if (!cuenta) return [];
-    return events.map(e => resumenEvento(e, sales, gastosCaja, cuenta.ingresos.filter(i => i.eventoId === e.id), cuenta.gastos.filter(g => g.eventoId === e.id), cuenta.fuentes, ajustes))
+    return events.map(e => resumenEvento(e, sales, gastosCaja, cuenta.ingresos.filter(i => i.eventoId === e.id), cuenta.gastos.filter(g => g.eventoId === e.id), cuenta.fuentes, ajustes, (cuenta.senales || {})[e.id] || 0))
       .sort((a, b) => String(b.ev.date || "").localeCompare(String(a.ev.date || "")));
   }, [cuenta, events, sales, gastosCaja, ajustes]);
 
@@ -48,7 +48,7 @@ export function Dashboard({ ev, events, sales, gastosCaja, ajustes, onSelectEven
 /* ---------- Un evento ---------- */
 function VistaEvento({ R, anterior, isMobile }) {
   const d = anterior ? pct(R.beneficio, anterior.beneficio) : null;
-  const grupos = GRUPOS.map(g => ({ ...g, v: R.porGrupo[g.k] || 0 })).filter(g => g.v > 0);
+  const grupos = GRUPOS_VISTA.map(g => ({ ...g, v: R.porGrupo[g.k] || 0 })).filter(g => g.v > 0);
   const cats = Object.entries(R.G.porCat).sort((a, b) => b[1].total - a[1].total).slice(0, 8);
   const maxCat = Math.max(1, ...cats.map(([, v]) => Math.max(v.total, v.previsto)));
   // La noche va de la tarde a la madrugada: se ordena desde las 12:00 (23h antes que 0h)
@@ -117,7 +117,7 @@ function VistaEvento({ R, anterior, isMobile }) {
           <Fila l="Gastado real" v={money(R.G.real)} />
           <Fila l="Pendiente de pagar" v={money(R.G.pendiente)} c={R.G.pendiente ? "var(--amber)" : undefined} />
           <Fila l="Tickets del TPV" v={R.tickets} />
-          {R.tickets > 0 && <Fila l="Ticket medio" v={money(R.tpv / R.tickets)} />}
+          {R.tickets > 0 && <Fila l="Ticket medio" v={money(R.ventasTpv / R.tickets)} />}
         </div>
       </div>
     </div>

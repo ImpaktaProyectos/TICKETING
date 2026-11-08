@@ -193,7 +193,7 @@ function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, o
 
       {/* ===== El dinero de entradas de todos los canales, siempre arriba ===== */}
       {!verClientes && ingresos && (
-        <DineroEntradas ingresos={ingresos} barras={barras} titulo="Dinero de entradas · todos los canales"
+        <DineroEntradas ingresos={ingresos} titulo="Dinero de entradas · todos los canales"
           onAnadir={onVentaEntradas ? () => onVentaEntradas({}) : null}
           onEditar={(i) => (i.canal ? onVentaEntradas?.(i) : onEditarIngreso?.(i))}
           onClientes={d?.ficha ? () => { setVerClientes(true); window.scrollTo({ top: 0, behavior: "smooth" }); } : null} />

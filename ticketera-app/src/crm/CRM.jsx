@@ -6,7 +6,7 @@ import * as crm from "./crmdb";
 import { money, r2, hoy, fechaCorta, parseImporte, isInvite, useIsMobile, Dot, C, Icon, Avatar, Head, Tile, TEMAS, useTema } from "./ui";
 import { Gastos, totalesGastos } from "./Gastos";
 import { Liquidacion, calcularLiquidacion } from "./Liquidacion";
-import { GRUPOS, catInfo, fuenteAuto, setCategorias, TICKETERA_CAT } from "./categorias";
+import { GRUPOS_VISTA, grupoVista, catInfo, fuenteAuto, setCategorias, TICKETERA_CAT } from "./categorias";
 import { fiscalEvento } from "./fiscal";
 import { Dashboard } from "./Dashboard";
 import { Ingresos, IngresoForm, esExterno } from "./Ingresos";
@@ -100,9 +100,9 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
 
   // ---- Totales ----
   const T = useMemo(() => {
-    const porGrupo = Object.fromEntries(GRUPOS.map(g => [g.k, 0]));
-    barras.forEach(b => { porGrupo[b.fuente === "otros" ? "otros" : b.fuente] += b.total; });
-    ingresos.forEach(i => { const g = catInfo(i.categoria).g; porGrupo[g] = (porGrupo[g] || 0) + i.importe; });
+    const porGrupo = Object.fromEntries(GRUPOS_VISTA.map(g => [g.k, 0]));
+    barras.forEach(b => { porGrupo.tpv += b.total; });
+    ingresos.forEach(i => { const g = grupoVista(catInfo(i.categoria).g); porGrupo[g] += i.importe; });
     const tpv = r2(barras.reduce((t, b) => t + b.total, 0));
     const ticketera = r2(ingresos.filter(esExterno).reduce((t, i) => t + i.importe, 0));
     const manual = r2(ingresos.filter(i => !esExterno(i)).reduce((t, i) => t + i.importe, 0));
@@ -113,7 +113,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
     return { porGrupo, tpv, ticketera, manual, pendiente, total: r2(tpv + ticketera + manual), enSocios };
   }, [barras, ingresos, data?.ajustes]);
   // Comisiones e IVA (según Ajustes) → entran como gastos automáticos
-  const fiscal = (ajustes) => fiscalEvento({ ev, sales, ingresos, gastos: data?.gastos || [], fuentes: data?.fuentes, ajustes });
+  const fiscal = (ajustes) => fiscalEvento({ ev, sales, ingresos, gastos: data?.gastos || [], fuentes: data?.fuentes, ajustes, senales: barras.find(b => b.senal)?.total || 0 });
   const F = useMemo(() => fiscal(data?.ajustes), [ev, sales, ingresos, data?.gastos, data?.fuentes, data?.ajustes]);
   const G = useMemo(() => totalesGastos(ev, data?.gastos || [], gastosCaja, F.auto), [ev, data?.gastos, gastosCaja, F]);
   const senalesQuien = useMemo(() => barras.find(b => b.senal)?.quien || [], [barras]);

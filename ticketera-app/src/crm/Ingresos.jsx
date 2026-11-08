@@ -2,7 +2,7 @@
 // De un vistazo: total, de dónde viene, qué tienen los socios, ventas del TPV en directo y lo apuntado a mano.
 import React, { useState } from "react";
 import { money, r2, hoy, fechaCorta, parseImporte, useIsMobile, C, Icon, Tile, Avatar, Badge, Seg, Head, Sheet, Field, IconGrid, MoneyInput, Seccion, Grupo } from "./ui";
-import { GRUPOS, catInfo, grupoInfo, catsIngreso, TICKETERA_CAT } from "./categorias";
+import { GRUPOS_VISTA, catInfo, grupoInfo, catsIngreso, TICKETERA_CAT } from "./categorias";
 import { DineroEntradas } from "./DineroEntradas";
 
 const METODOS = [{ k: "efectivo", t: "Efectivo", tm: "Efectivo", i: "cash" }, { k: "transferencia", t: "Transferencia", tm: "Transf.", i: "bank" }, { k: "bizum", t: "Bizum", tm: "Bizum", i: "phone" }, { k: "tarjeta", t: "Tarjeta", tm: "Tarjeta", i: "card" }, { k: "otro", t: "Otro", tm: "Otro", i: "dots" }];
@@ -20,7 +20,7 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
   const ingresos = todos.filter(i => !esExterno(i) && catInfo(i.categoria).g !== "entradas");   // lo de entradas va en su propio bloque
   const cats = Array.from(new Set(ingresos.map(i => i.categoria)));
   const lista = ingresos.filter(i => (filtro === "todos" ? true : filtro === "socios" ? (i.cobradoPor && !i.entregado) : i.estado === "pendiente") && (!cat || i.categoria === cat));
-  const grupos = GRUPOS.map(g => ({ ...g, v: T.porGrupo[g.k] || 0 }));
+  const grupos = GRUPOS_VISTA.map(g => ({ ...g, v: T.porGrupo[g.k] || 0 }));
   const conValor = grupos.filter(g => g.v > 0);
   const enSocios = Object.entries(T.enSocios).filter(([, v]) => v > 0);
   const nPend = ingresos.filter(i => i.estado === "pendiente").length;
@@ -57,7 +57,7 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
 
       {/* ===== Dinero de entradas (todas las ticketeras, venta en mano y taquilla) ===== */}
       <div id="ing-online">
-        <DineroEntradas ingresos={todos} barras={barras} onAnadir={() => onVentaEntradas({})} onEditar={(i) => (i.canal ? onVentaEntradas(i) : onEditar(i))}
+        <DineroEntradas ingresos={todos} nota="Solo ticketeras y ventas apuntadas a mano. Lo cobrado en el TPV está más abajo, en Ventas del TPV." onAnadir={() => onVentaEntradas({})} onEditar={(i) => (i.canal ? onVentaEntradas(i) : onEditar(i))}
           acciones={<>
             {vinculo && conexion
               ? <button disabled={sincronizando} onClick={onSync} style={{ ...C.btnGhost, opacity: sincronizando ? .6 : 1 }} title={`Fourvenues · actualizado ${haceTxt(vinculo.ultimaSync)}`}><Icon n="refresh" s={16} w={2.2} />{sincronizando ? "Sincronizando…" : "Fourvenues"}</button>
@@ -91,7 +91,7 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 800 }}>{b.punto.name}</div>
               <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2, lineHeight: 1.45 }}>
-                {b.tickets} {b.tickets === 1 ? "reservado" : "reservados"} · cobradas antes de la fiesta; en taquilla ya se descontaron · cuentan como {g.t.toLowerCase()}
+                {b.tickets} {b.tickets === 1 ? "reservado" : "reservados"} · cobradas antes de la fiesta; en taquilla ya se descontaron
               </div>
               <div style={{ fontSize: 12, color: "var(--muted)", display: "flex", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
                 {[["efectivo", "Efectivo"], ["bizum", "Bizum"], ["transferencia", "Transferencia"], ["tarjeta", "Tarjeta"]].filter(([k]) => b[k] > 0).map(([k, t]) => <span key={k}>{t} {money(b[k])}</span>)}
@@ -157,7 +157,7 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
 
 const Stat = ({ i, t, v, c }) => <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: c || "var(--muted)", padding: "5px 10px", borderRadius: 20, border: "1px solid var(--line)", background: "var(--surface2)" }}><Icon n={i} s={14} />{t} <b style={{ color: c || "var(--text)" }}>{v}</b></span>;
 const TipoSelect = ({ value, onChange }) => (
-  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)", fontWeight: 700, flexShrink: 0 }}>Cuenta como
+  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)", fontWeight: 700, flexShrink: 0 }}>IVA como
     <select value={value} onChange={e => onChange(e.target.value)} style={C.miniSelect}>{FUENTES_PUNTO.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
   </label>
 );

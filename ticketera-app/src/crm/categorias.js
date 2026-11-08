@@ -10,6 +10,11 @@ export const GRUPOS = [
   { k: "otros", t: "Otros", i: "sparkle", c: "#ffb400" },
 ];
 export const grupoInfo = (k) => GRUPOS.find(g => g.k === k) || GRUPOS[4];
+// Cómo se ENSEÑAN los ingresos: todo lo del TPV junto (barras, taquilla, reservados y sus señales) y aparte
+// lo apuntado o sincronizado (entradas de ticketeras, merch, patrocinios, otros). El tipo de cada punto del TPV
+// («barra», «entradas»…) solo decide el IVA, no dónde se enseña.
+export const GRUPOS_VISTA = [{ k: "tpv", t: "TPV", i: "pos", c: "#ff5a3c" }, ...GRUPOS.filter(g => g.k !== "barra")];
+export const grupoVista = (g) => (g === "barra" || !GRUPOS_VISTA.some(x => x.k === g) ? "otros" : g);   // para lo apuntado a mano
 
 export const TICKETERA_CAT = "Ticketera online";
 export const OTRAS_CAT = "Otras ticketeras";   // ventas de entradas apuntadas a mano (con nº de entradas y canal)

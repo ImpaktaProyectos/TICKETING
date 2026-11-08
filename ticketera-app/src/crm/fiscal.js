@@ -38,7 +38,7 @@ export function ivaGasto(g) {
 export const esTicketera = (i) => i.origen === "api" || i.origen === "csv" || i.categoria === TICKETERA_CAT;
 
 // Cálculo del evento. Solo cuenta lo cobrado (igual que la liquidación).
-export function fiscalEvento({ ev, sales, ingresos, gastos, fuentes, ajustes }) {
+export function fiscalEvento({ ev, sales, ingresos, gastos, fuentes, ajustes, senales = 0 }) {
   const A = ajustesCon(ajustes);
   const K = A.comisiones;
   const ss = (sales || []).filter(s => s.eventId === ev.id && !s.voided && !isInvite(s));
@@ -69,6 +69,8 @@ export function fiscalEvento({ ev, sales, ingresos, gastos, fuentes, ajustes }) 
     const f = (fuentes || {})[p.id] || fuenteAuto(p);
     porGrupo[f] = (porGrupo[f] || 0) + t;
   });
+  // Señales de reservados: llevan el IVA del punto donde se cobran los reservados
+  if (Number(senales) > 0) { const pr = ev.puntos.find(p => (ev.style?.reservados?.puntos || []).includes(p.id)); const f = pr ? ((fuentes || {})[pr.id] || fuenteAuto(pr)) : "otros"; porGrupo[f] = (porGrupo[f] || 0) + Number(senales); }
   cob.forEach(i => { const g = catInfo(i.categoria).g; porGrupo[g] = (porGrupo[g] || 0) + i.importe; });
   const ventas = GRUPOS.map(g => { const total = r2(porGrupo[g.k] || 0), pct = n(A.iva.ventas[g.k]); return { ...g, total, pct, iva: ivaDe(total, pct) }; }).filter(v => v.total > 0);
   const repercutido = r2(ventas.reduce((t, v) => t + v.iva, 0));

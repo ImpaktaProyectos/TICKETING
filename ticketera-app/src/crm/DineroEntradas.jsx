@@ -1,7 +1,7 @@
 // ===================== CRM · DINERO DE ENTRADAS =====================
-// Todo lo que se ha ingresado por entradas, venga de donde venga: TIXFAST online, Fourvenues, otras ticketeras
-// (CSV o apuntadas a mano con nº de entradas), venta en mano y la taquilla del TPV.
-// Cuenta lo mismo que el grupo «Entradas» del resumen de ingresos (misma regla: categoría de grupo entradas + barras de tipo Entradas).
+// Solo entradas vendidas por ticketeras: TIXFAST online (integrada), Fourvenues, otras ticketeras (CSV)
+// y las ventas apuntadas a mano con su cantidad exacta. Lo cobrado en el TPV (taquilla, reservados, señales)
+// NO entra aquí: vive en Ingresos › Ventas del TPV.
 import React, { useState } from "react";
 import { money, r2, hoy, parseImporte, useIsMobile, C, Icon, Tile, Badge, Avatar, Sheet, Field, MoneyInput, Seg } from "./ui";
 import { catInfo, OTRAS_CAT } from "./categorias";
@@ -12,7 +12,7 @@ const COLOR = { tixfast: "#ff5a3c", fourvenues: "#a855f7", tpv: "#ffb400", csv: 
 const PALETA = ["#22d3a6", "#ec4899", "#14b8a6", "#6366f1", "#eab308", "#0ea5e9", "#f97316", "#84cc16"];
 
 // Agrupa todo el dinero de entradas por canal
-export function canalesEntradas(ingresos, barras) {
+export function canalesEntradas(ingresos) {
   const m = new Map();
   const add = (k, base, i) => {
     const c = m.get(k) || { k, ...base, uds: 0, importe: 0, pendiente: 0, items: [], udsSabidas: true };
@@ -28,9 +28,6 @@ export function canalesEntradas(ingresos, barras) {
     else if (i.origen === "csv") { const t = String(i.concepto || "").split(" · ")[0] || "CSV"; add("csv:" + t.toLowerCase(), { t, d: "Importado de CSV", i: "upload", c: COLOR.csv, auto: true }, i); }
     else add("m:" + i.id, { t: i.canal || i.concepto || i.categoria, d: (i.canal ? "Apuntado a mano" : i.categoria) + (i.fecha ? ` · ${new Date(i.fecha + "T12:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" })}` : "") + (i.cobradoPor && !i.entregado ? " · lo tiene un socio" : ""), i: i.canal ? "ticket" : catInfo(i.categoria).i, c: null, manual: true }, i);
   });
-  (barras || []).filter(b => b.fuente === "entradas" && (b.total > 0 || b.tickets > 0)).forEach(b => {
-    add("tpv:" + b.punto.id, { t: b.punto.name, d: b.senal ? "Cobradas antes de la fiesta · las tiene quien las cobró" : "Taquilla del TPV · en directo", i: "pos", c: COLOR.tpv, auto: true }, { importe: b.total, unidades: b.senal ? null : b.tickets });
-  });
   let k = 0;
   const lista = [...m.values()].map(c => ({ ...c, c: c.c || PALETA[k++ % PALETA.length] })).sort((a, b) => b.importe - a.importe);
   const total = r2(lista.reduce((t, c) => t + c.importe, 0));
@@ -39,9 +36,9 @@ export function canalesEntradas(ingresos, barras) {
 }
 
 /* ---------- Tarjeta grande: el dinero de entradas siempre a la vista ---------- */
-export function DineroEntradas({ ingresos, barras, onAnadir, onEditar, onClientes, acciones, titulo = "Dinero de entradas" }) {
+export function DineroEntradas({ ingresos, onAnadir, onEditar, onClientes, acciones, nota, titulo = "Dinero de entradas" }) {
   const isMobile = useIsMobile();
-  const D = canalesEntradas(ingresos, barras);
+  const D = canalesEntradas(ingresos);
   const conUds = D.lista.filter(c => c.udsSabidas && c.uds > 0);   // la media solo con los canales que dicen cuántas entradas
   const medio = conUds.length ? conUds.reduce((t, c) => t + c.importe, 0) / conUds.reduce((t, c) => t + c.uds, 0) : null;
   return (
@@ -54,6 +51,7 @@ export function DineroEntradas({ ingresos, barras, onAnadir, onEditar, onCliente
             <b style={{ color: "var(--text)" }}>{n0(D.uds)}</b> entradas{!D.udsCompletas ? " + algún apunte sin cantidad" : ""}{medio ? ` · ${money(medio)} por entrada` : ""}
             {D.pendiente > 0 && <span style={{ color: "var(--amber)" }}> · {money(D.pendiente)} pendiente de cobrar</span>}
           </div>
+          {nota && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 6 }}>{nota}</div>}
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {acciones}
@@ -86,7 +84,7 @@ export function DineroEntradas({ ingresos, barras, onAnadir, onEditar, onCliente
           })}
         </div>
       </>) : (
-        <div style={{ ...C.empty, marginTop: 14 }}>Aún no hay dinero de entradas en este evento. Llega solo desde TIXFAST, Fourvenues o la taquilla del TPV; las demás ticketeras se añaden con «Añadir ventas».</div>
+        <div style={{ ...C.empty, marginTop: 14 }}>Aún no hay dinero de entradas en este evento. Llega solo desde TIXFAST y Fourvenues; las demás ticketeras, o una cantidad exacta de entradas, se añaden con «Añadir ventas».</div>
       )}
     </section>
   );

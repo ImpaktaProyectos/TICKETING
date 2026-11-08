@@ -168,12 +168,15 @@ async function todas(build) {
   return out;
 }
 export async function loadCuenta() {
-  const [ing, gs, fp] = await Promise.all([
+  const [ing, gs, fp, sn] = await Promise.all([
     todas(() => supabase.from("ticket_crm_ingresos").select("*").order("id", { ascending: true })),
     todas(() => supabase.from("ticket_crm_gastos").select("*").order("id", { ascending: true })),
     supabase.from("ticket_crm_fuentes_punto").select("*"),
+    todas(() => supabase.from("ticket_reservados").select("id, evento_id, senal").gt("senal", 0).neq("estado", "libre").order("id", { ascending: true })).catch(() => []),
   ]);
-  return { ingresos: ing.map(ingresoFrom), gastos: gs.map(gastoFrom), fuentes: Object.fromEntries(ok(fp).map(x => [x.punto_id, x.fuente])) };
+  // Señales de reservados por evento (misma regla que Ingresos: reservado no libre con señal)
+  const senales = {}; (sn || []).forEach(r => { senales[r.evento_id] = Math.round(((senales[r.evento_id] || 0) + Number(r.senal || 0)) * 100) / 100; });
+  return { ingresos: ing.map(ingresoFrom), gastos: gs.map(gastoFrom), fuentes: Object.fromEntries(ok(fp).map(x => [x.punto_id, x.fuente])), senales };
 }
 
 /* ---------- Ajustes de la cuenta (categorías, comisiones, IVA) ---------- */
