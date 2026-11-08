@@ -6,7 +6,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "../supabase";
-import { money, eur, fecha, cap, card, btn, Tramo, CAMPOS, ERRORES, Campo, Check, lbl, inpP, MIS, stepBtn } from "./comun";
+import { money, eur, fecha, cap, card, btn, Tramo, CAMPOS, ERRORES, Campo, Check, lbl, inpP, MIS, stepBtn, InfoPrivacidad, PRIVACIDAD_VERSION } from "./comun";
 
 const CLAVE = (org) => "tixfast_carrito_" + org;
 const AVISO = "tixfast-carrito";
@@ -184,12 +184,14 @@ export function CompraVarios({ org, carrito, T, onVolver }) {
   }, [evs]);
   const pedir = (k) => (form[k] || "no") !== "no", oblig = (k) => form[k] === "obligatorio";
   const conEdad = Object.values(evs || {}).filter(e => e.edad_minima);
+  const legal = Object.values(evs || {}).find(e => e.legal)?.legal || null;
   const prueba = Object.values(evs || {}).some(e => e.modo === "pruebas" || e.vista_previa);
 
   const [c, setC] = useState({ nombre: "", email: "", email2: "" });
   const [as, setAs] = useState({});                // { "evento|i": { nombre, dni } }
   const [acepta, setAcepta] = useState(false);
   const [aceptaEdad, setAceptaEdad] = useState(false);
+  const [novedades, setNovedades] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setC(x => ({ ...x, [k]: v }));
@@ -218,7 +220,7 @@ export function CompraVarios({ org, carrito, T, onVolver }) {
     setBusy(true);
     let clave; try { clave = sessionStorage.getItem("tixfast_clave_" + org.slug) || crypto.randomUUID(); sessionStorage.setItem("tixfast_clave_" + org.slug, clave); } catch { clave = crypto.randomUUID(); }
     try {
-      const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: aceptaEdad };
+      const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: aceptaEdad, marketing: novedades, privacidad: PRIVACIDAD_VERSION };
       CAMPOS.forEach(f => { if (pedir(f.k) && c[f.k]) comprador[f.k] = String(c[f.k]).trim(); });
       const asistentes = gs.flatMap(g => plazasDe(g).map((p, i) => ({ evento: g.evento, tramo: p.tramo, nombre: a(g.evento, i).nombre.trim(), dni: dniAsis(g.evento) !== "no" ? a(g.evento, i).dni.trim() : "" })));
       const { data, error } = await supabase.rpc("web_comprar_varios", {
@@ -286,7 +288,9 @@ export function CompraVarios({ org, carrito, T, onVolver }) {
 
       <div style={{ ...card, marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
         {conEdad.length > 0 && <Check v={aceptaEdad} on={setAceptaEdad}>Confirmo que los asistentes cumplen la edad mínima de cada evento ({conEdad.map(e => `${e.nombre}: +${e.edad_minima}`).join(" · ")}).</Check>}
-        <Check v={acepta} on={setAcepta}>Acepto las condiciones de compra y que mis datos se usen para gestionar mis entradas. Las entradas son nominativas, de un solo uso y no se pueden revender.</Check>
+        <Check v={acepta} on={setAcepta}>Acepto las condiciones de compra. Las entradas son nominativas, de un solo uso y no se pueden revender.</Check>
+        <Check v={novedades} on={setNovedades}>Quiero recibir novedades, preventas y ofertas de {legal?.razon_social || org.nombre} por correo. <span style={{ color: "var(--muted)" }}>Opcional. Me puedo dar de baja cuando quiera.</span></Check>
+        <InfoPrivacidad legal={legal} organizador={org.nombre} />
       </div>
 
       {err && <div role="alert" style={{ marginTop: 12, background: "#c62828", color: "#fff", borderRadius: 12, padding: "12px 14px", fontWeight: 800 }}>{err}</div>}

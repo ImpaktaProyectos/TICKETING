@@ -530,3 +530,48 @@ export async function orgPublica(slug) {
   if (error) throw error;
   return data;
 }
+
+/* ===================== CLIENTES (compradores de entradas) ===================== */
+// Todo pasa por RLS: cada organizador solo ve a sus compradores.
+export async function clientesCargar(eventoId = null, pruebas = false) {
+  const { data, error } = await supabase.rpc("crm_clientes", { p_evento: eventoId, p_pruebas: pruebas });
+  if (error) throw error;
+  return data;
+}
+// Derecho de acceso / portabilidad: todo lo que hay de una persona, en un archivo
+export async function clienteExportar(email) {
+  const em = String(email || "").toLowerCase();
+  const { data: ps, error } = await supabase.from("ticket_web_pedidos").select("id, evento_id, codigo, email, nombre, datos, total, estado, prueba, marketing, privacidad_version, creado_en").eq("email", em);
+  if (error) throw error;
+  const ids = (ps || []).map(p => p.id);
+  const { data: es } = ids.length ? await supabase.from("ticket_web_entradas").select("pedido_id, numero, asistente, dni, tramo_nombre, precio, estado, creado_en").in("pedido_id", ids) : { data: [] };
+  const { data: baja } = await supabase.from("ticket_web_bajas").select("origen, creado_en").eq("email", em).maybeSingle();
+  const evIds = [...new Set((ps || []).map(p => p.evento_id))];
+  const { data: evs } = evIds.length ? await supabase.from("ticket_eventos").select("id, nombre, fecha").in("id", evIds) : { data: [] };
+  const evDe = Object.fromEntries((evs || []).map(e => [e.id, e]));
+  return { exportado_en: new Date().toISOString(), email: em, baja_comunicaciones: baja || null,
+    pedidos: (ps || []).map(p => ({ ...p, evento: evDe[p.evento_id]?.nombre, fecha_evento: evDe[p.evento_id]?.fecha, entradas: (es || []).filter(x => x.pedido_id === p.id).map(({ pedido_id, ...x }) => x) })) };
+}
+// Derecho de oposición: no volver a enviarle comunicaciones (o deshacerlo si fue un error)
+export async function clienteBaja(email, baja = true) {
+  const em = String(email || "").toLowerCase();
+  if (baja) ok(await supabase.from("ticket_web_bajas").upsert({ email: em, origen: "crm", creado_en: new Date().toISOString() }, { onConflict: "owner_id,email" }));
+  else ok(await supabase.from("ticket_web_bajas").delete().eq("email", em));
+}
+// Derecho de supresión
+export async function clienteBorrar(email) {
+  const { data, error } = await supabase.rpc("crm_cliente_borrar", { p_email: email });
+  if (error) throw error;
+  if (!data?.ok) throw new Error(data?.motivo === "entradas_futuras" ? "Tiene entradas para un evento que aún no ha pasado: anúlalas antes de borrar sus datos." : "No se ha podido borrar");
+  return data;
+}
+// Datos del responsable del tratamiento (salen en la información de privacidad de la web)
+export async function legalLeer() {
+  const { data, error } = await supabase.from("ticket_web_legal").select("*").maybeSingle();
+  if (error) throw error;
+  return data || { razon_social: "", nif: "", direccion: "", email: "", conservar_meses: 24 };
+}
+export async function legalGuardar(d) {
+  const limpio = (v, n) => String(v || "").trim().slice(0, n) || null;
+  ok(await supabase.from("ticket_web_legal").upsert({ razon_social: limpio(d.razon_social, 160), nif: limpio(d.nif, 20)?.toUpperCase() || null, direccion: limpio(d.direccion, 240), email: limpio(d.email, 160)?.toLowerCase() || null, conservar_meses: Math.min(120, Math.max(6, Number(d.conservar_meses) || 24)), actualizado_en: new Date().toISOString() }, { onConflict: "owner_id" }));
+}

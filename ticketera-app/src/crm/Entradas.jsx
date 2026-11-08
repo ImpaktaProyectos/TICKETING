@@ -7,6 +7,7 @@ import * as crm from "./crmdb";
 import { money, useIsMobile, C, Icon, Tile, Badge, Seg, Sheet, Field, Seccion } from "./ui";
 import { Landing, PLANTILLAS_WEB } from "../web/Publico.jsx";
 import { Organizaciones } from "./Organizaciones.jsx";
+import { ResumenVentas, Clientes } from "./Clientes.jsx";
 
 const urlVenta = (slug) => `${window.location.origin}/e/${slug}`;
 const ESTADOS = { borrador: { t: "Borrador", c: "var(--muted)" }, publicado: { t: "A la venta", c: "var(--green)" }, cerrado: { t: "Venta cerrada", c: "var(--red)" } };
@@ -155,6 +156,7 @@ function EntradasEventos({ ev, events, onSelectEvent, flash }) {
   const [dup, setDup] = useState(false);
   const [elegir, setElegir] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [verClientes, setVerClientes] = useState(false);
 
   const refrescarLista = () => crm.webListar().then(setLista).catch(() => setLista({}));
   useEffect(() => { refrescarLista(); }, []);
@@ -200,7 +202,11 @@ function EntradasEventos({ ev, events, onSelectEvent, flash }) {
             </div>
             <button disabled={busy} onClick={activar} style={{ ...C.btnPrimary, minHeight: 50, padding: "0 26px", fontSize: 16 }}><Icon n="sparkle" s={18} />{busy ? "Activando…" : "Empezar"}</button>
           </section>
-        ) : <Editor key={ev.id} ev={ev} d={d} setD={setD} flash={flash} isMobile={isMobile} onDuplicar={() => setDup(true)} onCambio={refrescarLista} />}
+        ) : verClientes ? <Clientes ev={ev} flash={flash} onVolver={() => setVerClientes(false)} />
+        : (<>
+          <ResumenVentas ev={ev} onAbrir={() => { setVerClientes(true); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+          <Editor key={ev.id} ev={ev} d={d} setD={setD} flash={flash} isMobile={isMobile} onDuplicar={() => setDup(true)} onCambio={refrescarLista} />
+        </>)}
 
       {elegir && (
         <Sheet title="Tus eventos" onClose={() => setElegir(false)}

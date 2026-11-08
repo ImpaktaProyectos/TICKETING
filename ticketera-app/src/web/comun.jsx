@@ -206,3 +206,39 @@ body{margin:0}
 @media (prefers-reduced-motion:reduce){.pub-pulso,.pub-kb{animation:none}}
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--c);outline-offset:2px}
 `;
+
+/* ===================== PRIVACIDAD (RGPD) =====================
+   Primera capa junto al formulario + segunda capa completa en una hoja. El responsable es el organizador. */
+export const PRIVACIDAD_VERSION = "2026-11-v1";
+export function InfoPrivacidad({ legal, organizador, previa }) {
+  const [ver, setVer] = useState(false);
+  const l = legal || {};
+  const quien = l.razon_social || organizador || "el organizador del evento";
+  const meses = l.conservar_meses || 24;
+  const hoja = ver && (
+    <div role="dialog" aria-modal="true" aria-label="Información sobre privacidad" onClick={() => setVer(false)}
+      style={{ position: previa ? "absolute" : "fixed", inset: 0, zIndex: 80, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "var(--card, #15161c)", color: "var(--text, #eceef5)", width: "100%", maxWidth: 620, maxHeight: "86%", overflow: "auto", borderRadius: "20px 20px 0 0", padding: "20px 18px 28px", fontSize: 14.5, lineHeight: 1.55, fontFamily: "Inter, -apple-system, Segoe UI, Roboto, sans-serif" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 6 }}>
+          <b style={{ fontSize: 19 }}>Tus datos y tu privacidad</b>
+          <button type="button" onClick={() => setVer(false)} aria-label="Cerrar" style={{ background: "transparent", border: "1px solid var(--line, #333)", color: "inherit", borderRadius: 10, padding: "6px 10px", cursor: "pointer", font: "inherit", fontWeight: 800 }}>Cerrar</button>
+        </div>
+        <p><b>Responsable:</b> {quien}{l.nif ? ` · NIF ${l.nif}` : ""}{l.direccion ? ` · ${l.direccion}` : ""}{l.email ? <> · <a href={`mailto:${l.email}`} style={{ color: "inherit" }}>{l.email}</a></> : ""}.</p>
+        <p><b>Para qué usamos tus datos:</b> para emitir y enviarte tus entradas, controlar el acceso al evento (las entradas son nominativas), atender tus consultas y cumplir obligaciones legales. Base legal: la compra que haces (contrato) y la ley.</p>
+        <p><b>Novedades y ofertas:</b> solo si marcas la casilla, te enviaremos por correo novedades, preventas y ofertas de nuestros eventos, adaptadas a lo que has comprado. Base legal: tu consentimiento. Puedes retirarlo cuando quieras con el enlace de cada correo o escribiéndonos, sin que afecte a tus entradas.</p>
+        <p><b>Qué datos:</b> los que rellenas en el formulario (nombre, correo y los demás que pida este evento), los nombres de los asistentes y datos técnicos de la compra para evitar fraudes.</p>
+        <p><b>Cuánto tiempo:</b> los datos de la compra, hasta {meses} meses después del evento (o más si una ley lo exige, por ejemplo para facturación). Los de novedades, hasta que te des de baja.</p>
+        <p><b>Quién más los trata:</b> TIXFAST, la plataforma de venta, como encargado del tratamiento, y sus proveedores de alojamiento y envío de correo, con contrato y dentro de la UE o países con protección equivalente. No vendemos tus datos.</p>
+        <p><b>Tus derechos:</b> puedes pedir acceso, rectificación, supresión, oposición, limitación y portabilidad escribiendo a {l.email ? <a href={`mailto:${l.email}`} style={{ color: "inherit" }}>{l.email}</a> : "el organizador"}. Si crees que no se respetan, puedes reclamar ante la Agencia Española de Protección de Datos (aepd.es).</p>
+        <p style={{ fontSize: 12.5, opacity: .7 }}>Versión {PRIVACIDAD_VERSION}</p>
+      </div>
+    </div>
+  );
+  return (
+    <div style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--muted)" }}>
+      <b style={{ color: "var(--text)" }}>Privacidad:</b> {quien} usará tus datos para gestionar tus entradas y, solo si lo marcas, para enviarte novedades. Puedes ejercer tus derechos{l.email ? ` en ${l.email}` : ""}.{" "}
+      <button type="button" onClick={() => setVer(true)} style={{ background: "none", border: "none", padding: 0, color: "var(--text)", textDecoration: "underline", cursor: "pointer", font: "inherit", fontWeight: 700 }}>Más información</button>
+      {hoja && (previa ? hoja : createPortal(hoja, document.body))}
+    </div>
+  );
+}

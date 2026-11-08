@@ -5,7 +5,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import QrCodigo from "../qr/QrCodigo";
-import { textoQR, money, eur, fecha, hora, tema, Mensaje, MIS, cap, reducido, Diapositivas, Galeria, card, btn, Chip, Aviso, Linea, Tramo, CuentaAtras, CAMPOS, ERRORES, lbl, inpP, Campo, Check, CSS_PUB } from "./comun";
+import { textoQR, money, eur, fecha, hora, tema, Mensaje, MIS, cap, reducido, Diapositivas, Galeria, card, btn, Chip, Aviso, Linea, Tramo, CuentaAtras, CAMPOS, ERRORES, lbl, inpP, Campo, Check, CSS_PUB, InfoPrivacidad, PRIVACIDAD_VERSION } from "./comun";
 export { textoQR } from "./comun";
 import { useCarrito, BarraCarrito, HojaCarrito, ElegirEntradas, CompraVarios } from "./Carrito";
 import PaginaOrganizacion, { MasFiestas } from "./Microsite";
@@ -282,6 +282,7 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
   const [as, setAs] = useState(() => plazas.map(() => ({ nombre: "", dni: "" })));
   const [acepta, setAcepta] = useState(false);
   const [aceptaEdad, setAceptaEdad] = useState(false);
+  const [novedades, setNovedades] = useState(false);   // casilla aparte y desmarcada (consentimiento libre)
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setC(x => ({ ...x, [k]: v }));
@@ -301,7 +302,7 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
     if (!acepta) return setErr(ERRORES.condiciones);
     setBusy(true);
     try {
-      const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: aceptaEdad };
+      const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: aceptaEdad, marketing: novedades, privacidad: PRIVACIDAD_VERSION };
       CAMPOS.forEach(f => { if (pedir(f.k) && c[f.k]) comprador[f.k] = String(c[f.k]).trim(); });
       const { data, error } = await supabase.rpc("web_comprar", {
         p_slug: ev.slug, p_items: items.map(t => ({ tramo: t.id, cantidad: cant[t.id] })), p_comprador: comprador,
@@ -350,7 +351,9 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
 
       <div style={{ ...card, marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
         {ev.edad_minima ? <Check v={aceptaEdad} on={setAceptaEdad}>Confirmo que todos los asistentes tienen {ev.edad_minima} años o más{ev.autorizacion_url ? ` (los menores de ${ev.autorizacion_edad || 16} traerán la autorización firmada)` : ""}.</Check> : null}
-        <Check v={acepta} on={setAcepta}>Acepto las condiciones de compra y que mis datos se usen para gestionar mis entradas. Las entradas son nominativas, de un solo uso y no se pueden revender.</Check>
+        <Check v={acepta} on={setAcepta}>Acepto las condiciones de compra. Las entradas son nominativas, de un solo uso y no se pueden revender.</Check>
+        <Check v={novedades} on={setNovedades}>Quiero recibir novedades, preventas y ofertas de {ev.legal?.razon_social || "este organizador"} por correo. <span style={{ color: "var(--muted)" }}>Opcional. Me puedo dar de baja cuando quiera.</span></Check>
+        <InfoPrivacidad legal={ev.legal} />
       </div>
 
       {err && <div role="alert" style={{ marginTop: 12, background: "#c62828", color: "#fff", borderRadius: 12, padding: "12px 14px", fontWeight: 800 }}>{err}</div>}
