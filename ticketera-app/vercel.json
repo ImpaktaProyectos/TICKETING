@@ -46,19 +46,19 @@
   "rewrites": [
     {
       "source": "/e/:slug*",
-      "destination": "/index.html"
+      "destination": "/publico.html"
     },
     {
       "source": "/mis-entradas/:acceso*",
-      "destination": "/index.html"
+      "destination": "/publico.html"
     },
     {
       "source": "/o/:slug*",
-      "destination": "/index.html"
+      "destination": "/publico.html"
     },
     {
       "source": "/compra/:acceso*",
-      "destination": "/index.html"
+      "destination": "/publico.html"
     }
   ]
 }
