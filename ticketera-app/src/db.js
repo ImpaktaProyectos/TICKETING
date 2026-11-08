@@ -10,16 +10,16 @@ const evFromDb = (e) => ({
   showTime: e.mostrar_hora, showPrice: e.mostrar_precio, anularPin: e.anular_pin,
   closed: !!e.cerrada, pedirFondo: e.pedir_fondo !== false, startsAt: e.inicio || "", advanced: !!e.venta_avanzada, changeHelp: e.ayuda_cambio !== false,
   style: e.ticket_style || {},
-  pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor,
+  pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor, pin_admin_huella: e.pin_admin_huella || null, pin_supervisor_huella: e.pin_supervisor_huella || null,
   puntos: (e.ticket_puntos || []).map(puntoFromDb),
 });
 const saleFromDb = (s) => ({ id: s.id, clientUuid: s.client_uuid, code: s.codigo, num: s.numero, eventId: s.evento_id, puntoId: s.punto_id, productId: s.producto_id, name: s.nombre, price: Number(s.precio), ts: new Date(s.creado_en).getTime(), voided: s.anulada, closureId: s.closure_id, operario: s.operario, pago: s.metodo_pago, invite: /^invitacion/.test(s.metodo_pago || ""), inviteValue: /^invitacion/.test(s.metodo_pago || "") ? (Number(String(s.metodo_pago).split(":")[1]) || 0) : 0, entregado: s.entregado != null ? Number(s.entregado) : null, cambio: s.cambio != null ? Number(s.cambio) : null, synced: true });
 const gastoFromDb = (g) => ({ tipo: g.tipo === "entrada" ? "entrada" : "gasto", id: g.id, eventId: g.evento_id, puntoId: g.punto_id, importe: Number(g.importe), concepto: g.concepto || "", por: g.registrado_por || "", ts: new Date(g.creado_en).getTime(), voided: !!g.anulado, closureId: g.closure_id, synced: true });
 const closureFromDb = (c) => ({ id: c.id, eventId: c.evento_id, puntoId: c.punto_id, count: c.tickets, revenue: Number(c.facturacion), voids: c.anulaciones, lines: c.detalle || [], efectivo: Number(c.efectivo || 0), tarjeta: Number(c.tarjeta || 0), fondo: Number(c.fondo || 0), contado: c.contado != null ? Number(c.contado) : null, gastos: Number(c.gastos || 0), entradas: Number(c.entradas || 0), esperado: c.esperado != null ? Number(c.esperado) : null, ts: new Date(c.creado_en).getTime() });
 
-const evToDb = (e) => ({ id: e.id, nombre: e.name, fecha: e.date, recinto: e.venue, plantilla: e.template, papel: e.paper, pie: e.footer, logo_url: e.logo, mostrar_evento: e.showEventName, mostrar_fecha: e.showDate, mostrar_hora: e.showTime, mostrar_precio: e.showPrice, anular_pin: e.anularPin, cerrada: !!e.closed, inicio: e.startsAt || null, venta_avanzada: !!e.advanced, ayuda_cambio: e.changeHelp !== false, pedir_fondo: e.pedirFondo !== false, ticket_style: e.style || {}, pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor });
+const evToDb = (e) => ({ id: e.id, nombre: e.name, fecha: e.date, recinto: e.venue, plantilla: e.template, papel: e.paper, pie: e.footer, logo_url: e.logo, mostrar_evento: e.showEventName, mostrar_fecha: e.showDate, mostrar_hora: e.showTime, mostrar_precio: e.showPrice, anular_pin: e.anularPin, cerrada: !!e.closed, inicio: e.startsAt || null, venta_avanzada: !!e.advanced, ayuda_cambio: e.changeHelp !== false, pedir_fondo: e.pedirFondo !== false, ticket_style: e.style || {}, pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor, pin_admin_huella: e.pin_admin_huella || null, pin_supervisor_huella: e.pin_supervisor_huella || null });
 const evPatchToDb = (patch) => {
-  const m = { name: "nombre", date: "fecha", venue: "recinto", template: "plantilla", paper: "papel", footer: "pie", logo: "logo_url", showEventName: "mostrar_evento", showDate: "mostrar_fecha", showTime: "mostrar_hora", showPrice: "mostrar_precio", anularPin: "anular_pin", closed: "cerrada", startsAt: "inicio", advanced: "venta_avanzada", changeHelp: "ayuda_cambio", pedirFondo: "pedir_fondo", style: "ticket_style", pin_admin: "pin_admin", pin_supervisor: "pin_supervisor" };
+  const m = { name: "nombre", date: "fecha", venue: "recinto", template: "plantilla", paper: "papel", footer: "pie", logo: "logo_url", showEventName: "mostrar_evento", showDate: "mostrar_fecha", showTime: "mostrar_hora", showPrice: "mostrar_precio", anularPin: "anular_pin", closed: "cerrada", startsAt: "inicio", advanced: "venta_avanzada", changeHelp: "ayuda_cambio", pedirFondo: "pedir_fondo", style: "ticket_style", pin_admin: "pin_admin", pin_supervisor: "pin_supervisor", pin_admin_huella: "pin_admin_huella", pin_supervisor_huella: "pin_supervisor_huella" };
   const out = {}; for (const k in patch) if (m[k]) out[m[k]] = patch[k]; return out;
 };
 const prodToDb = (puntoId, p) => ({ id: p.id, punto_id: puntoId, nombre: p.name, precio: p.price, color: p.color, emoji: p.emoji, agotado: p.soldOut, orden: p.orden ?? 0, subtitulo: (p.subtitle || "").trim(), imprimir: p.print !== false });
@@ -455,4 +455,17 @@ export function subscribeReservados(eventoId, onChange) {
     .on("postgres_changes", { event: "*", schema: "public", table: "ticket_reservado_ventas", filter: `evento_id=eq.${eventoId}` }, onChange)
     .subscribe();
   return () => supabase.removeChannel(ch);
+}
+
+/* ===================== PIN / CONTRASEÑA DE ACCESO ===================== */
+// Guarda la huella del rol y borra el PIN visible. Necesita internet (si no, no se cambia nada).
+export async function guardarAcceso(eventId, rol, huella) {
+  if (!["admin", "supervisor"].includes(rol)) throw new Error("rol");
+  const { error } = await supabase.from("ticket_eventos").update({ [`pin_${rol}_huella`]: huella, [`pin_${rol}`]: null }).eq("id", eventId);
+  if (error) throw error;
+  // La copia local (para vender sin internet) también deja de llevar el PIN visible
+  try {
+    const k = scopedKey("ticketera_snapshot"); const snap = JSON.parse(localStorage.getItem(k) || "null");
+    if (snap?.events) { snap.events = snap.events.map(e => e.id === eventId ? { ...e, [`pin_${rol}_huella`]: huella, [`pin_${rol}`]: null } : e); localStorage.setItem(k, JSON.stringify(snap)); }
+  } catch {}
 }

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { uid } from "./supabase";
 import { logout } from "./auth";
 import * as db from "./db";
+import { secretoDe, estadoDe, comprobar as comprobarPin, crearHuella, problema as problemaPin, fuerza as fuerzaPin, disponible as cifradoDisponible } from "./pin";
 import { useReservados, LineaReservados, CobrarReservado, ReservadosVista, InformeReservados, copiarReservados, resCfg, VentaSocio, efectivoSocios } from "./reservados";
 import { nextFolios, prefijoDePunto, peekFolio, getDeviceTag, resetFolios, seedFolio } from "./folio";
 
@@ -31,7 +32,7 @@ const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.06b";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.08c";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -52,6 +53,7 @@ function reducer(state, a) {
     case "ADD_EVENT": return { ...state, events: [...state.events, a.event], currentEventId: a.event.id, currentPuntoId: a.event.puntos[0]?.id };
     case "SELECT_EVENT": { const e = state.events.find(x => x.id === a.id); return { ...state, currentEventId: a.id, currentPuntoId: e?.puntos[0]?.id }; }
     case "UPDATE_EVENT": return { ...state, events: state.events.map(e => e.id === a.id ? { ...e, ...a.patch } : e) };
+    case "LOCAL_EVENT_PATCH": return { ...state, events: state.events.map(e => e.id === a.id ? { ...e, ...a.patch } : e) };   // ya guardado en la nube
     case "ADD_PUNTO": return { ...state, events: mapEv(e => ({ ...e, puntos: [...e.puntos, a.punto] })), currentPuntoId: a.punto.id };
     case "ARCHIVE_PUNTO": {
       const events = mapEv(e => mapPunto(e, p => ({ ...p, archivado: a.value })));
@@ -1004,7 +1006,7 @@ export default function App() {
       {/* ===== Gasto de caja ===== */}
       {showGasto && <CajaModal puntoName={punto.name} movs={turnoMovs} fondo={punto.fondo} onSave={registrarGasto} onClose={() => setShowGasto(false)}
         onVoid={(g) => { if (role === "cajero") setAskGastoVoid(g); else anularGasto(g); }} />}
-      {askGastoVoid && <PinModal correct={ev.pin_supervisor} onClose={() => setAskGastoVoid(null)} onOk={() => { const g = askGastoVoid; setAskGastoVoid(null); anularGasto(g); }} label="PIN de supervisor para anular el movimiento" />}
+      {askGastoVoid && <PinModal secreto={secretoDe(ev, "supervisor")} onClose={() => setAskGastoVoid(null)} onOk={() => { const g = askGastoVoid; setAskGastoVoid(null); anularGasto(g); }} label="PIN de supervisor para anular el movimiento" />}
 
       {/* ===== Reservados VIP: cobro y mapa ===== */}
       {resCobro && <CobrarReservado ev={ev} item={resCobro.item} res={res} sales={evSales} fijo={resCobro.fijo} onCobrar={cobrarRes} onClose={() => setResCobro(null)} />}
@@ -1072,8 +1074,8 @@ export default function App() {
       </div>, document.body)}
 
       {/* ===== Facturación (PIN -> total) ===== */}
-      {askRevenue && <PinModal correct={ev.pin_admin} onClose={() => setAskRevenue(false)} onOk={() => { setAskRevenue(false); setShowRevenue(true); }} />}
-      {askVoidPin && <PinModal correct={ev.pin_supervisor} onClose={() => setAskVoidPin(false)} onOk={() => { setAskVoidPin(false); voidLast(punto.name); }} label="PIN de supervisor para anular" />}
+      {askRevenue && <PinModal secreto={secretoDe(ev, "admin")} onClose={() => setAskRevenue(false)} onOk={() => { setAskRevenue(false); setShowRevenue(true); }} />}
+      {askVoidPin && <PinModal secreto={secretoDe(ev, "supervisor")} onClose={() => setAskVoidPin(false)} onOk={() => { setAskVoidPin(false); voidLast(punto.name); }} label="PIN de supervisor para anular" />}
       {showRevenue && (
         <div style={isMobile ? S.sheetWrap : S.overlay} onClick={() => setShowRevenue(false)}>
           <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, textAlign: "center", width: 330 }} onClick={e => e.stopPropagation()}>
@@ -1287,8 +1289,8 @@ function RoleGate({ ev, events, adminPin, supervisorPin, onSelectEvent, onRole }
             <button onClick={() => setMode(null)} style={{ ...S.btnGhost, marginTop: 8, width: "100%" }}>Volver</button>
           </div>
         )}
-        {mode === "supervisor" && <PinModal correct={supervisorPin} onOk={() => onRole("supervisor")} onClose={() => setMode(null)} label="PIN de supervisor" />}
-        {mode === "admin" && <PinModal correct={adminPin} onOk={() => onRole("admin")} onClose={() => setMode(null)} label="PIN de administrador" />}
+        {mode === "supervisor" && <PinModal secreto={secretoDe(ev, "supervisor")} onOk={() => onRole("supervisor")} onClose={() => setMode(null)} label="PIN de supervisor" />}
+        {mode === "admin" && <PinModal secreto={secretoDe(ev, "admin")} onOk={() => onRole("admin")} onClose={() => setMode(null)} label="PIN de administrador" />}
       </div>
     </div>
   );
@@ -2119,10 +2121,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
           <Field label="Fecha"><input type="date" style={S.input} value={ev.date} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { date: e.target.value } })} /></Field>
           <Field label="Inicio del evento (cuándo abre)"><input type="datetime-local" style={S.input} value={ev.startsAt || ""} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { startsAt: e.target.value } })} /></Field>
           <Field label="Recinto"><input style={S.input} value={ev.venue} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { venue: e.target.value } })} /></Field>
-          <div style={{ display: "flex", gap: 10 }}>
-            <Field label="PIN admin"><input style={S.input} value={ev.pin_admin || ""} maxLength={6} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pin_admin: e.target.value } })} /></Field>
-            <Field label="PIN supervisor"><input style={S.input} value={ev.pin_supervisor || ""} maxLength={6} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pin_supervisor: e.target.value } })} /></Field>
-          </div>
+          <AccesoSeguro ev={ev} dispatch={dispatch} flash={flash} />
           <label style={S.toggleRow}><span>Anular ticket en caja exige PIN de supervisor</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { anularPin: !ev.anularPin } })} style={{ ...S.switch, background: ev.anularPin ? "var(--accent)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.anularPin ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
           <label style={S.toggleRow}><span><b>Venta avanzada</b> · pedir efectivo/tarjeta y calcular el cambio</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { advanced: !ev.advanced } })} style={{ ...S.switch, background: ev.advanced ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.advanced ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
           {ev.advanced && <label style={S.toggleRow}><span>Ayuda con el cambio · billetes y cálculo de devolución</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { changeHelp: !(ev.changeHelp !== false) } })} style={{ ...S.switch, background: ev.changeHelp !== false ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.changeHelp !== false ? "translateX(20px)" : "translateX(2px)" }} /></button></label>}
@@ -2906,39 +2905,150 @@ const pinLockRead = () => { try { return JSON.parse(localStorage.getItem(PIN_LOC
 const pinLockWrite = (v) => { try { localStorage.setItem(PIN_LOCK_KEY, JSON.stringify(v)); } catch {} };
 // Celda CSV segura: evita que Excel ejecute fórmulas escritas en nombres (=, +, -, @) y que ";" rompa columnas
 function csvCell(x) { if (x == null) return ""; if (typeof x === "number") return String(x); let v = String(x).replace(/[;\r\n]+/g, " "); if (/^[=+\-@\t]/.test(v) && !/^-?\d+([.,]\d+)?$/.test(v)) v = "'" + v; return v; }
-function PinModal({ correct, onOk, onClose, label }) {
+/* ---------------------- PIN y contraseñas de acceso (Ajustes) ----------------------
+   Se guardan como huella cifrada: no se pueden leer, solo comprobar. Necesita internet para cambiarlos. */
+function AccesoSeguro({ ev, dispatch, flash }) {
+  const [edit, setEdit] = useState(null);   // "admin" | "supervisor"
+  const filas = [["admin", "Administrador", "Configura todo"], ["supervisor", "Supervisor", "Informes, cierres y anulaciones"]];
+  return (
+    <div style={{ margin: "4px 0 12px" }}>
+      <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Acceso de administrador y supervisor</div>
+      {filas.map(([rol, t, d]) => {
+        const e = estadoDe(ev, rol);
+        const desc = e.protegido ? (e.tipo === "clave" ? "Contraseña · protegida" : `PIN de ${e.largo} números · protegido`) : e.fabrica ? "PIN de fábrica" : "PIN sin proteger";
+        const malo = !e.protegido;
+        return (
+          <div key={rol} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", border: `1px solid ${malo ? "var(--amber)" : "var(--line)"}`, borderRadius: 12, marginBottom: 8 }}>
+            <span style={{ fontSize: 20 }} aria-hidden>{malo ? "⚠️" : "🔐"}</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <b style={{ display: "block" }}>{t}</b>
+              <span style={{ fontSize: 12.5, color: malo ? "var(--amber)" : "var(--muted)" }}>{desc}{malo ? (e.fabrica ? " · cámbialo antes del evento" : " · se puede leer: guárdalo de nuevo para protegerlo") : ` · ${d}`}</span>
+            </span>
+            <button onClick={() => setEdit(rol)} style={{ ...S.smallBtn, flexShrink: 0 }}>{malo ? "Proteger" : "Cambiar"}</button>
+          </div>
+        );
+      })}
+      {edit && <EditorAcceso ev={ev} rol={edit} onClose={() => setEdit(null)} onGuardado={(patch) => { dispatch({ type: "LOCAL_EVENT_PATCH", id: ev.id, patch }); setEdit(null); flash(edit === "admin" ? "Acceso de administrador protegido" : "Acceso de supervisor protegido"); }} flash={flash} />}
+    </div>
+  );
+}
+
+function EditorAcceso({ ev, rol, onClose, onGuardado, flash }) {
   const isMobile = useIsMobile();
-  const [pin, setPin] = useState(""); const [err, setErr] = useState(false);
+  const actual = estadoDe(ev, rol);
+  const [tipo, setTipo] = useState(actual.tipo === "clave" ? "clave" : "pin");
+  const [v1, setV1] = useState(""); const [v2, setV2] = useState(""); const [ver, setVer] = useState(false);
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  const otro = rol === "admin" ? "supervisor" : "admin";
+  const prob = v1 ? problemaPin(v1, tipo) : "";
+  const f = fuerzaPin(v1, tipo);
+  const limpiar = (x) => tipo === "pin" ? x.replace(/\D/g, "").slice(0, 12) : x.slice(0, 64);
+  const guardar = async () => {
+    setErr("");
+    const p = problemaPin(v1, tipo); if (p) { setErr(p); return; }
+    if (v1 !== v2) { setErr(tipo === "pin" ? "Los dos PIN no coinciden" : "Las dos contraseñas no coinciden"); return; }
+    if (!cifradoDisponible()) { setErr("Este navegador no permite proteger el PIN. Usa Chrome actualizado."); return; }
+    if (!navigator.onLine) { setErr("Sin internet: el cambio tiene que llegar a todos los equipos. Conéctate y vuelve a intentarlo."); return; }
+    setBusy(true);
+    try {
+      if (await comprobarPin(v1, secretoDe(ev, otro))) { setErr(`Tiene que ser distinto al del ${otro === "admin" ? "administrador" : "supervisor"}`); setBusy(false); return; }
+      const huella = await crearHuella(v1, tipo);
+      await db.guardarAcceso(ev.id, rol, huella);
+      onGuardado({ [`pin_${rol}_huella`]: huella, [`pin_${rol}`]: null });
+    } catch (e) { console.error(e); setErr("No se ha podido guardar. Revisa la conexión e inténtalo de nuevo."); }
+    setBusy(false);
+  };
+  const campo = (val, set, ph, auto) => (
+    <input autoFocus={auto} type={ver ? "text" : "password"} inputMode={tipo === "pin" ? "numeric" : "text"} autoComplete="new-password" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+      aria-label={ph} placeholder={ph} value={val} onChange={e => { set(limpiar(e.target.value)); setErr(""); }} onKeyDown={e => { if (e.key === "Enter") guardar(); }}
+      style={{ ...S.input, fontSize: 18, fontWeight: 700, letterSpacing: tipo === "pin" && !ver ? 4 : 0, marginBottom: 8 }} />
+  );
+  const colores = ["var(--line)", "var(--amber)", "var(--green)", "var(--green)"];
+  return (
+    <div style={isMobile ? S.sheetWrap : S.overlay} onClick={busy ? undefined : onClose}>
+      <div role="dialog" aria-label={`Acceso de ${rol}`} className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, width: 400, textAlign: "left" }} onClick={e => e.stopPropagation()}>
+        {isMobile && <div style={S.grab} />}
+        <div style={{ fontWeight: 900, fontSize: 18 }}>🔐 Acceso de {rol === "admin" ? "administrador" : "supervisor"}</div>
+        <div style={{ fontSize: 13, color: "var(--muted)", margin: "4px 0 14px" }}>Se guarda cifrado: nadie puede leerlo, ni desde la base de datos. Funciona también sin internet.</div>
+        <div role="radiogroup" aria-label="Tipo de acceso" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 12 }}>
+          {[["pin", "PIN numérico", "Rápido en la barra"], ["clave", "Contraseña", "Letras y números"]].map(([k, t, d]) => (
+            <button key={k} role="radio" aria-checked={tipo === k} onClick={() => { setTipo(k); setV1(""); setV2(""); setErr(""); }}
+              style={{ ...S.chip, textAlign: "left", padding: "10px 12px", ...(tipo === k ? S.chipActive : {}) }}><b style={{ display: "block" }}>{t}</b><span style={{ fontSize: 12, opacity: .8 }}>{d}</span></button>))}
+        </div>
+        {campo(v1, setV1, tipo === "pin" ? "Nuevo PIN (de 4 a 12 números)" : "Nueva contraseña (mínimo 8)", true)}
+        {campo(v2, setV2, tipo === "pin" ? "Repite el PIN" : "Repite la contraseña", false)}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0 10px" }}>
+          <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 4 }}>{[1, 2, 3].map(i => <span key={i} style={{ height: 5, borderRadius: 5, background: f >= i ? colores[f] : "var(--line)" }} />)}</div>
+          <span style={{ fontSize: 12, fontWeight: 700, color: prob ? "var(--amber)" : "var(--muted)", minWidth: 80, textAlign: "right" }}>{!v1 ? "" : prob ? "No válido" : ["", "Aceptable", "Bueno", "Muy bueno"][f]}</span>
+          <button type="button" onClick={() => setVer(!ver)} style={{ ...S.smallBtn, padding: "4px 10px" }} aria-label={ver ? "Ocultar" : "Mostrar"}>{ver ? "🙈" : "👁"}</button>
+        </div>
+        <div style={{ fontSize: 12.5, color: err || prob ? "var(--red)" : "var(--muted)", minHeight: 18, fontWeight: err || prob ? 700 : 400 }}>{err || prob || (tipo === "pin" ? "Consejo: 6 números o más. Nada de fechas ni series." : "Consejo: una frase corta con algún número, fácil de recordar.")}</div>
+        <div style={{ fontSize: 12, color: "var(--muted)", margin: "10px 0 12px", background: "var(--surface2, rgba(127,127,127,.08))", borderRadius: 10, padding: "8px 10px" }}>Antes de cambiarlo, actualiza la app en todos los equipos del evento (Menú → Buscar actualización). Un equipo con una versión antigua no podrá entrar como {rol === "admin" ? "administrador" : "supervisor"} hasta actualizarse.</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onClose} disabled={busy} style={{ ...S.btnGhost, flex: "0 0 auto" }}>Cancelar</button>
+          <button onClick={guardar} disabled={busy || !v1 || !v2} style={{ ...S.btnPrimary, flex: 1, opacity: busy || !v1 || !v2 ? .5 : 1 }}>{busy ? "Protegiendo…" : "Guardar"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PinModal({ secreto, onOk, onClose, label }) {
+  const isMobile = useIsMobile();
+  const s = secreto || { plano: null, huella: null, tipo: "pin", largo: 4 };
+  const esClave = s.tipo === "clave";
+  const [pin, setPin] = useState(""); const [err, setErr] = useState(false); const [ver, setVer] = useState(false);
+  const [mirando, setMirando] = useState(false);
   const [lock, setLock] = useState(pinLockRead); const [now, setNow] = useState(Date.now());
   const locked = lock.until > now;
+  const hay = !!(s.huella || s.plano);
+  const largo = esClave ? 0 : (s.largo || 0);
   useEffect(() => { if (!locked) return; const t = setInterval(() => setNow(Date.now()), 500); return () => clearInterval(t); }, [locked]);
-  const ok = String(correct || "");
-  const press = (d) => {
-    if (locked || !ok) return;
-    const np = (pin + d).slice(0, 8); setPin(np); setErr(false);
-    if (np === ok) { pinLockWrite({ fails: 0, until: 0 }); setTimeout(onOk, 150); }
-  };
-  useEffect(() => {
-    if (!ok || pin.length !== ok.length || pin === ok) return;
+  // Comprueba el intento contra la huella (o el PIN antiguo) y lleva la cuenta de fallos de este equipo
+  const probar = async (intento) => {
+    if (locked || !hay || mirando || !intento) return;
+    setMirando(true);
+    const bien = await comprobarPin(intento, s).catch(() => false);
+    setMirando(false);
+    if (bien) { pinLockWrite({ fails: 0, until: 0 }); setTimeout(onOk, 120); return; }
     setErr(true); setTimeout(() => setPin(""), 400);
     const cur = pinLockRead(); const fails = cur.fails + 1;
     const next = { fails, until: fails >= 5 ? Date.now() + Math.min(15 * 60, 30 * 2 ** (fails - 5)) * 1000 : 0 };
     pinLockWrite(next); setLock(next); setNow(Date.now());
-  }, [pin, ok]);
+  };
+  const press = (d) => {
+    if (locked || !hay || mirando) return;
+    const np = (pin + d).slice(0, 12); setPin(np); setErr(false);
+    if (largo && np.length === largo) probar(np);
+  };
   const secs = Math.max(0, Math.ceil((lock.until - now) / 1000));
+  const aviso = locked ? `Demasiados intentos. Espera ${secs >= 60 ? Math.floor(secs / 60) + " min " + (secs % 60) + " s" : secs + " s"}` : mirando ? "Comprobando…" : err ? (esClave ? "Contraseña incorrecta" : "PIN incorrecto") : (label || (esClave ? "Introduce la contraseña" : "Introduce el PIN"));
   return (
     <div style={isMobile ? S.sheetWrap : S.overlay} onClick={onClose}>
-      <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? { ...S.sheet, animation: err ? "shake .3s" : undefined } : { ...S.pinCard, animation: err ? "shake .3s" : "none" }} onClick={e => e.stopPropagation()}>
+      <div role="dialog" aria-label={label || "Acceso restringido"} className={isMobile ? "sheet-anim" : ""} style={isMobile ? { ...S.sheet, animation: err ? "shake .3s" : undefined } : { ...S.pinCard, animation: err ? "shake .3s" : "none" }} onClick={e => e.stopPropagation()}>
         {isMobile && <div style={S.grab} />}
         <div style={{ textAlign: "center", fontWeight: 800, fontSize: 18, marginBottom: 4 }}>🔒 Acceso restringido</div>
-        <div style={{ textAlign: "center", color: locked ? "var(--red)" : "var(--muted)", fontSize: 13, marginBottom: 16, fontWeight: locked ? 700 : 400 }}>{locked ? `Demasiados intentos. Espera ${secs >= 60 ? Math.floor(secs / 60) + " min " + (secs % 60) + " s" : secs + " s"}` : (label || "Introduce el PIN")}</div>
-        <div style={{ display: "flex", gap: 10, justifyContent: "center", marginBottom: 18 }}>{Array.from({ length: Math.max(4, pin.length) }).map((_, i) => <div key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: i < pin.length ? (err ? "var(--red)" : "var(--accent)") : "var(--line)" }} />)}</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => <button key={n} disabled={locked} onClick={() => press(n)} style={{ ...S.pinBtn, opacity: locked ? .35 : 1 }}>{n}</button>)}
-          <button onClick={() => setPin("")} style={{ ...S.pinBtn, fontSize: 14 }}>C</button>
-          <button disabled={locked} onClick={() => press(0)} style={{ ...S.pinBtn, opacity: locked ? .35 : 1 }}>0</button>
-          <button onClick={() => setPin(pin.slice(0, -1))} style={{ ...S.pinBtn, fontSize: 18 }}>⌫</button>
-        </div>
+        <div aria-live="polite" style={{ textAlign: "center", color: locked || err ? "var(--red)" : "var(--muted)", fontSize: 13, marginBottom: 16, fontWeight: locked || err ? 700 : 400 }}>{aviso}</div>
+        {esClave ? (
+          <form onSubmit={e => { e.preventDefault(); probar(pin); }}>
+            <div style={{ position: "relative" }}>
+              <input autoFocus type={ver ? "text" : "password"} autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} disabled={locked} aria-label="Contraseña"
+                value={pin} maxLength={64} onChange={e => { setPin(e.target.value); setErr(false); }} placeholder="Contraseña"
+                style={{ ...S.input, fontSize: 18, padding: "14px 52px 14px 14px", textAlign: "center", fontWeight: 700 }} />
+              <button type="button" onClick={() => setVer(!ver)} aria-label={ver ? "Ocultar contraseña" : "Ver contraseña"} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", ...S.smallBtn, padding: "6px 10px" }}>{ver ? "🙈" : "👁"}</button>
+            </div>
+            <button type="submit" disabled={locked || !pin || mirando} style={{ ...S.btnPrimary, marginTop: 12, opacity: locked || !pin || mirando ? .5 : 1 }}>{mirando ? "Comprobando…" : "Entrar"}</button>
+          </form>
+        ) : (<>
+          <div style={{ display: "flex", gap: 10, justifyContent: "center", marginBottom: 18, flexWrap: "wrap" }}>{Array.from({ length: Math.max(largo || 4, pin.length) }).map((_, i) => <div key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: i < pin.length ? (err ? "var(--red)" : "var(--accent)") : "var(--line)" }} />)}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => <button key={n} disabled={locked} onClick={() => press(n)} style={{ ...S.pinBtn, opacity: locked ? .35 : 1 }}>{n}</button>)}
+            <button onClick={() => setPin("")} style={{ ...S.pinBtn, fontSize: 14 }}>C</button>
+            <button disabled={locked} onClick={() => press(0)} style={{ ...S.pinBtn, opacity: locked ? .35 : 1 }}>0</button>
+            <button onClick={() => setPin(pin.slice(0, -1))} style={{ ...S.pinBtn, fontSize: 18 }}>⌫</button>
+          </div>
+          {!largo && <button onClick={() => probar(pin)} disabled={!pin || locked || mirando} style={{ ...S.btnPrimary, marginTop: 12, opacity: !pin || locked ? .5 : 1 }}>Entrar</button>}
+        </>)}
       </div>
     </div>
   );

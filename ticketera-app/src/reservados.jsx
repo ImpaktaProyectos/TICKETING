@@ -3,6 +3,7 @@
 // configuración (tarifas, extras, promotores, puntos de venta) y la línea «Reservados» del TPV.
 // Las ventas son ventas normales del TPV (misma facturación, mismo cierre Z, mismo ticket);
 // aquí solo se apunta a qué reservado va cada una.
+import { secretoDe, comprobar as comprobarPin, leerBloqueo, acierto, fallo } from "./pin";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as db from "./db";
 import { uid } from "./supabase";
@@ -505,6 +506,8 @@ export function VentaSocio({ ev, res, sales, fijo, defCaja, onVender, onClose })
   const [socio, setSocio] = useState(cfg.socios.length === 1 ? cfg.socios[0].nombre : "");
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
+  const [comprobando, setComprobando] = useState(false);
+  const acceso = secretoDe(ev, "admin"); const esClave = acceso.tipo === "clave";
   const r = sel ? res.reservados.find(x => x.id === sel) : null;
   const item = items.find(x => x.id === itemId);
   const cobro = r && item?.tipo === "tarifa" ? cobroTarifa(r, item, res.ventas, porUuid) : null;
@@ -513,8 +516,16 @@ export function VentaSocio({ ev, res, sales, fijo, defCaja, onVender, onClose })
   const listo = r && item && metodo && cajaObj && socio.trim() && pin;
   const vender = () => {
     if (!listo) { setErr("Falta: " + [!r && "reservado", !item && "producto", !metodo && "efectivo o tarjeta", !cajaObj && "caja", !socio.trim() && "socio", !pin && "PIN"].filter(Boolean).join(", ")); return; }
-    if (!ev.pin_admin || pin !== String(ev.pin_admin)) { setErr("PIN de administrador incorrecto"); setPin(""); return; }
-    onVender({ item, reservado: r, precio, cobro, metodo, caja: cajaObj, socio: socio.trim().slice(0, 60) });
+    if (comprobando) return;
+    const bl = leerBloqueo();
+    if (bl.until > Date.now()) { setErr(`Demasiados intentos. Espera ${Math.ceil((bl.until - Date.now()) / 1000)} s`); setPin(""); return; }
+    setComprobando(true);
+    comprobarPin(pin, acceso).catch(() => false).then((bien) => {
+      setComprobando(false);
+      if (!bien) { const b = fallo(); setErr((esClave ? "Contraseña de administrador incorrecta" : "PIN de administrador incorrecto") + (b.until ? ` · bloqueado ${Math.ceil((b.until - Date.now()) / 1000)} s` : "")); setPin(""); return; }
+      acierto();
+      onVender({ item, reservado: r, precio, cobro, metodo, caja: cajaObj, socio: socio.trim().slice(0, 60) });
+    });
   };
   const paso = (n, t) => <div style={{ fontWeight: 800, fontSize: 14, margin: "14px 0 8px", display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 22, height: 22, borderRadius: 22, background: "var(--accent)", color: "#fff", display: "inline-grid", placeItems: "center", fontSize: 12 }}>{n}</span>{t}</div>;
   const chip = (on) => ({ ...R.chip, borderColor: on ? "var(--accent)" : "var(--line)", background: on ? "rgba(255,90,60,.14)" : "transparent" });
@@ -522,7 +533,7 @@ export function VentaSocio({ ev, res, sales, fijo, defCaja, onVender, onClose })
     <Hoja title="💶 Vender sin ticket" sub="Venta de un socio desde su móvil. No se imprime nada." onClose={onClose}
       footer={<>
         {err && <div style={{ color: "var(--red)", fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>{err}</div>}
-        <button onClick={vender} style={{ ...R.primary, width: "100%", padding: 15, fontSize: 17, opacity: listo ? 1 : .55 }}>Vender {item ? money(precio) : ""}{cajaObj ? ` · a ${cajaObj.name}` : ""}</button>
+        <button onClick={vender} style={{ ...R.primary, width: "100%", padding: 15, fontSize: 17, opacity: listo ? 1 : .55 }}>{comprobando ? "Comprobando…" : <>Vender {item ? money(precio) : ""}</>}{cajaObj ? ` · a ${cajaObj.name}` : ""}</button>
       </>}>
       {paso(1, "Reservado")}
       {res.reservados.length === 0 ? <div style={{ color: "var(--muted)", fontSize: 13 }}>Aún no hay reservados creados.</div> :
@@ -552,8 +563,8 @@ export function VentaSocio({ ev, res, sales, fijo, defCaja, onVender, onClose })
       {cfg.socios.length ? <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{cfg.socios.map(x => <button key={x.id} onClick={() => { setSocio(x.nombre); setErr(""); }} style={chip(socio === x.nombre)}>{x.nombre}</button>)}</div>
         : <input value={socio} maxLength={60} onChange={e => setSocio(e.target.value)} placeholder="Nombre del socio (añade la lista en Configuración)" style={R.input} />}
       {metodo === "efectivo" && socio && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 6 }}>El cierre Z de {cajaObj?.name || "la caja"} indicará que {socio} tiene {item ? money(precio) : "este dinero"} y debe entregarlo.</div>}
-      {paso(6, "PIN de administrador")}
-      <input value={pin} onChange={e => { setPin(e.target.value.replace(/\D/g, "").slice(0, 8)); setErr(""); }} type="password" inputMode="numeric" autoComplete="off" placeholder="••••" style={{ ...R.input, fontSize: 22, letterSpacing: 6, textAlign: "center", fontWeight: 900 }} />
+      {paso(6, esClave ? "Contraseña de administrador" : "PIN de administrador")}
+      <input value={pin} onChange={e => { setPin(esClave ? e.target.value.slice(0, 64) : e.target.value.replace(/\D/g, "").slice(0, 12)); setErr(""); }} type="password" inputMode={esClave ? "text" : "numeric"} autoComplete="off" autoCapitalize="off" aria-label={esClave ? "Contraseña de administrador" : "PIN de administrador"} placeholder={esClave ? "Contraseña" : "••••"} style={{ ...R.input, fontSize: esClave ? 18 : 22, letterSpacing: esClave ? 0 : 6, textAlign: "center", fontWeight: 900 }} />
     </Hoja>
   );
 }
