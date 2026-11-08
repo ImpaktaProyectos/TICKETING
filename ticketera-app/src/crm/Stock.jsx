@@ -384,11 +384,12 @@ function Recetas({ d, S, cfg, busy, run, isMobile, ajustes, onGuardarAjustes }) 
   const setCfg = (p) => run(() => onGuardarAjustes({ ...ajustes, stock: { ...cfg, ...p } }), "Medida guardada");
   return (<>
     <section style={C.panel}>
-      <Head i="glass" c="#a855f7" t="Medidas de la casa" sub="Se usan en las recetas de copa, chupito y refresco. Valen para todos los eventos." />
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3,minmax(0,1fr))", gap: 12 }}>
+      <Head i="glass" c="#a855f7" t="Medidas de la casa" sub="Se usan en las recetas de copa, chupito, refresco y en las botellas de los reservados. Valen para todos los eventos." />
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(2,minmax(0,1fr))", gap: 12 }}>
         <Field l="Alcohol por copa" mb={0}><Seg full size="sm" valor={String(cfg.copaMl)} onChange={(k) => setCfg({ copaMl: Number(k) })} opciones={[40, 50, 60, 70].map(v => ({ k: String(v), t: `${v} ml` }))} /></Field>
         <Field l="Alcohol por chupito" mb={0}><Seg full size="sm" valor={String(cfg.chupitoMl)} onChange={(k) => setCfg({ chupitoMl: Number(k) })} opciones={[25, 30, 35, 40].map(v => ({ k: String(v), t: `${v} ml` }))} /></Field>
         <Field l="Refresco por copa" mb={0}><Seg full size="sm" valor={String(cfg.refrescoMl)} onChange={(k) => setCfg({ refrescoMl: Number(k) })} opciones={[150, 200, 237, 250].map(v => ({ k: String(v), t: `${v} ml` }))} /></Field>
+        <Field l="Botella de reservado" mb={0}><Seg full size="sm" valor={String(cfg.botellaMl)} onChange={(k) => setCfg({ botellaMl: Number(k) })} opciones={[700, 750, 1000].map(v => ({ k: String(v), t: v >= 1000 ? `${v / 1000} L` : `${v} ml` }))} /></Field>
       </div>
     </section>
     {sugeridas.length > 0 && (

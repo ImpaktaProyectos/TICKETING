@@ -452,7 +452,7 @@ export function pendingReservados(eventoId) {
   return { guardar, borrar, ventas };
 }
 export function subscribeReservados(eventoId, onChange) {
-  const ch = supabase.channel("res-" + eventoId)
+  const ch = supabase.channel("res-" + eventoId + "-" + Math.random().toString(36).slice(2))   // nombre único: el TPV y el CRM pueden escuchar a la vez
     .on("postgres_changes", { event: "*", schema: "public", table: "ticket_reservados", filter: `evento_id=eq.${eventoId}` }, onChange)
     .on("postgres_changes", { event: "*", schema: "public", table: "ticket_reservado_ventas", filter: `evento_id=eq.${eventoId}` }, onChange)
     .subscribe();

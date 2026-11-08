@@ -6,7 +6,7 @@ import { money, r2, useIsMobile, Dot, C, Icon, Tile } from "./ui";
 
 const pctTxt = (v) => String(r2(v)).replace(".", ",") + " %";
 
-export function calcularLiquidacion({ ev, tpv, ingresos, G, participacion, socios }) {
+export function calcularLiquidacion({ ev, tpv, ingresos, G, participacion, socios, senales = [] }) {
   const cobradosManual = ingresos.filter(i => i.estado === "cobrado");
   const ingresosCobrados = r2(tpv + cobradosManual.reduce((t, i) => t + i.importe, 0));
   const pendienteCobro = r2(ingresos.filter(i => i.estado === "pendiente").reduce((t, i) => t + i.importe, 0));
@@ -44,7 +44,7 @@ export function calcularLiquidacion({ ev, tpv, ingresos, G, participacion, socio
     ingresosCobrados, pendienteCobro, gastosTotal, gastosPendientes: r2(G.pendiente || 0), beneficio,
     comisiones: r2((G.auto || []).filter(a => a.categoria === "Comisiones").reduce((t, a) => t + a.importe, 0)),
     ivaHacienda: r2((G.auto || []).filter(a => a.categoria === "IVA a Hacienda").reduce((t, a) => t + a.importe, 0)),
-    ingEmpresa, gEmpresa, cajaEmpresa, sumPct, pctOk, filas, cuadra: Math.abs(sumResultado - cajaEmpresa) < 0.011,
+    senales, ingEmpresa, gEmpresa, cajaEmpresa, sumPct, pctOk, filas, cuadra: Math.abs(sumResultado - cajaEmpresa) < 0.011,
   };
 }
 
@@ -102,6 +102,7 @@ export function Liquidacion({ L, guardada, busy, onCerrar, onReabrir, onMarcarPa
           <span style={C.tag}><Icon n="wallet" s={14} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />Ingresos cobrados {money(V.ingresosCobrados)}</span>
           <span style={C.tag}><Icon n="receipt" s={14} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />Gastos {money(V.gastosTotal)}</span>
           <span style={C.tag}><Icon n="building" s={14} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />Dinero de la empresa {money(V.cajaEmpresa)}</span>
+          {(V.senales || []).map(q => <span key={q.nombre} style={{ ...C.tag, color: "var(--amber)" }}><Icon n="wallet" s={14} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />{q.nombre ? `Señales que entrega ${q.nombre}` : "Señales sin apuntar quién las tiene"} {money(q.v)}</span>)}
           {V.comisiones > 0 && <span style={C.tag}><Icon n="percent" s={14} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />Incluye comisiones {money(V.comisiones)}</span>}
           {V.ivaHacienda ? <span style={C.tag}><Icon n="bank" s={14} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />{V.ivaHacienda > 0 ? "Reserva IVA a Hacienda" : "IVA a devolver"} {money(Math.abs(V.ivaHacienda))}</span> : null}
         </div>

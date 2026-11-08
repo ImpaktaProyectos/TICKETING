@@ -83,9 +83,25 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
       )}
 
       {/* ===== Ventas del TPV ===== */}
-      <Seccion id="ing-tpv" i="pos" t="Ventas del TPV" sub="En directo. Las invitaciones no cuentan." total={money(T.tpv)}>
+      <Seccion id="ing-tpv" i="pos" t="Ventas del TPV" sub={barras.some(b => b.senal) ? "En directo, con las señales de reservados. Las invitaciones no cuentan." : "En directo. Las invitaciones no cuentan."} total={money(T.tpv)}>
         {barras.length === 0 && <Vacio i="store" t="Este evento no tiene barras." />}
-        {barras.map(b => { const g = grupoInfo(b.fuente); return (
+        {barras.map(b => { const g = grupoInfo(b.fuente); if (b.senal) return (
+          <div key={b.punto.id} style={{ ...C.row, alignItems: "flex-start" }}>
+            <Tile n="sparkle" c={g.c} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 800 }}>{b.punto.name}</div>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2, lineHeight: 1.45 }}>
+                {b.tickets} {b.tickets === 1 ? "reservado" : "reservados"} · cobradas antes de la fiesta; en taquilla ya se descontaron · cuentan como {g.t.toLowerCase()}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--muted)", display: "flex", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
+                {[["efectivo", "Efectivo"], ["bizum", "Bizum"], ["transferencia", "Transferencia"], ["tarjeta", "Tarjeta"]].filter(([k]) => b[k] > 0).map(([k, t]) => <span key={k}>{t} {money(b[k])}</span>)}
+              </div>
+              <div style={{ fontSize: 12.5, marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {b.quien.map(q => <span key={q.nombre} style={{ padding: "3px 9px", borderRadius: 999, background: "color-mix(in srgb, var(--amber) 14%, transparent)", color: "var(--amber)", fontWeight: 700 }}>{q.nombre ? `Las tiene ${q.nombre}` : "Sin apuntar quién las tiene"}: {money(q.v)}</span>)}
+              </div>
+            </div>
+            <b style={{ minWidth: 96, textAlign: "right", fontSize: 16, flexShrink: 0 }}>{money(b.total)}</b>
+          </div>); return (
           <div key={b.punto.id} style={{ ...C.row, alignItems: isMobile ? "flex-start" : "center" }}>
             <Tile n={g.i} c={g.c} />
             <div style={{ flex: 1, minWidth: 0 }}>

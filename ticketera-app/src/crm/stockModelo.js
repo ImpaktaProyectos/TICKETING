@@ -28,7 +28,7 @@ const TIPOS_EXTRA = [
   { k: "traspaso_salida", t: "Al almacén", largo: "Guardado en el almacén", i: "box", c: "#64748b", ink: "#fff" },
 ];
 export const tipoInfo = (k) => TIPOS_MOV.find(t => t.k === k) || TIPOS_EXTRA.find(t => t.k === k) || TIPOS_MOV[0];
-export const STOCK_DEF = { copaMl: 50, chupitoMl: 30, refrescoMl: 200 };
+export const STOCK_DEF = { copaMl: 50, chupitoMl: 30, refrescoMl: 200, botellaMl: 700 };
 export const stockCfg = (ajustes) => ({ ...STOCK_DEF, ...((ajustes || {}).stock || {}) });
 
 // Formato legible de un número (coma decimal, sin ceros sobrantes)
@@ -65,6 +65,17 @@ export const recetaTxt = (items, articulos = []) => !items ? "Sin receta" : item
   return `${qty} ${a ? a.nombre : f.corto.toLowerCase()}`;
 }).join(" + ");
 
+// ---- Reservados VIP: cada tarifa o extra sabe cuántas botellas lleva (configuración del evento) ----
+export function botellasReservados(ev) {
+  const c = ev?.style?.reservados || {};
+  const out = {};
+  [...(Array.isArray(c.tarifas) ? c.tarifas : []), ...(Array.isArray(c.extras) ? c.extras : [])].forEach(it => {
+    const k = String(it?.nombre || "").trim().toUpperCase(); if (k) out[k] = Math.max(0, Number(it.botellas) || 0);
+  });
+  return out;
+}
+const recetaReservado = (botellas, cfg) => botellas > 0 ? [{ familia: "destilado", cantidad: botellas * (Number(cfg.botellaMl) || STOCK_DEF.botellaMl) }] : [];
+
 // ---- Productos del TPV del evento con lo vendido (los bonos se descomponen en sus productos) ----
 export function productosEvento(ev, sales) {
   const out = {};
@@ -98,11 +109,13 @@ export function calcularStock({ ev, sales, articulos, movimientos, recetas, cont
   });
   const contadoArt = Object.fromEntries((lineas || []).map(l => [l.articuloId, l]));
   const recetaMap = Object.fromEntries((recetas || []).map(r => [r.producto, r.items]));
+  const resBot = botellasReservados(ev);
 
   // Productos vendidos → consumo por familia (y por artículo cuando la receta lo nombra)
   const productos = productosEvento(ev, sales).map(p => {
     const guardada = recetaMap[p.nombre];
-    const items = guardada !== undefined ? guardada : sugerirReceta(p.nombre, cfg);
+    // Reservados: la sugerencia sale de sus botellas (un reservado con 2 botellas gasta 2 botellas de destilado)
+    const items = guardada !== undefined ? guardada : resBot[p.nombre] !== undefined ? recetaReservado(resBot[p.nombre], cfg) : sugerirReceta(p.nombre, cfg);
     return { ...p, items, estado: guardada !== undefined ? (guardada.length ? "confirmada" : "nogasta") : items === null ? "sinreceta" : items.length ? "sugerida" : "nogasta-sugerida" };
   });
   const tpvFam = {}, tpvArt = {};

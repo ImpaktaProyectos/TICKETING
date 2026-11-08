@@ -29,7 +29,7 @@ export function canalesEntradas(ingresos, barras) {
     else add("m:" + i.id, { t: i.canal || i.concepto || i.categoria, d: (i.canal ? "Apuntado a mano" : i.categoria) + (i.fecha ? ` · ${new Date(i.fecha + "T12:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" })}` : "") + (i.cobradoPor && !i.entregado ? " · lo tiene un socio" : ""), i: i.canal ? "ticket" : catInfo(i.categoria).i, c: null, manual: true }, i);
   });
   (barras || []).filter(b => b.fuente === "entradas" && (b.total > 0 || b.tickets > 0)).forEach(b => {
-    add("tpv:" + b.punto.id, { t: b.punto.name, d: "Taquilla del TPV · en directo", i: "pos", c: COLOR.tpv, auto: true }, { importe: b.total, unidades: b.tickets });
+    add("tpv:" + b.punto.id, { t: b.punto.name, d: b.senal ? "Cobradas antes de la fiesta · las tiene quien las cobró" : "Taquilla del TPV · en directo", i: "pos", c: COLOR.tpv, auto: true }, { importe: b.total, unidades: b.senal ? null : b.tickets });
   });
   let k = 0;
   const lista = [...m.values()].map(c => ({ ...c, c: c.c || PALETA[k++ % PALETA.length] })).sort((a, b) => b.importe - a.importe);

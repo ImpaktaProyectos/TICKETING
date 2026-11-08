@@ -15,6 +15,7 @@ import { Ajustes, ImportarCSV } from "./Ajustes";
 import { Prevision } from "./Prevision";
 import { Entradas } from "./Entradas";
 import { Stock } from "./Stock";
+import { useReservados, resCfg } from "../reservados";
 
 const COLORES = ["#ff5a3c", "#a855f7", "#3b82f6", "#22d3a6", "#ffb400", "#ec4899", "#14b8a6", "#f97316"];
 
@@ -68,15 +69,30 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
   }, [data, ev.id]);
 
   // ---- Barras del TPV (solo lectura, en directo) ----
+  const resv = useReservados(ev.id);
   const barras = useMemo(() => {
     const ss = sales.filter(s => s.eventId === ev.id);
-    return ev.puntos.map(p => {
+    const filas = ev.puntos.map(p => {
       const v = ss.filter(s => s.puntoId === p.id && !s.voided && !isInvite(s));
       const inv = ss.filter(s => s.puntoId === p.id && !s.voided && isInvite(s)).length;
       return { punto: p, fuente: (data?.fuentes || {})[p.id] || fuenteAuto(p), tickets: v.length, total: r2(v.reduce((t, s) => t + s.price, 0)),
         efectivo: r2(v.filter(s => s.pago === "efectivo").reduce((t, s) => t + s.price, 0)), tarjeta: r2(v.filter(s => s.pago === "tarjeta").reduce((t, s) => t + s.price, 0)), invitaciones: inv };
     }).filter(b => !b.punto.archivado || b.tickets > 0);
-  }, [sales, ev, data?.fuentes]);
+    // Señales de reservados: se cobran antes de la fiesta (las tiene quien las cobró) y en taquilla ya se descuentan,
+    // así que aquí se suman para que el total del reservado cuadre. Van al mismo tipo que la taquilla de reservados.
+    const cfgR = resCfg(ev);
+    const conSenal = (resv.reservados || []).filter(r => r.estado !== "libre" && Number(r.senal) > 0);
+    if (conSenal.length) {
+      const pRes = ev.puntos.find(p => cfgR.puntos.includes(p.id));
+      const por = (m) => r2(conSenal.filter(r => r.senalMetodo === m).reduce((t, r) => t + Number(r.senal), 0));
+      const quien = {};
+      conSenal.forEach(r => { const p = cfgR.promotores.find(x => x.id === r.promotorId); const k = p?.nombre || ""; quien[k] = r2((quien[k] || 0) + Number(r.senal)); });
+      filas.push({ punto: { id: "__senales_reservados", name: "Señales de reservados" }, senal: true, fuente: pRes ? ((data?.fuentes || {})[pRes.id] || fuenteAuto(pRes)) : "otros",
+        tickets: conSenal.length, total: r2(conSenal.reduce((t, r) => t + Number(r.senal), 0)), efectivo: por("efectivo"), tarjeta: por("tarjeta"), bizum: por("bizum"), transferencia: por("transferencia"),
+        invitaciones: 0, quien: Object.entries(quien).map(([nombre, v]) => ({ nombre, v })) });
+    }
+    return filas;
+  }, [sales, ev, data?.fuentes, resv.reservados]);
 
   const socios = data?.socios || [];
   const socioById = (id) => socios.find(s => s.id === id);
@@ -100,7 +116,8 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
   const fiscal = (ajustes) => fiscalEvento({ ev, sales, ingresos, gastos: data?.gastos || [], fuentes: data?.fuentes, ajustes });
   const F = useMemo(() => fiscal(data?.ajustes), [ev, sales, ingresos, data?.gastos, data?.fuentes, data?.ajustes]);
   const G = useMemo(() => totalesGastos(ev, data?.gastos || [], gastosCaja, F.auto), [ev, data?.gastos, gastosCaja, F]);
-  const L = useMemo(() => calcularLiquidacion({ ev, tpv: T.tpv, ingresos, G, participacion: data?.participacion || [], socios }), [ev, T.tpv, ingresos, G, data?.participacion, socios]);
+  const senalesQuien = useMemo(() => barras.find(b => b.senal)?.quien || [], [barras]);
+  const L = useMemo(() => calcularLiquidacion({ ev, tpv: T.tpv, ingresos, G, participacion: data?.participacion || [], socios, senales: senalesQuien }), [ev, T.tpv, ingresos, G, data?.participacion, socios, senalesQuien]);
 
   const [tema, cambiarTema] = useTema();
   // Las variables de color del tema se aplican a todo el CRM (y a sus ventanas, que cuelgan de aquí)
