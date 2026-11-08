@@ -11,16 +11,16 @@ const evFromDb = (e) => ({
   closed: !!e.cerrada, pedirFondo: e.pedir_fondo !== false, startsAt: e.inicio || "", endsAt: e.fin || "", advanced: !!e.venta_avanzada, changeHelp: e.ayuda_cambio !== false,
   style: e.ticket_style || {},
   qrActivo: !!e.qr_activo, qrClave: e.qr_clave || "",
-  pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor,
+  pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor, pin_admin_huella: e.pin_admin_huella || null, pin_supervisor_huella: e.pin_supervisor_huella || null,
   puntos: (e.ticket_puntos || []).map(puntoFromDb),
 });
 const saleFromDb = (s) => ({ id: s.id, clientUuid: s.client_uuid, code: s.codigo, num: s.numero, eventId: s.evento_id, puntoId: s.punto_id, productId: s.producto_id, name: s.nombre, price: Number(s.precio), ts: new Date(s.creado_en).getTime(), voided: s.anulada, closureId: s.closure_id, operario: s.operario, pago: s.metodo_pago, invite: /^invitacion/.test(s.metodo_pago || ""), inviteValue: /^invitacion/.test(s.metodo_pago || "") ? (Number(String(s.metodo_pago).split(":")[1]) || 0) : 0, entregado: s.entregado != null ? Number(s.entregado) : null, cambio: s.cambio != null ? Number(s.cambio) : null, synced: true });
 const gastoFromDb = (g) => ({ tipo: g.tipo === "entrada" ? "entrada" : "gasto", id: g.id, eventId: g.evento_id, puntoId: g.punto_id, importe: Number(g.importe), concepto: g.concepto || "", por: g.registrado_por || "", ts: new Date(g.creado_en).getTime(), voided: !!g.anulado, closureId: g.closure_id, synced: true });
 const closureFromDb = (c) => ({ id: c.id, eventId: c.evento_id, puntoId: c.punto_id, count: c.tickets, revenue: Number(c.facturacion), voids: c.anulaciones, lines: c.detalle || [], efectivo: Number(c.efectivo || 0), tarjeta: Number(c.tarjeta || 0), fondo: Number(c.fondo || 0), contado: c.contado != null ? Number(c.contado) : null, gastos: Number(c.gastos || 0), entradas: Number(c.entradas || 0), esperado: c.esperado != null ? Number(c.esperado) : null, ts: new Date(c.creado_en).getTime() });
 
-const evToDb = (e) => ({ id: e.id, nombre: e.name, fecha: e.date, recinto: e.venue, plantilla: e.template, papel: e.paper, pie: e.footer, logo_url: e.logo, mostrar_evento: e.showEventName, mostrar_fecha: e.showDate, mostrar_hora: e.showTime, mostrar_precio: e.showPrice, anular_pin: e.anularPin, cerrada: !!e.closed, inicio: e.startsAt || null, fin: e.endsAt || null, venta_avanzada: !!e.advanced, ayuda_cambio: e.changeHelp !== false, pedir_fondo: e.pedirFondo !== false, ticket_style: e.style || {}, qr_activo: !!e.qrActivo, pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor });
+const evToDb = (e) => ({ id: e.id, nombre: e.name, fecha: e.date, recinto: e.venue, plantilla: e.template, papel: e.paper, pie: e.footer, logo_url: e.logo, mostrar_evento: e.showEventName, mostrar_fecha: e.showDate, mostrar_hora: e.showTime, mostrar_precio: e.showPrice, anular_pin: e.anularPin, cerrada: !!e.closed, inicio: e.startsAt || null, fin: e.endsAt || null, venta_avanzada: !!e.advanced, ayuda_cambio: e.changeHelp !== false, pedir_fondo: e.pedirFondo !== false, ticket_style: e.style || {}, qr_activo: !!e.qrActivo, pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor, pin_admin_huella: e.pin_admin_huella || null, pin_supervisor_huella: e.pin_supervisor_huella || null });
 const evPatchToDb = (patch) => {
-  const m = { name: "nombre", date: "fecha", venue: "recinto", template: "plantilla", paper: "papel", footer: "pie", logo: "logo_url", showEventName: "mostrar_evento", showDate: "mostrar_fecha", showTime: "mostrar_hora", showPrice: "mostrar_precio", anularPin: "anular_pin", closed: "cerrada", startsAt: "inicio", endsAt: "fin", advanced: "venta_avanzada", changeHelp: "ayuda_cambio", pedirFondo: "pedir_fondo", style: "ticket_style", qrActivo: "qr_activo", pin_admin: "pin_admin", pin_supervisor: "pin_supervisor" };
+  const m = { name: "nombre", date: "fecha", venue: "recinto", template: "plantilla", paper: "papel", footer: "pie", logo: "logo_url", showEventName: "mostrar_evento", showDate: "mostrar_fecha", showTime: "mostrar_hora", showPrice: "mostrar_precio", anularPin: "anular_pin", closed: "cerrada", startsAt: "inicio", endsAt: "fin", advanced: "venta_avanzada", changeHelp: "ayuda_cambio", pedirFondo: "pedir_fondo", style: "ticket_style", qrActivo: "qr_activo", pin_admin: "pin_admin", pin_supervisor: "pin_supervisor", pin_admin_huella: "pin_admin_huella", pin_supervisor_huella: "pin_supervisor_huella" };
   const out = {}; for (const k in patch) if (m[k]) out[m[k]] = patch[k]; return out;
 };
 const prodToDb = (puntoId, p) => ({ id: p.id, punto_id: puntoId, nombre: p.name, precio: p.price, color: p.color, emoji: p.emoji, agotado: p.soldOut, orden: p.orden ?? 0, subtitulo: (p.subtitle || "").trim(), imprimir: p.print !== false, qr: p.qr !== false });
@@ -204,6 +204,18 @@ async function runItem(it) {
     const { error } = await supabase.from("ticket_puntos").update({ estado: "prueba", fondo: null, fondo_en: null, fondo_por: null }).eq("id", it.punto);
     if (error) throw error;
   }
+  else if (it.op === "resGuardar") {
+    const { error } = await supabase.from("ticket_reservados").upsert(it.row, { onConflict: "id" });
+    if (error) throw error;
+  }
+  else if (it.op === "resBorrar") {
+    const { error } = await supabase.from("ticket_reservados").delete().eq("id", it.id);
+    if (error) throw error;
+  }
+  else if (it.op === "resVenta") {
+    const { error } = await supabase.from("ticket_reservado_ventas").insert(it.row);
+    if (error && !isDuplicate(error)) throw error;          // ya subida = correcta
+  }
   else if (it.op === "setFondo") {
     const { error } = await supabase.from("ticket_puntos").update({ fondo: it.fondo, fondo_en: it.fecha, fondo_por: it.por }).eq("id", it.punto);
     if (error) throw error;
@@ -325,7 +337,7 @@ export function pendingFondo(puntoId) {
 // Borra de la cola lo pendiente de un evento (para que un reset no "resucite" ventas de prueba)
 export function dropPendingForEvent(eventId, puntoIds = []) {
   const pts = new Set(puntoIds);
-  saveQ(loadQ().filter(it => !((it.args && it.args.p_evento === eventId) || it.evento === eventId || (it.punto && pts.has(it.punto)))));
+  saveQ(loadQ().filter(it => !((it.args && it.args.p_evento === eventId) || it.evento === eventId || (it.punto && pts.has(it.punto)) || (it.op === "resVenta" && it.row?.evento_id === eventId))));
 }
 
 /* ===================== COPIAS DE SEGURIDAD ===================== */
@@ -354,7 +366,7 @@ export async function loadBackups(eventId, limit = 48) {
 export function exportPending() {
   return JSON.stringify({ app: "ticketera", version: 1, dispositivo: deviceName(), exportado: new Date().toISOString(), cola: loadQ() }, null, 1);
 }
-const OPS_OK = new Set(["vender", "anularUltima", "anularVenta", "cerrarZ", "backup", "setFondo", "gasto", "anularGasto", "abrirBarra", "pasarPrueba"]);
+const OPS_OK = new Set(["vender", "anularUltima", "anularVenta", "cerrarZ", "backup", "setFondo", "gasto", "anularGasto", "abrirBarra", "pasarPrueba", "resGuardar", "resBorrar", "resVenta"]);
 export function importPending(text) {
   if (typeof text !== "string" || text.length > 5 * 1024 * 1024) throw new Error("Archivo demasiado grande");
   const obj = JSON.parse(text);
@@ -381,6 +393,10 @@ export async function resetStats(eventId) {
   if (b.error) throw b.error;
   await supabase.from("ticket_backups").delete().eq("evento_id", eventId);
   await supabase.rpc("ticket_canjes_reset", { p_evento: eventId });   // canjes de QR de prueba
+  // Reservados: se borra lo vendido de prueba; las reservas apuntadas se conservan (los que «llegaron» vuelven a reservado o libre)
+  await supabase.from("ticket_reservado_ventas").delete().eq("evento_id", eventId);
+  await supabase.from("ticket_reservados").update({ estado: "reservado", llegada_en: null }).eq("evento_id", eventId).eq("estado", "llegado").not("cliente", "is", null);
+  await supabase.from("ticket_reservados").update({ estado: "libre", llegada_en: null }).eq("evento_id", eventId).eq("estado", "llegado");
   // Las barras vuelven a modo prueba, sin fondo (listas para el evento real)
   await supabase.from("ticket_puntos").update({ estado: "prueba", fondo: null, fondo_en: null, fondo_por: null, abierta_en: null, abierta_por: null, cerrada_en: null, cerrada_por: null }).eq("evento_id", eventId);
   return true;
@@ -403,4 +419,55 @@ export function subscribeEvento(eventoId, onChange) {
     .on("postgres_changes", { event: "*", schema: "public", table: "ticket_gastos", filter: `evento_id=eq.${eventoId}` }, onChange)
     .subscribe();
   return () => supabase.removeChannel(ch);
+}
+
+/* ===================== RESERVADOS VIP =====================
+   Cada reservado (estado, cliente, señal…) y el enlace venta → reservado.
+   Todo pasa por la misma cola que las ventas: sin internet se guarda en el equipo y sube solo. */
+const resFromDb = (r) => ({ id: r.id, eventId: r.evento_id, nombre: r.nombre, tamano: r.tamano, personas: r.personas, orden: r.orden ?? 0, estado: r.estado, cliente: r.cliente || "", telefono: r.telefono || "", nota: r.nota || "", tarifaId: r.tarifa_id || "", senal: Number(r.senal || 0), senalMetodo: r.senal_metodo || "", promotorId: r.promotor_id || "", llegadaEn: r.llegada_en, actualizadoEn: r.actualizado_en });
+const resToDb = (r) => ({ id: r.id, evento_id: r.eventId, nombre: String(r.nombre || "").trim().slice(0, 40) || "R", tamano: r.tamano === "grande" ? "grande" : "pequeno", personas: r.personas === "" || r.personas == null ? null : Math.max(0, Math.min(500, parseInt(r.personas, 10) || 0)), orden: r.orden ?? 0, estado: ["libre", "reservado", "llegado", "novino"].includes(r.estado) ? r.estado : "libre", cliente: String(r.cliente || "").trim().slice(0, 120) || null, telefono: String(r.telefono || "").trim().slice(0, 40) || null, nota: String(r.nota || "").trim().slice(0, 500) || null, tarifa_id: r.tarifaId || null, senal: Math.max(0, Math.round((Number(r.senal) || 0) * 100) / 100), senal_metodo: ["efectivo", "bizum", "transferencia", "tarjeta"].includes(r.senalMetodo) ? r.senalMetodo : null, promotor_id: r.promotorId || null, llegada_en: r.llegadaEn || null, actualizado_en: new Date().toISOString() });
+const resVentaFromDb = (v) => ({ clientUuid: v.client_uuid, eventId: v.evento_id, reservadoId: v.reservado_id, tipo: v.tipo, itemId: v.item_id || "", nombre: v.nombre || "", botellas: v.botellas || 0, total: Number(v.total || 0), senal: Number(v.senal || 0), ts: new Date(v.creado_en).getTime() });
+
+export async function loadReservados(eventoId) {
+  const [a, b] = await Promise.all([
+    supabase.from("ticket_reservados").select("*").eq("evento_id", eventoId).order("orden").order("creado_en"),
+    fetchAll(() => supabase.from("ticket_reservado_ventas").select("*").eq("evento_id", eventoId).order("creado_en").order("client_uuid")),
+  ]);
+  if (a.error) throw a.error;
+  return { reservados: (a.data || []).map(resFromDb), ventas: b.map(resVentaFromDb) };
+}
+export function guardarReservado(r) { return doOrQueue({ op: "resGuardar", evento: r.eventId, row: resToDb(r) }); }
+export function borrarReservado(r) { return doOrQueue({ op: "resBorrar", evento: r.eventId, id: r.id }); }
+export function enlazarVentaReservado(v) {
+  return doOrQueue({ op: "resVenta", row: { client_uuid: v.clientUuid, evento_id: v.eventId, reservado_id: v.reservadoId, tipo: v.tipo === "tarifa" ? "tarifa" : "extra", item_id: v.itemId || null, nombre: String(v.nombre || "").slice(0, 120), botellas: Math.max(0, Math.min(100, v.botellas | 0)), total: Math.max(0, Number(v.total) || 0), senal: Math.max(0, Number(v.senal) || 0), creado_en: new Date(v.ts || Date.now()).toISOString() } });
+}
+// Lo aún sin subir de este equipo (para que la pantalla no «vuelva atrás» antes de sincronizar)
+export function pendingReservados(eventoId) {
+  const guardar = new Map(), borrar = new Set(), ventas = [];
+  loadQ().forEach(it => {
+    if (it.op === "resGuardar" && it.row?.evento_id === eventoId) { guardar.set(it.row.id, resFromDb(it.row)); borrar.delete(it.row.id); }
+    else if (it.op === "resBorrar" && it.evento === eventoId) { borrar.add(it.id); guardar.delete(it.id); }
+    else if (it.op === "resVenta" && it.row?.evento_id === eventoId) ventas.push(resVentaFromDb(it.row));
+  });
+  return { guardar, borrar, ventas };
+}
+export function subscribeReservados(eventoId, onChange) {
+  const ch = supabase.channel("res-" + eventoId)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_reservados", filter: `evento_id=eq.${eventoId}` }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_reservado_ventas", filter: `evento_id=eq.${eventoId}` }, onChange)
+    .subscribe();
+  return () => supabase.removeChannel(ch);
+}
+
+/* ===================== PIN / CONTRASEÑA DE ACCESO ===================== */
+// Guarda la huella del rol y borra el PIN visible. Necesita internet (si no, no se cambia nada).
+export async function guardarAcceso(eventId, rol, huella) {
+  if (!["admin", "supervisor"].includes(rol)) throw new Error("rol");
+  const { error } = await supabase.from("ticket_eventos").update({ [`pin_${rol}_huella`]: huella, [`pin_${rol}`]: null }).eq("id", eventId);
+  if (error) throw error;
+  // La copia local (para vender sin internet) también deja de llevar el PIN visible
+  try {
+    const k = scopedKey("ticketera_snapshot"); const snap = JSON.parse(localStorage.getItem(k) || "null");
+    if (snap?.events) { snap.events = snap.events.map(e => e.id === eventId ? { ...e, [`pin_${rol}_huella`]: huella, [`pin_${rol}`]: null } : e); localStorage.setItem(k, JSON.stringify(snap)); }
+  } catch {}
 }

@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { uid } from "./supabase";
 import { logout } from "./auth";
 import * as db from "./db";
+import { secretoDe, estadoDe, comprobar as comprobarPin, crearHuella, problema as problemaPin, fuerza as fuerzaPin, disponible as cifradoDisponible } from "./pin";
+import { useReservados, LineaReservados, CobrarReservado, ReservadosVista, InformeReservados, copiarReservados, resCfg, VentaSocio, efectivoSocios } from "./reservados";
 import { nextFolios, prefijoDePunto, peekFolio, getDeviceTag, resetFolios, seedFolio } from "./folio";
 import QrCodigo from "./qr/QrCodigo";
 import { crearToken } from "./qr/token";
@@ -41,7 +43,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.08f";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.08g";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -62,6 +64,7 @@ function reducer(state, a) {
     case "ADD_EVENT": return { ...state, events: [...state.events, { ...a.event, qrClave: "" }], currentEventId: a.event.id, currentPuntoId: a.event.puntos[0]?.id };   // la clave QR nueva la crea el servidor
     case "SELECT_EVENT": { const e = state.events.find(x => x.id === a.id); return { ...state, currentEventId: a.id, currentPuntoId: e?.puntos[0]?.id }; }
     case "UPDATE_EVENT": return { ...state, events: state.events.map(e => e.id === a.id ? { ...e, ...a.patch } : e) };
+    case "LOCAL_EVENT_PATCH": return { ...state, events: state.events.map(e => e.id === a.id ? { ...e, ...a.patch } : e) };   // ya guardado en la nube
     case "ADD_PUNTO": return { ...state, events: mapEv(e => ({ ...e, puntos: [...e.puntos, a.punto] })), currentPuntoId: a.punto.id };
     case "ARCHIVE_PUNTO": {
       const events = mapEv(e => mapPunto(e, p => ({ ...p, archivado: a.value })));
@@ -121,7 +124,7 @@ function ThermalTicket(props) {
   const band = <div style={{ background: "#000", color: "#fff", textAlign: "center", fontFamily: "'Roboto Mono', monospace", fontWeight: 900, fontSize: 13, letterSpacing: 1, padding: "1mm 0", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>✕ PRUEBA · NO VÁLIDO ✕</div>;
   return <div style={{ width: mm + "mm", background: "#fff" }}>{band}<ThermalTicketBody {...props} />{band}</div>;
 }
-function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio, qr }) {
+function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio, qr, notas }) {
   const mm = ev.paper === 58 ? 46 : 68;          // ancho del ticket con margen de seguridad (la impresora pierde ~3 mm a la derecha)
   const st = ev.style || {};
   const nd = st.nameSize === "xl" ? 18 : st.nameSize === "lg" ? 8 : 0;  // tamaño del nombre
@@ -258,6 +261,7 @@ function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio, qr })
           </div>
         </div>
       )}
+      {notas?.length ? <div style={{ marginTop: "1.5mm", borderTop: "2px dashed #000", paddingTop: "1mm", textAlign: "center", color: "#000" }}>{notas.map((n, i) => <div key={i} style={{ fontSize: n.b ? 14 : 11.5, fontWeight: n.b ? 900 : 700, lineHeight: 1.25 }}>{n.t}</div>)}</div> : null}
       {st.message && <div style={{ marginTop: "2mm", textAlign: "center", fontWeight: 900, fontSize: 13, border: "2px solid #000", borderRadius: 3, padding: "1.5mm 2mm", textTransform: "uppercase" }}>{st.message}</div>}
     </div>
   );
@@ -303,6 +307,12 @@ function ZTicket({ ev, z }) {
         </>)}
         {z.advanced && <div style={{ ...row, marginTop: "1.5mm" }}><span>Tarjeta (no en cajón)</span><span>{money(z.tarjeta || 0)}</span></div>}
       </>)}
+      {(z.socios || []).length > 0 && (<>
+        <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
+        <div style={{ textAlign: "center", fontWeight: 900, fontSize: 13 }}>EFECTIVO EN MANOS DE SOCIOS</div>
+        {z.socios.map((x, i) => <div key={i} style={row}><span style={{ minWidth: 0, overflowWrap: "anywhere", paddingRight: "2mm" }}>{x.nombre}</span><span>{money(x.importe)}</span></div>)}
+        <div style={{ textAlign: "center", fontSize: 10.5, fontWeight: 700 }}>(ya sumado arriba: deben entregarlo en esta caja)</div>
+      </>)}
       <div style={{ ...row, marginTop: "1mm" }}><span>Tickets</span><span>{z.count}</span></div>
       <div style={row}><span>Anulaciones</span><span>{z.voids}</span></div>
       {z.invites ? <div style={row}><span>Invitaciones ({z.invites})</span><span>{money(z.invitesValue || 0)}</span></div> : null}
@@ -347,6 +357,11 @@ export default function App() {
   const evGastos = useMemo(() => (state.gastos || []).filter(g => g.eventId === ev.id), [state.gastos, ev.id]);
   const turnoMovs = useMemo(() => evGastos.filter(g => g.puntoId === punto.id && !g.voided && !g.closureId), [evGastos, punto.id]);
   const testMode = !ev.id || !punto?.id || (punto.estado || "prueba") !== "abierta";
+  // Reservados VIP: mapa compartido por todas las barras; se cobran solo en los puntos elegidos
+  const res = useReservados(ev.id);
+  const [resCobro, setResCobro] = useState(null);   // { item, fijo }
+  const [resMapa, setResMapa] = useState(false);     // mapa a pantalla completa (cajero)
+  const [resSocio, setResSocio] = useState(null);    // venta sin ticket de un socio: { fijo }
   const livePuntoSales = useMemo(() => evSales.filter(s => s.puntoId === punto.id && !s.voided && !s.closureId), [evSales, punto.id]);
   const totals = useMemo(() => {
     const perProduct = {}; let revenue = 0;
@@ -644,6 +659,65 @@ export default function App() {
     flash((inviteVal != null ? "🎁 Invitación · " : "") + (tickets.length ? `🎟️ ${combo.name} · ${tickets.length} tickets` : `✅ Venta guardada · ${combo.name} (sin ticket)`));
     db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: combo.name, price }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
   };
+  // ===== Reservados VIP =====
+  const abrirCobroRes = (item, fijo = null) => {
+    if (!ev.id || !punto?.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return; }
+    if (ev.closed) { flash("Caja cerrada · no se puede vender", "warn"); return; }
+    if (!resCfg(ev).puntos.includes(punto.id)) { flash(`Los reservados no se cobran en ${punto.name}`, "warn"); return; }
+    setResCobro({ item, fijo });
+  };
+  const notasRes = ({ item, reservado, precio, cobro }) => {
+    const n = [];
+    if (resCfg(ev).lineaTicket) n.push({ t: `RESERVADO ${reservado.nombre}`.toUpperCase(), b: true });
+    if (cobro && cobro.senal > 0) { n.push({ t: `Total ${money(cobro.total)}` }); n.push({ t: `Señal pagada -${money(cobro.senal)}` }); n.push({ t: `Pagado ahora ${money(precio)}` }); }
+    return n;
+  };
+  const cobrarRes = (d) => {
+    setResCobro(null);
+    const product = { id: d.item.id, name: d.item.nombre, price: d.precio };
+    if (testMode) { setPrintJob({ kind: "ticket", product, time: timeNow(), num: null, folio: "PRUEBA", qty: 1, notas: notasRes(d), n: Date.now() }); flash("🧪 Prueba (no cuenta)"); return; }
+    if (ev.advanced) { setPayFlow({ kind: "reservado", res: d, total: d.precio }); return; }
+    doSellRes(d);
+  };
+  const doSellRes = (d, pay = null) => {
+    const { item, reservado, precio, cobro } = d;
+    const folio = nextFolios(ev.id, punto.id, prefijoDePunto(punto), 1)[0];
+    const cu = uid();
+    const saleRow = { id: cu, clientUuid: cu, code: folio, num: evSales.length + 1, eventId: ev.id, puntoId: punto.id, productId: null, name: item.nombre, price: precio, ts: Date.now(), synced: online, voided: false, closureId: null, pago: pay?.pago || null, invite: false, inviteValue: 0, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null };
+    baseDispatch({ type: "SELL", rows: [saleRow] });
+    setPrintJob({ kind: "ticket", product: { id: item.id, name: item.nombre, price: precio }, time: timeNow(), num: saleRow.num, folio, qty: 1, notas: notasRes(d), n: Date.now() });
+    if (navigator.vibrate) navigator.vibrate(45);
+    flash(`⭐ ${item.nombre} · ${reservado.nombre}`);
+    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: item.nombre, price: precio }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+    enlazarRes(d, cu);
+  };
+  // Quien compra está dentro: el reservado pasa a «Ha llegado» (con la tarifa queda apuntada) y la venta se suma a su cuenta
+  const enlazarRes = ({ item, reservado, precio, cobro }, cu) => {
+    const actual = res.reservados.find(x => x.id === reservado.id) || reservado;
+    const tarifa = item.tipo === "tarifa";
+    if (actual.estado !== "llegado" || (tarifa && actual.tarifaId !== item.id)) res.guardar({ ...actual, estado: "llegado", tarifaId: tarifa ? item.id : actual.tarifaId, llegadaEn: actual.llegadaEn || new Date().toISOString() });
+    res.enlazar({ clientUuid: cu, reservadoId: reservado.id, tipo: tarifa ? "tarifa" : "extra", itemId: item.id, nombre: item.nombre, botellas: Number(item.botellas) || 0, total: tarifa ? cobro.total : precio, senal: tarifa ? cobro.senal : 0 }).then(r => { if (r?.offline) setPending(db.pendingCount()); });
+  };
+  // Venta de un socio desde el móvil: sin ticket, a la caja que elija, con efectivo/tarjeta y PIN de admin
+  const venderSocio = (d) => {
+    if (!ev.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return; }
+    if (ev.closed) { flash("Caja cerrada · no se puede vender", "warn"); return; }
+    setResSocio(null);
+    const { item, reservado, precio, metodo, caja, socio } = d;
+    const folio = nextFolios(ev.id, caja.id, prefijoDePunto(caja), 1)[0];
+    const cu = uid();
+    const operario = "SOCIO:" + socio;
+    const saleRow = { id: cu, clientUuid: cu, code: folio, num: evSales.length + 1, eventId: ev.id, puntoId: caja.id, productId: null, name: item.nombre, price: precio, ts: Date.now(), synced: online, voided: false, closureId: null, operario, pago: metodo, invite: false, inviteValue: 0, entregado: null, cambio: null };
+    baseDispatch({ type: "SELL", rows: [saleRow] });
+    if (navigator.vibrate) navigator.vibrate(45);
+    flash(`💶 ${item.nombre} · ${reservado.nombre} · ${money(precio)} ${metodo} → ${caja.name}`);
+    db.vender({ eventoId: ev.id, puntoId: caja.id, producto: { id: null, name: item.nombre, price: precio }, qty: 1, operario, folios: [folio], clientUuids: [cu], pago: metodo, entregado: null, cambio: null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+    enlazarRes(d, cu);
+  };
+  const guardarCfgRes = (cfg) => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { style: { ...(ev.style || {}), reservados: cfg } } });
+  const lineaRes = <LineaReservados ev={ev} punto={punto} res={res} testMode={testMode} isMobile={isMobile} onElegir={(it) => abrirCobroRes(it)} onVerMapa={() => { if (role === "cajero") setResMapa(true); else setView("reservados"); }} />;
+  const vistaRes = (extra = {}) => <ReservadosVista ev={ev} punto={punto} role={role} res={res} sales={evSales} isMobile={isMobile} flash={flash} onGuardarCfg={guardarCfgRes} onCobrarTarifa={(t, r) => abrirCobroRes({ ...t, tipo: "tarifa" }, r.id)} onVentaSocio={(role === "admin" || role === "supervisor") ? (fijo) => setResSocio({ fijo }) : null} {...extra} />;
+
   const voidOne = async (sale, by) => { baseDispatch({ type: "VOID_ONE", saleId: sale.id, by }); const r = await db.anularVenta(sale.clientUuid || sale.id, by); if (r.offline) setPending(db.pendingCount()); };
 
   // ===== Gastos / retiradas de caja =====
@@ -682,7 +756,7 @@ export default function App() {
     const gastos = sumMov(gTurno, "gasto"), entradas = sumMov(gTurno, "entrada");
     if (allOpen.length === 0 && voids === 0 && gTurno.length === 0 && puntoObj.estado !== "abierta") { flash("Sin ventas en el turno actual", "warn"); return; }
     const map = {};
-    sales.forEach(s => { map[s.productId] = map[s.productId] || { name: s.name, qty: 0, total: 0 }; map[s.productId].qty++; map[s.productId].total += s.price; });
+    sales.forEach(s => { const k = s.productId || "n:" + s.name; map[k] = map[k] || { name: s.name, qty: 0, total: 0 }; map[k].qty++; map[k].total += s.price; });
     const revenue = round2(sales.reduce((t, s) => t + s.price, 0));
     const efectivo = round2(sales.filter(s => s.pago === "efectivo").reduce((t, s) => t + s.price, 0));
     const tarjeta = round2(sales.filter(s => s.pago === "tarjeta").reduce((t, s) => t + s.price, 0));
@@ -690,7 +764,8 @@ export default function App() {
     // Lo que debe haber: con venta avanzada, en el cajón; sin ella, cajón + datáfono
     const esperado = round2(fondo + (ev.advanced ? efectivo : revenue) + entradas - gastos);
     const descuadre = contado == null ? null : round2(contado - esperado);
-    const z = { puntoName: puntoObj.name, lines: Object.values(map).map(l => ({ ...l, total: round2(l.total) })), revenue, efectivo, tarjeta, fondo, esperado, contado, descuadre, gastos, entradas, gastosList: gTurno.filter(g => !isEntrada(g)).map(g => ({ concepto: g.concepto, importe: g.importe })), entradasList: gTurno.filter(isEntrada).map(g => ({ concepto: g.concepto, importe: g.importe })), showArqueo: !!ev.advanced || ev.pedirFondo !== false || gastos > 0 || entradas > 0, advanced: !!ev.advanced, count: sales.length, voids, invites: invs.n, invitesValue: invs.valor, ts: Date.now() };
+    const socios = efectivoSocios(sales);
+    const z = { socios, puntoName: puntoObj.name, lines: Object.values(map).map(l => ({ ...l, total: round2(l.total) })), revenue, efectivo, tarjeta, fondo, esperado, contado, descuadre, gastos, entradas, gastosList: gTurno.filter(g => !isEntrada(g)).map(g => ({ concepto: g.concepto, importe: g.importe })), entradasList: gTurno.filter(isEntrada).map(g => ({ concepto: g.concepto, importe: g.importe })), showArqueo: !!ev.advanced || ev.pedirFondo !== false || gastos > 0 || entradas > 0, advanced: !!ev.advanced, count: sales.length, voids, invites: invs.n, invitesValue: invs.valor, ts: Date.now() };
     const closureId = uid();
     // Cierra el turno EN LOCAL (funciona sin wifi) y encola el cierre para el servidor
     baseDispatch({ type: "ADD_CLOSURE", closure: { id: closureId, eventId: ev.id, puntoId: puntoObj.id, ...z } });
@@ -799,7 +874,7 @@ export default function App() {
   const verFacturacion = () => { if (role === "admin") setShowRevenue(true); else setAskRevenue(true); };
   const avisoPin = role === "admin" && pinsDeFabrica(ev) ? (
     <div role="alert" style={S.pinAviso}>
-      <span style={{ flex: 1, minWidth: 0 }}><b>PIN de fábrica.</b> Este evento aún usa {(ev.pin_admin || "1234") === "1234" ? "1234 (admin)" : ""}{(ev.pin_admin || "1234") === "1234" && (ev.pin_supervisor || "0000") === "0000" ? " y " : ""}{(ev.pin_supervisor || "0000") === "0000" ? "0000 (supervisor)" : ""}. Cualquiera puede adivinarlo.</span>
+      <span style={{ flex: 1, minWidth: 0 }}><b>PIN de fábrica.</b> Este evento aún usa {estadoDe(ev, "admin").fabrica ? "1234 (admin)" : ""}{estadoDe(ev, "admin").fabrica && estadoDe(ev, "supervisor").fabrica ? " y " : ""}{estadoDe(ev, "supervisor").fabrica ? "0000 (supervisor)" : ""}. Cualquiera puede adivinarlo.</span>
       {view !== "config" && <button onClick={() => setView("config")} style={{ ...S.smallBtn, flexShrink: 0, background: "rgba(0,0,0,.2)", color: "inherit", borderColor: "rgba(0,0,0,.25)" }}>Cambiar ahora</button>}
     </div>
   ) : null;
@@ -810,6 +885,7 @@ export default function App() {
     { id: "pos", label: "TPV", icon: "pos", roles: ["admin", "supervisor"] },
     { id: "template", label: "Plantilla", icon: "template", roles: ["admin"] },
     { id: "config", label: "Evento", icon: "config", roles: ["admin"] },
+    { id: "reservados", label: "Reservados", icon: "vip", roles: ["admin", "supervisor"] },
     { id: "reports", label: "Informes", icon: "reports", roles: ["admin", "supervisor"] },
     { id: "history", label: "Histórico", icon: "history", roles: ["admin"] },
     { id: "crm", label: "CRM", icon: "crm", roles: ["admin"] },
@@ -868,7 +944,7 @@ export default function App() {
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn} aria-label="Menú"><Ic n="menu" /></button>
           </header>
           <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
           </div>
         </div>
       ) : (
@@ -881,7 +957,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.topBtn}><Ic n="lock" s={16} />Salir</button></div>
           </header>
           <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
           </div>
         </div>
       ))}
@@ -917,10 +993,12 @@ export default function App() {
                 <button onClick={verFacturacion} style={{ ...S.iconBtn, color: "var(--accent)" }} aria-label="Consultar facturación"><Ic n="euro" /></button>
               </div>
             </div>
-            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
+            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
+            {safeView === "reservados" && vistaRes()}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
             {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
             {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
+            {safeView === "reports" && <InformeReservados ev={ev} res={res} sales={evSales} isMobile={isMobile} />}
             {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
           </div>
           <nav style={S.bottomNav}>
@@ -962,10 +1040,12 @@ export default function App() {
             </header>
             <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
               {avisoPin}
-              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
-              {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
+              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
+              {safeView === "reservados" && vistaRes()}
+            {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
               {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
               {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
+            {safeView === "reports" && <InformeReservados ev={ev} res={res} sales={evSales} isMobile={isMobile} />}
             {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
             </div>
           </main>
@@ -1021,7 +1101,16 @@ export default function App() {
       {/* ===== Gasto de caja ===== */}
       {showGasto && <CajaModal puntoName={punto.name} movs={turnoMovs} fondo={punto.fondo} onSave={registrarGasto} onClose={() => setShowGasto(false)}
         onVoid={(g) => { if (role === "cajero") setAskGastoVoid(g); else anularGasto(g); }} />}
-      {askGastoVoid && <PinModal correct={ev.pin_supervisor} onClose={() => setAskGastoVoid(null)} onOk={() => { const g = askGastoVoid; setAskGastoVoid(null); anularGasto(g); }} label="PIN de supervisor para anular el movimiento" />}
+      {askGastoVoid && <PinModal secreto={secretoDe(ev, "supervisor")} onClose={() => setAskGastoVoid(null)} onOk={() => { const g = askGastoVoid; setAskGastoVoid(null); anularGasto(g); }} label="PIN de supervisor para anular el movimiento" />}
+
+      {/* ===== Reservados VIP: cobro y mapa ===== */}
+      {resCobro && <CobrarReservado ev={ev} item={resCobro.item} res={res} sales={evSales} fijo={resCobro.fijo} onCobrar={cobrarRes} onClose={() => setResCobro(null)} />}
+      {resSocio && <VentaSocio ev={ev} res={res} sales={evSales} fijo={resSocio.fijo} defCaja={punto.id} onVender={venderSocio} onClose={() => setResSocio(null)} />}
+      {resMapa && role && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 60, background: "var(--bg)", overflow: "auto", padding: "calc(14px + env(safe-area-inset-top)) 14px calc(18px + env(safe-area-inset-bottom))" }}>
+          <div style={{ maxWidth: 1100, margin: "0 auto" }}>{vistaRes({ onCerrar: () => setResMapa(false) })}</div>
+        </div>
+      )}
 
       {/* ===== Cobro avanzado ===== */}
       {payFlow && (
@@ -1029,6 +1118,7 @@ export default function App() {
           total={payFlow.total}
           lines={payFlow.kind === "single" ? [{ qty: payFlow.qty, name: payFlow.product.name, total: round2(payFlow.product.price * payFlow.qty) }]
             : payFlow.kind === "many" ? payFlow.items.map(it => ({ qty: it.qty, name: it.product.name, total: round2(it.product.price * it.qty) }))
+            : payFlow.kind === "reservado" ? [{ qty: 1, name: `${payFlow.res.item.nombre} · ${payFlow.res.reservado.nombre}`, total: payFlow.total }]
             : [{ qty: 1, name: payFlow.combo.name, total: payFlow.total }]}
           changeHelp={ev.changeHelp !== false}
           onCancel={() => setPayFlow(null)}
@@ -1038,13 +1128,14 @@ export default function App() {
             if (f.kind === "single") doSell(f.product, f.qty, pay);
             else if (f.kind === "many") doSellMany(f.items, pay);
             else if (f.kind === "combo") doSellCombo(f.combo, f.vouchers, f.total, pay);
+            else if (f.kind === "reservado") doSellRes(f.res, pay);
           }}
         />
       )}
 
       {/* ===== Zona de impresión oculta (fuera de pantalla; en impresión se coloca en 0,0) ===== */}
       {createPortal(<div id="thermal-print-area" aria-hidden style={{ position: "absolute", left: -9999, top: 0 }}>
-        {printJob?.kind === "ticket" && <div className="ticket-page"><ThermalTicket ev={ev} product={printJob.product} time={printJob.time} num={printJob.num} qty={printJob.qty} folio={printJob.folio} qr={printJob.qr} /></div>}
+        {printJob?.kind === "ticket" && <div className="ticket-page"><ThermalTicket ev={ev} product={printJob.product} time={printJob.time} num={printJob.num} qty={printJob.qty} folio={printJob.folio} qr={printJob.qr} notas={printJob.notas} /></div>}
         {printJob?.kind === "z" && <div className="ticket-page z-page"><ZTicket ev={ev} z={printJob.z} /></div>}
         {printJob?.kind === "multi" && printJob.tickets.map((t, i) => (
           <div key={i} className="ticket-page">
@@ -1054,8 +1145,8 @@ export default function App() {
       </div>, document.body)}
 
       {/* ===== Facturación (PIN -> total) ===== */}
-      {askRevenue && <PinModal correct={ev.pin_admin} onClose={() => setAskRevenue(false)} onOk={() => { setAskRevenue(false); setShowRevenue(true); }} />}
-      {askVoidPin && <PinModal correct={ev.pin_supervisor} onClose={() => setAskVoidPin(false)} onOk={() => { setAskVoidPin(false); voidLast(punto.name); }} label="PIN de supervisor para anular" />}
+      {askRevenue && <PinModal secreto={secretoDe(ev, "admin")} onClose={() => setAskRevenue(false)} onOk={() => { setAskRevenue(false); setShowRevenue(true); }} />}
+      {askVoidPin && <PinModal secreto={secretoDe(ev, "supervisor")} onClose={() => setAskVoidPin(false)} onOk={() => { setAskVoidPin(false); voidLast(punto.name); }} label="PIN de supervisor para anular" />}
       {showRevenue && (
         <div style={isMobile ? S.sheetWrap : S.overlay} onClick={() => setShowRevenue(false)}>
           <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, textAlign: "center", width: 330 }} onClick={e => e.stopPropagation()}>
@@ -1196,6 +1287,7 @@ const IC = {
   template: "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3",
   config: "M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1M15 4a2 2 0 1 0 0 4a2 2 0 1 0 0-4M9 10a2 2 0 1 0 0 4a2 2 0 1 0 0-4M17 16a2 2 0 1 0 0 4a2 2 0 1 0 0-4",
   reports: "M3 20h18M6 16v-5M11 16V6M16 16v-8",
+  vip: "M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z",
   menu: "M4 7h16M4 12h16M4 17h16",
   close: "M6 6l12 12M18 6L6 18",
   check: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M8.5 12.2l2.4 2.3 4.6-4.8",
@@ -1374,9 +1466,9 @@ function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 
         </div>
       )}
 
-      {mode === "supervisor" && <PinModal correct={ev.pin_supervisor} onOk={() => onRole("supervisor")} onClose={() => setMode(null)} label="PIN de supervisor" />}
-      {mode === "admin" && <PinModal correct={ev.pin_admin} onOk={() => onRole("admin")} onClose={() => setMode(null)} label="PIN de administrador" />}
-      {mode === "crm" && <PinModal correct={ev.pin_admin} onOk={() => onRole("admin", null, "crm")} onClose={() => setMode(null)} label="PIN de administrador para el CRM" />}
+      {mode === "supervisor" && <PinModal secreto={secretoDe(ev, "supervisor")} onOk={() => onRole("supervisor")} onClose={() => setMode(null)} label="PIN de supervisor" />}
+      {mode === "admin" && <PinModal secreto={secretoDe(ev, "admin")} onOk={() => onRole("admin")} onClose={() => setMode(null)} label="PIN de administrador" />}
+      {mode === "crm" && <PinModal secreto={secretoDe(ev, "admin")} onOk={() => onRole("admin", null, "crm")} onClose={() => setMode(null)} label="PIN de administrador para el CRM" />}
     </div>
   );
 }
@@ -1816,7 +1908,7 @@ function Stat({ label, value, accent }) {
 /* ============================================================
    POS
    ============================================================ */
-function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onInvite, onComboInvite, onSellMany, onVoid, onReprint, canReprint, onCombo, testMode, closed, advanced, canArrange = false, onGasto, gastoTotal = 0, entradaTotal = 0, fondo = null, onIniciar }) {
+function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onInvite, onComboInvite, onSellMany, onVoid, onReprint, canReprint, onCombo, extra = null, testMode, closed, advanced, canArrange = false, onGasto, gastoTotal = 0, entradaTotal = 0, fondo = null, onIniciar }) {
   const isMobile = useIsMobile();
   const combos = punto.combos || [];
   const [qty, setQty] = useState(1);
@@ -2057,6 +2149,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
               </div>
             </div>
           )}
+          {!grouping && !arranging && extra}
         </div>
 
         {/* panel comanda */}
@@ -2307,8 +2400,11 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
     puntos.forEach(p => { p.combos = (p._src.combos || []).map(c => ({ ...c, id: uid(), items: (c.items || []).map(it => ({ ...it, productId: pmap[it.productId] || it.productId })) })); delete p._src; });
     const st = { ...(src.style || {}) };
     if (st.comisiones) { const nc = {}; Object.entries(st.comisiones).forEach(([pid, l]) => { const last = l && l[l.length - 1]; if (pmap[pid] && last && last.proveedor) nc[pmap[pid]] = [{ ...last, desde: 0 }]; }); st.comisiones = nc; }
+    if (st.reservados) { const pm = {}; src.puntos.forEach(p => { const n = puntos.find(x => x.name === p.name); if (n) pm[p.id] = n.id; }); st.reservados = { ...st.reservados, puntos: (st.reservados.puntos || []).map(id => pm[id]).filter(Boolean) }; }
     const event = { ...src, id: uid(), name, date, venue, closed: false, startsAt: newEvent?.startsAt || "", endsAt: localAIso(newEvent?.endsAt) || "", style: st, puntos };
     dispatch({ type: "ADD_EVENT", event });
+    // Los reservados (mesas) se copian libres, sin clientes ni señales, cuando el evento ya está guardado
+    setTimeout(() => { copiarReservados(src.id, event.id); }, 2500);
     flash(`Evento duplicado: ${puntos.length} barras y ${puntos.reduce((t, p) => t + p.products.length, 0)} productos copiados`);
   };
   const createEvent = () => {
@@ -2332,10 +2428,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
           </div>
           {ev.startsAt && ev.endsAt && new Date(ev.endsAt) <= new Date(ev.startsAt) && <div style={{ fontSize: 12.5, color: "var(--red)", margin: "-4px 0 10px" }}><Ic n="alert" s={15} style={II} />La hora de fin es anterior al inicio. Revisa el día (si acaba de madrugada, es el día siguiente).</div>}
           <Field label="Recinto"><input style={S.input} value={ev.venue} onChange={e => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { venue: e.target.value } })} /></Field>
-          <div style={{ display: "flex", gap: 10 }}>
-            <PinField label="PIN admin" value={ev.pin_admin} fabrica="1234" onSave={(v) => { dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pin_admin: v } }); flash("PIN de administrador cambiado"); }} flash={flash} />
-            <PinField label="PIN supervisor" value={ev.pin_supervisor} fabrica="0000" onSave={(v) => { dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { pin_supervisor: v } }); flash("PIN de supervisor cambiado"); }} flash={flash} />
-          </div>
+          <AccesoSeguro ev={ev} dispatch={dispatch} flash={flash} />
           <label style={S.toggleRow}><span>Anular ticket en caja exige PIN de supervisor</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { anularPin: !ev.anularPin } })} style={{ ...S.switch, background: ev.anularPin ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.anularPin ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
           <label style={S.toggleRow}><span><b>Venta avanzada</b> · pedir efectivo/tarjeta y calcular el cambio{modoCobroBloqueado(ev, evSales) && <span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2 }}><Ic n="lock" s={15} style={II} />Fijo: la venta ya ha empezado en este evento</span>}</span><button disabled={modoCobroBloqueado(ev, evSales)} aria-label="Venta avanzada" onClick={() => { if (modoCobroBloqueado(ev, evSales)) return; dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: ev.advanced ? { advanced: false } : { advanced: true, changeHelp: true } }); }} style={{ ...S.switch, flexShrink: 0, opacity: modoCobroBloqueado(ev, evSales) ? .45 : 1, cursor: modoCobroBloqueado(ev, evSales) ? "not-allowed" : "pointer", background: ev.advanced ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.advanced ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
           {ev.advanced && <label style={S.toggleRow}><span>Ayuda con el cambio · billetes y cálculo de devolución</span><button onClick={() => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { changeHelp: !(ev.changeHelp !== false) } })} style={{ ...S.switch, background: ev.changeHelp !== false ? "var(--green)" : "var(--line)" }}><span style={{ ...S.knob, transform: ev.changeHelp !== false ? "translateX(20px)" : "translateX(2px)" }} /></button></label>}
@@ -2965,7 +3058,7 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
                 const fondo = round2(b.punto.fondo || 0);
                 const gas = gTurnoDe(b.punto.id), ent = eTurnoDe(b.punto.id);
                 const base = ev.advanced ? efe : fact;
-                setCountZ({ punto: b.punto, advanced: !!ev.advanced, fondo, efectivo: base, gastos: gas, entradas: ent, esperado: round2(fondo + base + ent - gas), valor: "" });
+                setCountZ({ punto: b.punto, advanced: !!ev.advanced, fondo, efectivo: base, gastos: gas, entradas: ent, esperado: round2(fondo + base + ent - gas), socios: efectivoSocios(abiertas), valor: "" });
               }} style={{ ...S.smallBtn, marginTop: 8, width: "100%", color: "var(--accent)", borderColor: "var(--accent)" }}>Cierre Z</button>}
               {role === "admin" && onPasarPrueba && b.punto.estado !== "prueba" && !(b.punto.estado === "abierta" && evSales.some(x => x.puntoId === b.punto.id && !x.closureId && !x.voided)) && (confirmPrueba === b.punto.id
                 ? <div style={{ display: "flex", gap: 6, marginTop: 8 }}><button onClick={() => { onPasarPrueba(b.punto); setConfirmPrueba(null); }} style={{ ...S.smallBtn, flex: 1, color: "var(--amber)", borderColor: "var(--amber)" }}>✓ Sí, a prueba</button><button onClick={() => setConfirmPrueba(null)} style={S.smallBtn}>✗</button></div>
@@ -3131,6 +3224,13 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
               {countZ.gastos > 0 && <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}><span style={{ color: "var(--amber)" }}>− Gastos de caja</span><b style={{ color: "var(--amber)" }}>{money(countZ.gastos)}</b></div>}
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)", fontSize: 16 }}><span>Debe haber {countZ.advanced ? "en el cajón" : "(cajón + datáfono)"}</span><b style={{ color: "var(--green)" }}>{money(countZ.esperado)}</b></div>
             </div>
+            {(countZ.socios || []).length > 0 && (
+              <div style={{ background: "rgba(255,180,0,.1)", border: "1px solid rgba(255,180,0,.4)", borderRadius: 12, padding: "10px 12px", marginBottom: 12, fontSize: 13.5 }}>
+                <b style={{ color: "var(--amber)" }}>💶 Efectivo que tienen los socios</b>
+                {countZ.socios.map(x => <div key={x.nombre} style={{ display: "flex", justifyContent: "space-between", marginTop: 3 }}><span>{x.nombre}</span><b>{money(x.importe)}</b></div>)}
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Está incluido en «Debe haber»: pídeselo antes de contar.</div>
+              </div>
+            )}
             <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>{countZ.advanced ? "¿Cuánto has contado en el cajón?" : "¿Cuánto suman cajón + datáfono?"} (puedes dejarlo vacío)</div>
             <input autoFocus type="number" inputMode="decimal" value={countZ.valor} onChange={e => setCountZ({ ...countZ, valor: e.target.value })} style={{ ...S.input, fontSize: 24, fontWeight: 900, textAlign: "center", padding: "14px" }} placeholder="0.00" />
             {has && (
@@ -3161,39 +3261,150 @@ const pinLockRead = () => { try { return JSON.parse(localStorage.getItem(PIN_LOC
 const pinLockWrite = (v) => { try { localStorage.setItem(PIN_LOCK_KEY, JSON.stringify(v)); } catch {} };
 // Celda CSV segura: evita que Excel ejecute fórmulas escritas en nombres (=, +, -, @) y que ";" rompa columnas
 function csvCell(x) { if (x == null) return ""; if (typeof x === "number") return String(x); let v = String(x).replace(/[;\r\n]+/g, " "); if (/^[=+\-@\t]/.test(v) && !/^-?\d+([.,]\d+)?$/.test(v)) v = "'" + v; return v; }
-function PinModal({ correct, onOk, onClose, label }) {
+/* ---------------------- PIN y contraseñas de acceso (Ajustes) ----------------------
+   Se guardan como huella cifrada: no se pueden leer, solo comprobar. Necesita internet para cambiarlos. */
+function AccesoSeguro({ ev, dispatch, flash }) {
+  const [edit, setEdit] = useState(null);   // "admin" | "supervisor"
+  const filas = [["admin", "Administrador", "Configura todo"], ["supervisor", "Supervisor", "Informes, cierres y anulaciones"]];
+  return (
+    <div style={{ margin: "4px 0 12px" }}>
+      <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Acceso de administrador y supervisor</div>
+      {filas.map(([rol, t, d]) => {
+        const e = estadoDe(ev, rol);
+        const desc = e.protegido ? (e.tipo === "clave" ? "Contraseña · protegida" : `PIN de ${e.largo} números · protegido`) : e.fabrica ? "PIN de fábrica" : "PIN sin proteger";
+        const malo = !e.protegido;
+        return (
+          <div key={rol} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", border: `1px solid ${malo ? "var(--amber)" : "var(--line)"}`, borderRadius: 12, marginBottom: 8 }}>
+            <span style={{ fontSize: 20 }} aria-hidden>{malo ? "⚠️" : "🔐"}</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <b style={{ display: "block" }}>{t}</b>
+              <span style={{ fontSize: 12.5, color: malo ? "var(--amber)" : "var(--muted)" }}>{desc}{malo ? (e.fabrica ? " · cámbialo antes del evento" : " · se puede leer: guárdalo de nuevo para protegerlo") : ` · ${d}`}</span>
+            </span>
+            <button onClick={() => setEdit(rol)} style={{ ...S.smallBtn, flexShrink: 0 }}>{malo ? "Proteger" : "Cambiar"}</button>
+          </div>
+        );
+      })}
+      {edit && <EditorAcceso ev={ev} rol={edit} onClose={() => setEdit(null)} onGuardado={(patch) => { dispatch({ type: "LOCAL_EVENT_PATCH", id: ev.id, patch }); setEdit(null); flash(edit === "admin" ? "Acceso de administrador protegido" : "Acceso de supervisor protegido"); }} flash={flash} />}
+    </div>
+  );
+}
+
+function EditorAcceso({ ev, rol, onClose, onGuardado, flash }) {
   const isMobile = useIsMobile();
-  const [pin, setPin] = useState(""); const [err, setErr] = useState(false);
+  const actual = estadoDe(ev, rol);
+  const [tipo, setTipo] = useState(actual.tipo === "clave" ? "clave" : "pin");
+  const [v1, setV1] = useState(""); const [v2, setV2] = useState(""); const [ver, setVer] = useState(false);
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  const otro = rol === "admin" ? "supervisor" : "admin";
+  const prob = v1 ? problemaPin(v1, tipo) : "";
+  const f = fuerzaPin(v1, tipo);
+  const limpiar = (x) => tipo === "pin" ? x.replace(/\D/g, "").slice(0, 12) : x.slice(0, 64);
+  const guardar = async () => {
+    setErr("");
+    const p = problemaPin(v1, tipo); if (p) { setErr(p); return; }
+    if (v1 !== v2) { setErr(tipo === "pin" ? "Los dos PIN no coinciden" : "Las dos contraseñas no coinciden"); return; }
+    if (!cifradoDisponible()) { setErr("Este navegador no permite proteger el PIN. Usa Chrome actualizado."); return; }
+    if (!navigator.onLine) { setErr("Sin internet: el cambio tiene que llegar a todos los equipos. Conéctate y vuelve a intentarlo."); return; }
+    setBusy(true);
+    try {
+      if (await comprobarPin(v1, secretoDe(ev, otro))) { setErr(`Tiene que ser distinto al del ${otro === "admin" ? "administrador" : "supervisor"}`); setBusy(false); return; }
+      const huella = await crearHuella(v1, tipo);
+      await db.guardarAcceso(ev.id, rol, huella);
+      onGuardado({ [`pin_${rol}_huella`]: huella, [`pin_${rol}`]: null });
+    } catch (e) { console.error(e); setErr("No se ha podido guardar. Revisa la conexión e inténtalo de nuevo."); }
+    setBusy(false);
+  };
+  const campo = (val, set, ph, auto) => (
+    <input autoFocus={auto} type={ver ? "text" : "password"} inputMode={tipo === "pin" ? "numeric" : "text"} autoComplete="new-password" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+      aria-label={ph} placeholder={ph} value={val} onChange={e => { set(limpiar(e.target.value)); setErr(""); }} onKeyDown={e => { if (e.key === "Enter") guardar(); }}
+      style={{ ...S.input, fontSize: 18, fontWeight: 700, letterSpacing: tipo === "pin" && !ver ? 4 : 0, marginBottom: 8 }} />
+  );
+  const colores = ["var(--line)", "var(--amber)", "var(--green)", "var(--green)"];
+  return (
+    <div style={isMobile ? S.sheetWrap : S.overlay} onClick={busy ? undefined : onClose}>
+      <div role="dialog" aria-label={`Acceso de ${rol}`} className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, width: 400, textAlign: "left" }} onClick={e => e.stopPropagation()}>
+        {isMobile && <div style={S.grab} />}
+        <div style={{ fontWeight: 900, fontSize: 18 }}>🔐 Acceso de {rol === "admin" ? "administrador" : "supervisor"}</div>
+        <div style={{ fontSize: 13, color: "var(--muted)", margin: "4px 0 14px" }}>Se guarda cifrado: nadie puede leerlo, ni desde la base de datos. Funciona también sin internet.</div>
+        <div role="radiogroup" aria-label="Tipo de acceso" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 12 }}>
+          {[["pin", "PIN numérico", "Rápido en la barra"], ["clave", "Contraseña", "Letras y números"]].map(([k, t, d]) => (
+            <button key={k} role="radio" aria-checked={tipo === k} onClick={() => { setTipo(k); setV1(""); setV2(""); setErr(""); }}
+              style={{ ...S.chip, textAlign: "left", padding: "10px 12px", ...(tipo === k ? S.chipActive : {}) }}><b style={{ display: "block" }}>{t}</b><span style={{ fontSize: 12, opacity: .8 }}>{d}</span></button>))}
+        </div>
+        {campo(v1, setV1, tipo === "pin" ? "Nuevo PIN (de 4 a 12 números)" : "Nueva contraseña (mínimo 8)", true)}
+        {campo(v2, setV2, tipo === "pin" ? "Repite el PIN" : "Repite la contraseña", false)}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0 10px" }}>
+          <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 4 }}>{[1, 2, 3].map(i => <span key={i} style={{ height: 5, borderRadius: 5, background: f >= i ? colores[f] : "var(--line)" }} />)}</div>
+          <span style={{ fontSize: 12, fontWeight: 700, color: prob ? "var(--amber)" : "var(--muted)", minWidth: 80, textAlign: "right" }}>{!v1 ? "" : prob ? "No válido" : ["", "Aceptable", "Bueno", "Muy bueno"][f]}</span>
+          <button type="button" onClick={() => setVer(!ver)} style={{ ...S.smallBtn, padding: "4px 10px" }} aria-label={ver ? "Ocultar" : "Mostrar"}>{ver ? "🙈" : "👁"}</button>
+        </div>
+        <div style={{ fontSize: 12.5, color: err || prob ? "var(--red)" : "var(--muted)", minHeight: 18, fontWeight: err || prob ? 700 : 400 }}>{err || prob || (tipo === "pin" ? "Consejo: 6 números o más. Nada de fechas ni series." : "Consejo: una frase corta con algún número, fácil de recordar.")}</div>
+        <div style={{ fontSize: 12, color: "var(--muted)", margin: "10px 0 12px", background: "var(--surface2, rgba(127,127,127,.08))", borderRadius: 10, padding: "8px 10px" }}>Antes de cambiarlo, actualiza la app en todos los equipos del evento (Menú → Buscar actualización). Un equipo con una versión antigua no podrá entrar como {rol === "admin" ? "administrador" : "supervisor"} hasta actualizarse.</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onClose} disabled={busy} style={{ ...S.btnGhost, flex: "0 0 auto" }}>Cancelar</button>
+          <button onClick={guardar} disabled={busy || !v1 || !v2} style={{ ...S.btnPrimary, flex: 1, opacity: busy || !v1 || !v2 ? .5 : 1 }}>{busy ? "Protegiendo…" : "Guardar"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PinModal({ secreto, onOk, onClose, label }) {
+  const isMobile = useIsMobile();
+  const s = secreto || { plano: null, huella: null, tipo: "pin", largo: 4 };
+  const esClave = s.tipo === "clave";
+  const [pin, setPin] = useState(""); const [err, setErr] = useState(false); const [ver, setVer] = useState(false);
+  const [mirando, setMirando] = useState(false);
   const [lock, setLock] = useState(pinLockRead); const [now, setNow] = useState(Date.now());
   const locked = lock.until > now;
+  const hay = !!(s.huella || s.plano);
+  const largo = esClave ? 0 : (s.largo || 0);
   useEffect(() => { if (!locked) return; const t = setInterval(() => setNow(Date.now()), 500); return () => clearInterval(t); }, [locked]);
-  const ok = String(correct || "");
-  const press = (d) => {
-    if (locked || !ok) return;
-    const np = (pin + d).slice(0, 8); setPin(np); setErr(false);
-    if (np === ok) { pinLockWrite({ fails: 0, until: 0 }); setTimeout(onOk, 150); }
-  };
-  useEffect(() => {
-    if (!ok || pin.length !== ok.length || pin === ok) return;
+  // Comprueba el intento contra la huella (o el PIN antiguo) y lleva la cuenta de fallos de este equipo
+  const probar = async (intento) => {
+    if (locked || !hay || mirando || !intento) return;
+    setMirando(true);
+    const bien = await comprobarPin(intento, s).catch(() => false);
+    setMirando(false);
+    if (bien) { pinLockWrite({ fails: 0, until: 0 }); setTimeout(onOk, 120); return; }
     setErr(true); setTimeout(() => setPin(""), 400);
     const cur = pinLockRead(); const fails = cur.fails + 1;
     const next = { fails, until: fails >= 5 ? Date.now() + Math.min(15 * 60, 30 * 2 ** (fails - 5)) * 1000 : 0 };
     pinLockWrite(next); setLock(next); setNow(Date.now());
-  }, [pin, ok]);
+  };
+  const press = (d) => {
+    if (locked || !hay || mirando) return;
+    const np = (pin + d).slice(0, 12); setPin(np); setErr(false);
+    if (largo && np.length === largo) probar(np);
+  };
   const secs = Math.max(0, Math.ceil((lock.until - now) / 1000));
+  const aviso = locked ? `Demasiados intentos. Espera ${secs >= 60 ? Math.floor(secs / 60) + " min " + (secs % 60) + " s" : secs + " s"}` : mirando ? "Comprobando…" : err ? (esClave ? "Contraseña incorrecta" : "PIN incorrecto") : (label || (esClave ? "Introduce la contraseña" : "Introduce el PIN"));
   return (
     <div style={isMobile ? S.sheetWrap : S.overlay} onClick={onClose}>
-      <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? { ...S.sheet, animation: err ? "shake .3s" : undefined } : { ...S.pinCard, animation: err ? "shake .3s" : "none" }} onClick={e => e.stopPropagation()}>
+      <div role="dialog" aria-label={label || "Acceso restringido"} className={isMobile ? "sheet-anim" : ""} style={isMobile ? { ...S.sheet, animation: err ? "shake .3s" : undefined } : { ...S.pinCard, animation: err ? "shake .3s" : "none" }} onClick={e => e.stopPropagation()}>
         {isMobile && <div style={S.grab} />}
         <div style={{ textAlign: "center", fontWeight: 800, fontSize: 18, marginBottom: 4 }}>🔒 Acceso restringido</div>
-        <div style={{ textAlign: "center", color: locked ? "var(--red)" : "var(--muted)", fontSize: 13, marginBottom: 16, fontWeight: locked ? 700 : 400 }}>{locked ? `Demasiados intentos. Espera ${secs >= 60 ? Math.floor(secs / 60) + " min " + (secs % 60) + " s" : secs + " s"}` : (label || "Introduce el PIN")}</div>
-        <div style={{ display: "flex", gap: 10, justifyContent: "center", marginBottom: 18 }}>{Array.from({ length: Math.max(4, pin.length) }).map((_, i) => <div key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: i < pin.length ? (err ? "var(--red)" : "var(--accent)") : "var(--line)" }} />)}</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => <button key={n} disabled={locked} onClick={() => press(n)} style={{ ...S.pinBtn, opacity: locked ? .35 : 1 }}>{n}</button>)}
-          <button onClick={() => setPin("")} style={{ ...S.pinBtn, fontSize: 14 }}>C</button>
-          <button disabled={locked} onClick={() => press(0)} style={{ ...S.pinBtn, opacity: locked ? .35 : 1 }}>0</button>
-          <button onClick={() => setPin(pin.slice(0, -1))} style={{ ...S.pinBtn, fontSize: 18 }}>⌫</button>
-        </div>
+        <div aria-live="polite" style={{ textAlign: "center", color: locked || err ? "var(--red)" : "var(--muted)", fontSize: 13, marginBottom: 16, fontWeight: locked || err ? 700 : 400 }}>{aviso}</div>
+        {esClave ? (
+          <form onSubmit={e => { e.preventDefault(); probar(pin); }}>
+            <div style={{ position: "relative" }}>
+              <input autoFocus type={ver ? "text" : "password"} autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} disabled={locked} aria-label="Contraseña"
+                value={pin} maxLength={64} onChange={e => { setPin(e.target.value); setErr(false); }} placeholder="Contraseña"
+                style={{ ...S.input, fontSize: 18, padding: "14px 52px 14px 14px", textAlign: "center", fontWeight: 700 }} />
+              <button type="button" onClick={() => setVer(!ver)} aria-label={ver ? "Ocultar contraseña" : "Ver contraseña"} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", ...S.smallBtn, padding: "6px 10px" }}>{ver ? "🙈" : "👁"}</button>
+            </div>
+            <button type="submit" disabled={locked || !pin || mirando} style={{ ...S.btnPrimary, marginTop: 12, opacity: locked || !pin || mirando ? .5 : 1 }}>{mirando ? "Comprobando…" : "Entrar"}</button>
+          </form>
+        ) : (<>
+          <div style={{ display: "flex", gap: 10, justifyContent: "center", marginBottom: 18, flexWrap: "wrap" }}>{Array.from({ length: Math.max(largo || 4, pin.length) }).map((_, i) => <div key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: i < pin.length ? (err ? "var(--red)" : "var(--accent)") : "var(--line)" }} />)}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => <button key={n} disabled={locked} onClick={() => press(n)} style={{ ...S.pinBtn, opacity: locked ? .35 : 1 }}>{n}</button>)}
+            <button onClick={() => setPin("")} style={{ ...S.pinBtn, fontSize: 14 }}>C</button>
+            <button disabled={locked} onClick={() => press(0)} style={{ ...S.pinBtn, opacity: locked ? .35 : 1 }}>0</button>
+            <button onClick={() => setPin(pin.slice(0, -1))} style={{ ...S.pinBtn, fontSize: 18 }}>⌫</button>
+          </div>
+          {!largo && <button onClick={() => probar(pin)} disabled={!pin || locked || mirando} style={{ ...S.btnPrimary, marginTop: 12, opacity: !pin || locked ? .5 : 1 }}>Entrar</button>}
+        </>)}
       </div>
     </div>
   );
@@ -3217,35 +3428,8 @@ function FondoPrevistoInput({ value, onSave }) {
   );
 }
 
-/* PIN oculto: «••••» + Cambiar. Avisa si sigue siendo el de fábrica. */
-const pinsDeFabrica = (ev) => !!ev.id && ((ev.pin_admin || "1234") === "1234" || (ev.pin_supervisor || "0000") === "0000");
-function PinField({ label, value, fabrica, onSave, flash }) {
-  const [edit, setEdit] = useState(false);
-  const [v, setV] = useState("");
-  const esFabrica = (value || fabrica) === fabrica;
-  const save = () => {
-    if (!/^\d{4,6}$/.test(v)) { flash("El PIN debe tener de 4 a 6 números", "warn"); return; }
-    if (v === fabrica) { flash("Elige un PIN distinto al de fábrica", "warn"); return; }
-    onSave(v); setEdit(false); setV("");
-  };
-  return (
-    <Field label={label}>
-      {edit ? (
-        <div style={{ display: "flex", gap: 6 }}>
-          <input autoFocus inputMode="numeric" autoComplete="off" aria-label={`Nuevo ${label}`} style={{ ...S.input, minWidth: 0 }} value={v} maxLength={6} onChange={e => setV(e.target.value.replace(/\D/g, ""))} placeholder="Nuevo PIN" onKeyDown={e => { if (e.key === "Enter") save(); }} />
-          <button onClick={save} style={{ ...S.smallBtn, flexShrink: 0, padding: "0 12px" }}>Guardar</button>
-          <button onClick={() => { setEdit(false); setV(""); }} style={{ ...S.smallBtn, flexShrink: 0, padding: "0 10px" }} aria-label="Cancelar">✕</button>
-        </div>
-      ) : (
-        <div style={{ ...S.input, display: "flex", alignItems: "center", gap: 8, padding: "7px 8px 7px 13px" }}>
-          <span style={{ flex: 1, letterSpacing: 3, fontWeight: 800 }} aria-label="PIN oculto">••••</span>
-          <button onClick={() => setEdit(true)} style={{ ...S.smallBtn, flexShrink: 0 }}>Cambiar PIN</button>
-        </div>
-      )}
-      {esFabrica && !edit && <div style={{ fontSize: 12, color: "var(--amber)", marginTop: 5 }}>Es el PIN de fábrica ({fabrica}). Cámbialo antes del evento.</div>}
-    </Field>
-  );
-}
+/* ¿Algún rol sigue con el PIN de fábrica? (con huella nunca lo es) */
+const pinsDeFabrica = (ev) => !!ev.id && (estadoDe(ev, "admin").fabrica || estadoDe(ev, "supervisor").fabrica);
 const Field = ({ label, children }) => <div style={{ marginBottom: 12, flex: 1 }}><div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 5 }}>{label}</div>{children}</div>;
 const Empty = ({ msg }) => <div style={{ textAlign: "center", padding: 50, color: "var(--muted)", border: "2px dashed var(--line)", borderRadius: 16 }}>{msg}</div>;
 
