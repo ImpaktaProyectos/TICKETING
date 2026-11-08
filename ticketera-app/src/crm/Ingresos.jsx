@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { money, r2, hoy, fechaCorta, parseImporte, useIsMobile, C, Icon, Tile, Avatar, Badge, Seg, Head, Sheet, Field, IconGrid, MoneyInput, Seccion, Grupo } from "./ui";
 import { GRUPOS, catInfo, grupoInfo, catsIngreso, TICKETERA_CAT } from "./categorias";
+import { DineroEntradas } from "./DineroEntradas";
 
 const METODOS = [{ k: "efectivo", t: "Efectivo", tm: "Efectivo", i: "cash" }, { k: "transferencia", t: "Transferencia", tm: "Transf.", i: "bank" }, { k: "bizum", t: "Bizum", tm: "Bizum", i: "phone" }, { k: "tarjeta", t: "Tarjeta", tm: "Tarjeta", i: "card" }, { k: "otro", t: "Otro", tm: "Otro", i: "dots" }];
 const metodo = (k) => METODOS.find(m => m.k === k) || METODOS[4];
@@ -11,14 +12,12 @@ const FUENTES_PUNTO = [["barra", "Barra"], ["entradas", "Entradas"], ["merch", "
 const haceTxt = (iso) => { if (!iso) return "nunca"; const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000); return m < 1 ? "ahora mismo" : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : new Date(iso).toLocaleDateString("es-ES", { day: "2-digit", month: "short" }); };
 export const esExterno = (i) => i.origen === "api" || i.origen === "csv" || i.origen === "tixfast";   // tixfast = venta online propia
 
-export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById, conexion, vinculo, sincronizando, onNuevo, onEditar, onFuente, onEntregar, onSync, onImportar, onAjustes }) {
+export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById, conexion, vinculo, sincronizando, onNuevo, onEditar, onFuente, onEntregar, onSync, onImportar, onAjustes, onVentaEntradas }) {
   const isMobile = useIsMobile();
   const [filtro, setFiltro] = useState("todos");
   const [cat, setCat] = useState("");
   const externos = todos.filter(esExterno);
-  const ingresos = todos.filter(i => !esExterno(i));
-  const totalExt = r2(externos.reduce((t, i) => t + i.importe, 0));
-  const udsExt = externos.reduce((t, i) => t + (i.unidades || 0), 0);
+  const ingresos = todos.filter(i => !esExterno(i) && catInfo(i.categoria).g !== "entradas");   // lo de entradas va en su propio bloque
   const cats = Array.from(new Set(ingresos.map(i => i.categoria)));
   const lista = ingresos.filter(i => (filtro === "todos" ? true : filtro === "socios" ? (i.cobradoPor && !i.entregado) : i.estado === "pendiente") && (!cat || i.categoria === cat));
   const grupos = GRUPOS.map(g => ({ ...g, v: T.porGrupo[g.k] || 0 }));
@@ -49,13 +48,24 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
           <Stat i="pos" t="TPV en directo" v={money(T.tpv)} />
-          {T.ticketera > 0 && <Stat i="globe" t="Ticketera online" v={money(T.ticketera)} />}
           <Stat i="edit" t="Apuntado a mano" v={money(T.manual)} />
           {T.pendiente > 0 && <Stat i="clock" t="Pendiente de cobrar" v={money(T.pendiente)} c="var(--amber)" />}
           {F?.comisionTotal > 0 && <Stat i="percent" t="Comisiones" v={"−" + money(F.comisionTotal)} c="var(--rose)" />}
           {F?.iva?.activo && <Stat i="bank" t="IVA incluido en ventas" v={money(F.iva.repercutido)} />}
         </div>
       </section>
+
+      {/* ===== Dinero de entradas (todas las ticketeras, venta en mano y taquilla) ===== */}
+      <div id="ing-online">
+        <DineroEntradas ingresos={todos} barras={barras} onAnadir={() => onVentaEntradas({})} onEditar={(i) => (i.canal ? onVentaEntradas(i) : onEditar(i))}
+          acciones={<>
+            {vinculo && conexion
+              ? <button disabled={sincronizando} onClick={onSync} style={{ ...C.btnGhost, opacity: sincronizando ? .6 : 1 }} title={`Fourvenues · actualizado ${haceTxt(vinculo.ultimaSync)}`}><Icon n="refresh" s={16} w={2.2} />{sincronizando ? "Sincronizando…" : "Fourvenues"}</button>
+              : <button onClick={onAjustes} style={C.btnGhost}><Icon n="link" s={16} w={2.2} />Conectar Fourvenues</button>}
+            <button onClick={onImportar} style={C.btnGhost}><Icon n="upload" s={16} />CSV</button>
+          </>} />
+        {vinculo?.error && <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--amber)", fontWeight: 700, fontSize: 13, marginTop: 8 }}><Icon n="alert" s={16} />Fourvenues: {vinculo.error}</div>}
+      </div>
 
       {/* ===== Dinero en manos de socios ===== */}
       {enSocios.length > 0 && (
@@ -93,34 +103,8 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
           </div>); })}
       </Seccion>
 
-      {/* ===== Ticketera online ===== */}
-      <Seccion id="ing-online" i="globe" c="#a855f7" t="Ticketera online"
-          sub={vinculo ? `Fourvenues · ${vinculo.extNombre || vinculo.extId} · actualizado ${haceTxt(vinculo.ultimaSync)}` : "Las entradas vendidas online entran solas o desde un CSV."}
-          total={money(totalExt)}>
-        {vinculo?.error && <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--amber)", fontWeight: 700, fontSize: 13, marginBottom: 10 }}><Icon n="alert" s={16} />{vinculo.error}</div>}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: externos.length ? 6 : 0 }}>
-          {vinculo && conexion
-            ? <button disabled={sincronizando} onClick={onSync} style={{ ...C.btnPrimary, opacity: sincronizando ? .6 : 1 }}><Icon n="refresh" s={16} w={2.2} />{sincronizando ? "Sincronizando…" : "Sincronizar ahora"}</button>
-            : <button onClick={onAjustes} style={C.btnPrimary}><Icon n="link" s={16} w={2.2} />Conectar Fourvenues</button>}
-          <button onClick={onImportar} style={C.btnGhost}><Icon n="upload" s={16} />Importar CSV</button>
-        </div>
-        {externos.map(i => (
-          <div key={i.id} style={{ ...C.listBtn, cursor: "default" }}>
-            <Tile n="ticket" c="#a855f7" />
-            <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: "block", fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.concepto}</span>
-              <span style={{ fontSize: 12, color: "var(--muted)" }}>{i.unidades != null ? `${i.unidades} entradas · ` : ""}{i.origen === "tixfast" ? "venta online TIXFAST · al momento" : i.origen === "api" ? "sincronizado" : "importado de CSV"}</span>
-            </span>
-            <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
-              <b style={{ fontSize: 16 }}>{money(i.importe)}</b>
-              <Badge c="#a855f7"><Icon n="lock" s={11} w={2.2} />{i.origen === "tixfast" ? "TIXFAST" : i.origen === "api" ? "Automático" : "CSV"}</Badge>
-            </span>
-          </div>))}
-        {externos.length > 0 && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>{udsExt} entradas. Importe sin gastos de gestión ni devoluciones.</div>}
-      </Seccion>
-
       {/* ===== Otros ingresos (agrupados por categoría, cada una plegable) ===== */}
-      <Seccion id="ing-otros" i="edit" t="Otros ingresos" sub="Entradas anticipadas, patrocinios, merch, subvenciones…"
+      <Seccion id="ing-otros" i="edit" t="Otros ingresos" sub="Patrocinios, merch, guardarropa, subvenciones…"
           total={money(ingresos.reduce((t, i) => t + i.importe, 0))}
           acciones={<button onClick={onNuevo} style={{ ...C.btnPrimary, ...(isMobile ? { width: "100%" } : {}) }}><Icon n="plus" s={17} w={2.4} />Añadir ingreso</button>}>
         {ingresos.length > 0 && (
@@ -129,7 +113,7 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
             {cats.length > 1 && <select value={cat} onChange={e => setCat(e.target.value)} style={C.miniSelect} aria-label="Categoría"><option value="">Todas las categorías</option>{cats.map(c => <option key={c} value={c}>{c}</option>)}</select>}
           </div>
         )}
-        {ingresos.length === 0 && <Vacio i="wallet" t="Aún no hay ingresos apuntados a mano." sub="Por ejemplo, las entradas que ha vendido un socio o un patrocinio." />}
+        {ingresos.length === 0 && <Vacio i="wallet" t="Aún no hay otros ingresos apuntados." sub="Por ejemplo, un patrocinio o el guardarropa. Las entradas van en su bloque de arriba." />}
         {ingresos.length > 0 && lista.length === 0 && <Vacio i="filter" t="Nada con este filtro." />}
         {Array.from(new Set(lista.map(i => i.categoria))).map(k => { const del = lista.filter(i => i.categoria === k), ck = catInfo(k); return (
           <Grupo key={k} id={"ing-cat-" + k} i={ck.i} c={ck.c} t={k} n={del.length} total={money(del.reduce((t, i) => t + i.importe, 0))}>
@@ -176,6 +160,7 @@ export function IngresoForm({ ingreso, socios, usadas, busy, onClose, onSave, on
     id: ingreso.id, importe: ingreso.importe ? String(ingreso.importe).replace(".", ",") : "", categoria: ingreso.categoria || (catsIngreso(true)[0]?.k || "Entradas anticipadas"),
     concepto: ingreso.concepto || "", cobradoPor: ingreso.cobradoPor || null, entregado: !!ingreso.entregado, estado: ingreso.estado || "cobrado",
     metodo: ingreso.metodo || "efectivo", fecha: ingreso.fecha || hoy(), nota: ingreso.nota || "",
+    unidades: ingreso.unidades != null ? String(ingreso.unidades) : "",
   }));
   const [otra, setOtra] = useState(false);
   const [otraCat, setOtraCat] = useState("");
@@ -187,7 +172,8 @@ export function IngresoForm({ ingreso, socios, usadas, busy, onClose, onSave, on
   const items = [...visibles.map(c => ({ k: c.k, i: c.i, c: c.c })), ...extra.map(k => { const c = catInfo(k); return { k, i: c.i, c: c.c }; }), { k: "__otra", t: "Nueva…", i: "plus", c: "var(--muted)" }];
   const catFinal = otra ? otraCat.trim() : f.categoria;
   const ok = imp > 0 && !!catFinal;
-  const guardar = () => { if (!ok || busy) return; onSave({ ...f, importe: imp, categoria: catFinal }); };
+  const esEntradas = catInfo(catFinal).g === "entradas";
+  const guardar = () => { if (!ok || busy) return; const { unidades, ...resto } = f; onSave({ ...resto, importe: imp, categoria: catFinal, ...(esEntradas ? { unidades: unidades === "" ? null : Number(unidades) } : {}) }); };
   return (
     <Sheet title={nuevo ? "Nuevo ingreso" : "Editar ingreso"} onClose={onClose}
       footer={<div style={{ display: "flex", gap: 8 }}>
@@ -201,6 +187,7 @@ export function IngresoForm({ ingreso, socios, usadas, busy, onClose, onSave, on
         <IconGrid items={items} valor={otra ? "__otra" : f.categoria} onChange={(k) => { if (k === "__otra") setOtra(true); else { setOtra(false); set({ categoria: k }); } }} />
         {otra && <input autoFocus value={otraCat} maxLength={60} onChange={e => setOtraCat(e.target.value)} placeholder="Nombre de la categoría nueva" style={{ ...C.input, marginTop: 8 }} />}
       </Field>
+      {esEntradas && <Field l="Nº de entradas (opcional)"><input inputMode="numeric" value={f.unidades} onChange={e => set({ unidades: e.target.value.replace(/\D/g, "").slice(0, 7) })} placeholder="Ej. 20" style={C.input} /></Field>}
       <Field l="Concepto (opcional)"><input value={f.concepto} maxLength={160} onChange={e => set({ concepto: e.target.value })} placeholder="Ej.: 20 entradas anticipadas" style={C.input} /></Field>
       <Field l="¿Quién tiene el dinero?">
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>

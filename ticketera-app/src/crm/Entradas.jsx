@@ -8,6 +8,7 @@ import { money, useIsMobile, C, Icon, Tile, Badge, Seg, Sheet, Field, Seccion } 
 import { Landing, PLANTILLAS_WEB } from "../web/Publico.jsx";
 import { Organizaciones } from "./Organizaciones.jsx";
 import { ResumenVentas, Clientes } from "./Clientes.jsx";
+import { DineroEntradas } from "./DineroEntradas.jsx";
 
 const urlVenta = (slug) => `${window.location.origin}/e/${slug}`;
 const ESTADOS = { borrador: { t: "Borrador", c: "var(--muted)" }, publicado: { t: "A la venta", c: "var(--green)" }, cerrado: { t: "Venta cerrada", c: "var(--red)" } };
@@ -147,7 +148,7 @@ export function Entradas(props) {
     </div>
   );
 }
-function EntradasEventos({ ev, events, onSelectEvent, flash }) {
+function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, onVentaEntradas, onEditarIngreso }) {
   const isMobile = useIsMobile();
   const [lista, setLista] = useState(null);        // { eventoId: resumen de su venta online }
   const [d, setD] = useState(null);                // { ficha, tramos } del evento elegido
@@ -189,6 +190,14 @@ function EntradasEventos({ ev, events, onSelectEvent, flash }) {
         </button>
         <button onClick={() => setNuevo(true)} aria-label="Nuevo evento" style={{ ...C.btnPrimary, minHeight: 44, ...(isMobile ? { padding: "0 14px" } : {}) }}><Icon n="plus" s={16} w={2.4} />{isMobile ? "Nuevo" : "Nuevo evento"}</button>
       </div>
+
+      {/* ===== El dinero de entradas de todos los canales, siempre arriba ===== */}
+      {!verClientes && ingresos && (
+        <DineroEntradas ingresos={ingresos} barras={barras} titulo="Dinero de entradas · todos los canales"
+          onAnadir={onVentaEntradas ? () => onVentaEntradas({}) : null}
+          onEditar={(i) => (i.canal ? onVentaEntradas?.(i) : onEditarIngreso?.(i))}
+          onClientes={d?.ficha ? () => { setVerClientes(true); window.scrollTo({ top: 0, behavior: "smooth" }); } : null} />
+      )}
 
       {cargando ? <div style={{ ...C.panel, color: "var(--muted)", textAlign: "center" }}>Cargando…</div>
         : d?.error ? <div style={{ ...C.panel, color: "var(--amber)", fontWeight: 700 }}>No se ha podido cargar la venta online. Revisa la conexión.</div>

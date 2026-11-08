@@ -11,7 +11,7 @@ const partFrom = (p) => ({ id: p.id, eventoId: p.evento_id, socioId: p.socio_id,
 const ingresoFrom = (i) => ({
   id: i.id, eventoId: i.evento_id, categoria: i.categoria, concepto: i.concepto || "", importe: n(i.importe),
   fecha: i.fecha, metodo: i.metodo, estado: i.estado, cobradoPor: i.cobrado_por || null, entregado: !!i.entregado,
-  origen: i.origen, refExterna: i.ref_externa || null, unidades: i.unidades != null ? Number(i.unidades) : null, nota: i.nota || "", creadoEn: i.creado_en,
+  origen: i.origen, refExterna: i.ref_externa || null, unidades: i.unidades != null ? Number(i.unidades) : null, canal: i.canal || null, nota: i.nota || "", creadoEn: i.creado_en,
 });
 
 const gastoFrom = (g) => ({
@@ -85,6 +85,9 @@ const ingresoTo = (x) => ({
   cobrado_por: x.cobradoPor || null,
   entregado: x.cobradoPor ? !!x.entregado : false,
   nota: String(x.nota || "").trim().slice(0, 500) || null,
+  // ventas de entradas por otro canal: cuántas y por dónde
+  ...("unidades" in x ? { unidades: x.unidades != null && x.unidades !== "" && Number(x.unidades) >= 0 ? Math.min(10000000, Math.round(Number(x.unidades))) : null } : {}),
+  ...("canal" in x ? { canal: String(x.canal || "").trim().slice(0, 60) || null } : {}),
   actualizado_en: new Date().toISOString(),
 });
 export async function saveIngreso(x) {

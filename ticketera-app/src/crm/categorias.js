@@ -12,9 +12,11 @@ export const GRUPOS = [
 export const grupoInfo = (k) => GRUPOS.find(g => g.k === k) || GRUPOS[4];
 
 export const TICKETERA_CAT = "Ticketera online";
+export const OTRAS_CAT = "Otras ticketeras";   // ventas de entradas apuntadas a mano (con nº de entradas y canal)
 export const CATS_ING = [
   { k: "Entradas anticipadas", g: "entradas", i: "ticket" },
   { k: TICKETERA_CAT, g: "entradas", i: "globe" },
+  { k: "Otras ticketeras", g: "entradas", i: "ticket" },
   { k: "Merchandising", g: "merch", i: "shirt" },
   { k: "Patrocinio", g: "patrocinio", i: "award" },
   { k: "Subvención", g: "otros", i: "building" },

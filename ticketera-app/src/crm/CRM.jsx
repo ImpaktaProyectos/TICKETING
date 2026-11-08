@@ -10,6 +10,7 @@ import { GRUPOS, catInfo, fuenteAuto, setCategorias, TICKETERA_CAT } from "./cat
 import { fiscalEvento } from "./fiscal";
 import { Dashboard } from "./Dashboard";
 import { Ingresos, IngresoForm, esExterno } from "./Ingresos";
+import { VentaEntradasForm } from "./DineroEntradas";
 import { Ajustes, ImportarCSV } from "./Ajustes";
 import { Prevision } from "./Prevision";
 import { Entradas } from "./Entradas";
@@ -23,6 +24,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
   const [data, setData] = useState(null);      // { socios, participacion, ingresos, fuentes }
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [editVenta, setEditVenta] = useState(null);
   const [editIng, setEditIng] = useState(null); // ingreso en edición (o {} para nuevo)
   const [ajSeccion, setAjSeccion] = useState("conexiones");
   const [volverA, setVolverA] = useState("dashboard");
@@ -142,7 +144,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
             <Ingresos ev={ev} T={T} F={F} barras={barras} ingresos={ingresos} socios={socios} socioById={socioById} isMobile={isMobile}
               conexion={data.conexion} vinculo={vinculo} sincronizando={sincronizando}
               onSync={() => sincronizar(ev.id)} onImportar={() => setImportar(true)} onAjustes={() => abrirAjustes("conexiones")}
-              onNuevo={() => setEditIng({})} onEditar={(i) => setEditIng(i)}
+              onNuevo={() => setEditIng({})} onEditar={(i) => setEditIng(i)} onVentaEntradas={(i) => setEditVenta(i)}
               onFuente={(pid, f) => run(() => crm.setFuentePunto(pid, f), "Tipo de ingreso actualizado")}
               onEntregar={(socioId) => run(() => crm.setEntregado(ingresos.filter(i => i.cobradoPor === socioId && !i.entregado && i.estado === "cobrado").map(i => i.id), true), "Marcado como entregado")} />
           )}
@@ -153,7 +155,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
               onCopiar={(desde) => run(async () => { const nn = await crm.copiarPresupuesto(desde.id, ev.id); if (!nn) throw new Error("vacío"); }, `Presupuesto de ${desde.name} copiado`)} />
           )}
           {data && tab === "entradas" && (
-            <Entradas ev={ev} events={events} onSelectEvent={onSelectEvent} flash={flash} />
+            <Entradas ev={ev} events={events} onSelectEvent={onSelectEvent} flash={flash} ingresos={ingresos} barras={barras} onVentaEntradas={(i) => setEditVenta(i)} onEditarIngreso={(i) => setEditIng(i)} />
           )}
           {data && tab === "prevision" && (
             <Prevision ev={ev} events={events} ingresos={ingresos} gastos={data.gastos} G={G} F={F} ajustes={data.ajustes || {}}
@@ -202,6 +204,10 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
 
       {importar && <ImportarCSV ev={ev} busy={busy} onClose={() => setImportar(false)}
         onImportar={async (ticketera, grupos) => { const ok = await run(() => crm.importarCSV(ev.id, ticketera, TICKETERA_CAT, grupos), `Importadas las ventas de ${ticketera}`); if (ok) setImportar(false); }} />}
+      {editVenta && <VentaEntradasForm ingreso={editVenta} socios={socios.filter(s => s.activo || s.id === editVenta.cobradoPor)} busy={busy}
+        onClose={() => setEditVenta(null)}
+        onSave={async (x) => { const ok = await run(() => crm.saveIngreso({ ...x, eventoId: ev.id }), x.id ? "Ventas actualizadas" : `${x.unidades} entradas añadidas`); if (ok) setEditVenta(null); }}
+        onDelete={async (x) => { const ok = await run(() => crm.deleteIngreso(x.id), "Ventas borradas"); if (ok) setEditVenta(null); }} />}
       {editIng && <IngresoForm ev={ev} ingreso={editIng} socios={socios.filter(s => s.activo || s.id === editIng.cobradoPor)} usadas={ingresos.map(i => i.categoria)} busy={busy}
         onClose={() => setEditIng(null)}
         onSave={async (x) => { const ok = await run(() => crm.saveIngreso({ ...x, eventoId: ev.id }), x.id ? "Ingreso actualizado" : "Ingreso añadido"); if (ok) setEditIng(null); }}

@@ -28,7 +28,7 @@ export function ResumenVentas({ ev, onAbrir }) {
       style={{ ...C.hero, display: "block", width: "100%", textAlign: "left", cursor: "pointer", color: "var(--text)", font: "inherit", padding: isMobile ? 16 : 22, position: "relative", overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 14, flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 220px", minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1.4, textTransform: "uppercase", color: "var(--muted)" }}>Entradas vendidas</div>
+          <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1.4, textTransform: "uppercase", color: "var(--muted)" }}>Vendidas en TIXFAST online</div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginTop: 2 }}>
             <span style={{ fontSize: isMobile ? 44 : 56, fontWeight: 900, letterSpacing: "-.03em", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{r ? n0(r.entradas) : "—"}</span>
             {aforo ? <span style={{ fontSize: 18, fontWeight: 800, color: "var(--muted)" }}>de {n0(aforo)}</span> : null}
