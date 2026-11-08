@@ -27,7 +27,7 @@ class ErrorBoundary extends React.Component {
 }
 
 // Páginas públicas de venta (/e/<evento>) y de entradas (/mis-entradas/<acceso>): sin sesión ni TPV
-const PUBLICA = /^\/(e|mis-entradas)\//.test(window.location.pathname);
+const PUBLICA = /^\/(e|o|mis-entradas|compra)\//.test(window.location.pathname);
 const Publico = React.lazy(() => import("./web/Publico.jsx"));
 
 ReactDOM.createRoot(document.getElementById("root")).render(

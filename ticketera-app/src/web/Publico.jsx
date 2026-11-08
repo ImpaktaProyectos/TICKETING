@@ -3,55 +3,30 @@
 // /mis-entradas/<acceso> → las entradas del comprador con su QR y el PDF
 // No necesita sesión. Solo habla con las funciones públicas del servidor (nunca con las tablas).
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { supabase } from "../supabase";
 import QrCodigo from "../qr/QrCodigo";
-import { base32, hexToBytes, QR_PREFIJO } from "../qr/token";
-
-const money = (v) => { const n = Number(v) || 0; return n === 0 ? "Gratis" : n.toLocaleString("es-ES", { style: "currency", currency: "EUR" }); };
-const eur = (v) => (Number(v) || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
-const fecha = (v, conHora = true) => { if (!v) return ""; const d = new Date(String(v).length <= 10 ? v + "T12:00" : v); if (isNaN(d)) return ""; return d.toLocaleString("es-ES", { weekday: "long", day: "numeric", month: "long", ...(conHora && String(v).length > 10 ? { hour: "2-digit", minute: "2-digit" } : {}) }); };
-const hora = (v) => { if (!v) return ""; const d = new Date(v); return isNaN(d) ? "" : d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }); };
-export const textoQR = (hex) => (hex ? QR_PREFIJO + base32(hexToBytes(hex)) : "");
-const tintaSobre = (hex) => { const m = /^#?([0-9a-f]{6})$/i.exec(hex || ""); if (!m) return "#fff"; const n = parseInt(m[1], 16); const c = [n >> 16, (n >> 8) & 255, n & 255].map(v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); }); const L = .2126 * c[0] + .7152 * c[1] + .0722 * c[2]; return 1.05 / (L + .05) >= 3 ? "#fff" : "#111"; };
-const LETRA = { inter: "Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", serif: "Georgia,'Times New Roman',serif", mono: "'Roboto Mono',ui-monospace,monospace" };
-const MIS = "tixfast_mis_pedidos";
-
-function tema(diseno) {
-  const d = { color: "#ff5a3c", fondo: "oscuro", fondoFlyer: true, letra: "inter", ...(diseno || {}) };
-  const osc = d.fondo !== "claro";
-  return {
-    d, osc, letra: LETRA[d.letra] || LETRA.inter, tinta: tintaSobre(d.color),
-    vars: osc
-      ? { "--bg": "#08090d", "--card": "rgba(22,24,32,.86)", "--card2": "#1d2029", "--text": "#f3f4f8", "--muted": "#a1a7b8", "--line": "rgba(255,255,255,.1)", "--c": d.color }
-      : { "--bg": "#f6f6f8", "--card": "rgba(255,255,255,.92)", "--card2": "#f1f2f5", "--text": "#15171a", "--muted": "#666c76", "--line": "#e3e5e9", "--c": d.color },
-  };
-}
+import { textoQR, money, eur, fecha, hora, tema, Mensaje, MIS, cap, reducido, Diapositivas, Galeria, card, btn, Chip, Aviso, Linea, Tramo, CuentaAtras, CAMPOS, ERRORES, lbl, inpP, Campo, Check, CSS_PUB } from "./comun";
+export { textoQR } from "./comun";
+import { useCarrito, BarraCarrito, HojaCarrito, ElegirEntradas, CompraVarios } from "./Carrito";
+import PaginaOrganizacion, { MasFiestas } from "./Microsite";
 
 export default function Publico() {
-  const m = window.location.pathname.match(/^\/(e|mis-entradas)\/([^/?#]+)/);
+  const m = window.location.pathname.match(/^\/(e|o|mis-entradas|compra)\/([^/?#]+)/);
   if (!m) return <Mensaje titulo="Página no encontrada" />;
-  return m[1] === "e" ? <PaginaEvento slug={decodeURIComponent(m[2]).toLowerCase()} /> : <MisEntradas acceso={m[2]} />;
-}
-
-function Mensaje({ titulo, texto, children }) {
-  return (
-    <div style={{ minHeight: "100dvh", display: "grid", placeItems: "center", background: "#08090d", color: "#f3f4f8", fontFamily: LETRA.inter, padding: 24, textAlign: "center" }}>
-      <div style={{ maxWidth: 420 }}>
-        <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width="52" height="52" style={{ display: "block", margin: "0 auto 14px" }} />
-        <div style={{ fontWeight: 900, fontSize: 22 }}>{titulo}</div>
-        {texto && <div style={{ color: "#a1a7b8", marginTop: 8, lineHeight: 1.5 }}>{texto}</div>}
-        {children}
-      </div>
-    </div>
-  );
+  const v = decodeURIComponent(m[2]);
+  if (m[1] === "e") return <PaginaEvento slug={v.toLowerCase()} />;
+  if (m[1] === "o") return <PaginaOrganizacion slug={v.toLowerCase()} />;
+  if (m[1] === "compra") return <MisCompra acceso={v} />;
+  return <MisEntradas acceso={v} />;
 }
 
 /* ===================== Página del evento ===================== */
 function PaginaEvento({ slug }) {
   const [ev, setEv] = useState(undefined);       // undefined = cargando · null = no existe
   const [error, setError] = useState(false);
+  const [org, setOrg] = useState(null);          // organización del evento (microsite y carrito)
   const offset = useRef(0);                      // diferencia reloj servidor - móvil
+  useEffect(() => { supabase.rpc("web_evento_organizacion", { p_slug: slug }).then(({ data }) => setOrg(data || null)).catch(() => {}); }, [slug]);
 
   const cargar = async () => {
     try {
@@ -67,7 +42,7 @@ function PaginaEvento({ slug }) {
   if (ev === undefined && !error) return <Mensaje titulo="Cargando…" />;
   if (error && !ev) return <Mensaje titulo="No se ha podido cargar" texto="Revisa tu conexión e inténtalo de nuevo."><button onClick={cargar} style={btn("#ff5a3c", "#fff")}>Reintentar</button></Mensaje>;
   if (!ev) return <Mensaje titulo="Este evento no está disponible" texto="Puede que el enlace no sea correcto o que la venta aún no esté publicada." />;
-  return <Landing ev={ev} offset={offset.current} onRecargar={cargar} />;
+  return <Landing ev={ev} org={org} offset={offset.current} onRecargar={cargar} />;
 }
 
 /* Plantillas de la página (se eligen en CRM › Entradas › Diseño) */
@@ -79,9 +54,13 @@ export const PLANTILLAS_WEB = [
 ];
 
 // La página completa a partir de los datos del evento. «previa»: dentro del CRM (sin compras ni lecturas del móvil)
-export function Landing({ ev, offset = 0, onRecargar = () => {}, previa = false }) {
-  const [cant, setCant] = useState({});          // { tramoId: n }
-  const [paso, setPaso] = useState("elegir");    // elegir | datos
+export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, previa = false }) {
+  const [cantLocal, setCant] = useState({});     // { tramoId: n } (evento sin organización)
+  const [paso, setPaso] = useState("elegir");    // elegir | datos | varios
+  const [hoja, setHoja] = useState(null);        // null | "carrito" | { evento }
+  // Con organización, las entradas van a su carrito (compartido con su microsite y sus otros eventos)
+  const carrito = useCarrito(org && !previa ? org.slug : null);
+  const conCarrito = !!(org && !previa);
   const [entradasVisibles, setEntradasVisibles] = useState(false);
   const raiz = useRef(null);
   const T = tema(ev.diseno);
@@ -90,6 +69,8 @@ export function Landing({ ev, offset = 0, onRecargar = () => {}, previa = false 
   const lanzamiento = ev.venta_inicio && new Date(ev.venta_inicio).getTime() > ahora;
   const tramos = ev.tramos || [];
   const enVenta = tramos.filter(t => t.estado === "venta");
+  const cant = conCarrito ? Object.fromEntries(tramos.map(t => [t.id, carrito.de(ev.slug, t.id)])) : cantLocal;
+  const ponerN = (t, n) => conCarrito ? carrito.poner(ev, t, n) : setCant(c => ({ ...c, [t.id]: n }));
   const total = tramos.reduce((s, t) => s + (cant[t.id] || 0) * Number(t.precio), 0);
   const nEnt = Object.values(cant).reduce((s, n) => s + n, 0);
   const cerrado = ev.estado === "cerrado" || (ev.fin && new Date(ev.fin).getTime() < ahora);
@@ -142,15 +123,17 @@ export function Landing({ ev, offset = 0, onRecargar = () => {}, previa = false 
           <h2 style={{ fontSize: 24, margin: "0 0 12px", fontWeight: 900 }}>Entradas</h2>
           {tramos.length === 0 && <div style={card}>Aún no hay entradas a la venta.</div>}
           {tramos.map((t, i) => <Tramo key={t.id} t={t} sig={tramos.slice(i + 1).find(x => x.estado === "proximo")} avisos={ev.avisos || {}} n={cant[t.id] || 0} T={T}
-            onN={(n) => setCant(c => ({ ...c, [t.id]: n }))} />)}
+            onN={(n) => ponerN(t, n)} />)}
           {enVenta.length === 0 && tramos.length > 0 && <div style={{ ...card, marginTop: 8, fontWeight: 700 }}>Ahora mismo no hay entradas a la venta.</div>}
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", justifyContent: "center", fontSize: 12.5, color: "var(--muted)", fontWeight: 700, marginTop: 6 }}>
             <span>✓ Entrada nominativa con QR</span><span>✓ Al momento en tu móvil y tu correo</span>
           </div>
-        </>) : <Formulario ev={ev} tramos={tramos} cant={cant} total={total} T={T} onVolver={() => setPaso("elegir")} />}
+        </>) : paso === "varios" ? <CompraVarios org={org} carrito={carrito} T={T} onVolver={() => setPaso("elegir")} />
+        : <Formulario ev={ev} tramos={tramos} cant={cant} total={total} T={T} onVolver={() => setPaso("elegir")} onExito={() => conCarrito && carrito.quitarEvento(ev.slug)} />}
     </section>
   );
   const extras = <>
+    {org && !previa && <MasFiestas org={org} actual={ev.slug} T={T} carrito={carrito} onEntradas={(slug) => setHoja({ evento: slug })} />}
     {lineup.length > 0 && <section style={{ ...card, padding: 20 }}>
       <h2 style={{ fontSize: 13, margin: "0 0 12px", fontWeight: 900, letterSpacing: 2.4, textTransform: "uppercase", color: "var(--c)" }}>Line-up</h2>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 18px", alignItems: "baseline" }}>
@@ -166,7 +149,10 @@ export function Landing({ ev, offset = 0, onRecargar = () => {}, previa = false 
   </>;
   const cabecera = (sobreFoto) => (
     <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, color: sobreFoto ? "#fff" : "inherit" }}>
-      {ev.logo_url ? <img src={ev.logo_url} alt="" style={{ height: 40, maxWidth: 180, objectFit: "contain" }} /> : <span />}
+      {org && !previa ? <a href={`/o/${org.slug}`} style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "inherit", textDecoration: "none", fontWeight: 800, fontSize: 14, minWidth: 0 }}>
+          {org.logo_url ? <img src={org.logo_url} alt="" style={{ height: 34, maxWidth: 120, objectFit: "contain" }} /> : <span aria-hidden="true">←</span>}<span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{org.logo_url ? "" : org.nombre}</span>
+        </a>
+        : ev.logo_url ? <img src={ev.logo_url} alt="" style={{ height: 40, maxWidth: 180, objectFit: "contain" }} /> : <span />}
       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: sobreFoto ? "rgba(255,255,255,.8)" : "var(--muted)", fontWeight: 700 }}>Entradas con <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width="18" height="18" /></span>
     </header>
   );
@@ -175,7 +161,7 @@ export function Landing({ ev, offset = 0, onRecargar = () => {}, previa = false 
 
   // Al rellenar los datos, la página se centra solo en la compra
   let cuerpo;
-  if (paso === "datos") cuerpo = (
+  if (paso === "datos" || paso === "varios") cuerpo = (
     <div style={{ ...marco, maxWidth: 640, paddingTop: "max(14px, env(safe-area-inset-top))", ...pie }}>
       {cabecera(false)}{avisos}
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 6 }}>
@@ -263,7 +249,8 @@ export function Landing({ ev, offset = 0, onRecargar = () => {}, previa = false 
       <div className="pub-cont" style={{ position: "relative", zIndex: 1 }}>{cuerpo}</div>
 
       {/* Barra fija: total y continuar, o el botón de comprar mientras las entradas no se ven */}
-      {abierta && paso === "elegir" && (nEnt > 0 ? (
+      {conCarrito && paso === "elegir" && carrito.n > 0 ? <BarraCarrito carrito={carrito} T={T} onAbrir={() => setHoja("carrito")} />
+      : abierta && paso === "elegir" && (nEnt > 0 ? (
         <div className="pub-barra" style={previa ? barraPrevia : null}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, color: "var(--muted)", fontWeight: 700 }}>{nEnt} {nEnt === 1 ? "entrada" : "entradas"}</div>
@@ -280,146 +267,14 @@ export function Landing({ ev, offset = 0, onRecargar = () => {}, previa = false 
           <button onClick={irAEntradas} style={{ ...btn(T.d.color, T.tinta), padding: "16px 22px", fontSize: 17 }}>{textoBoton}</button>
         </div>
       ))}
+      {hoja === "carrito" && <HojaCarrito carrito={carrito} T={T} orgNombre={org?.nombre} onClose={() => setHoja(null)}
+        onContinuar={() => { setHoja(null); setPaso(carrito.eventos.length === 1 && carrito.eventos[0] === ev.slug ? "datos" : "varios"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
+      {hoja?.evento && <ElegirEntradas slug={hoja.evento} carrito={carrito} T={T} onClose={() => setHoja(null)} />}
     </div>
   );
 }
-const barraPrevia = { position: "sticky", left: 0, right: 0, bottom: 0, transform: "none", width: "auto", borderRadius: 0 };
-const cap = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
-const reducido = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-
-/* ---------- Fondo de fotos a pantalla completa (fundido y zoom lento) ---------- */
-function Diapositivas({ fotos, color }) {
-  const [i, setI] = useState(0);
-  useEffect(() => { if (fotos.length < 2 || reducido()) return; const t = setInterval(() => setI(x => (x + 1) % fotos.length), 5000); return () => clearInterval(t); }, [fotos.length]);
-  if (!fotos.length) return <div style={{ position: "absolute", inset: 0, background: `radial-gradient(120% 90% at 20% 10%, ${color}, #08090d 70%)` }} />;
-  return fotos.map((u, k) => (
-    <img key={u + k} src={u} alt="" aria-hidden="true" loading={k ? "lazy" : "eager"} className={k === i ? "pub-kb" : ""}
-      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: k === i ? 1 : 0, transition: "opacity 1.2s ease" }} />
-  ));
-}
-
-/* ---------- Galería que pasa sola (se puede deslizar y ampliar) ---------- */
-function Galeria({ fotos, alto = "clamp(220px, 46cqw, 420px)", grande }) {
-  const pista = useRef(null);
-  const [i, setI] = useState(0);
-  const [pausa, setPausa] = useState(false);
-  const [zoom, setZoom] = useState(null);
-  const ir = (k) => { const el = pista.current; if (!el) return; const n = (k + fotos.length) % fotos.length; el.scrollTo({ left: n * el.clientWidth, behavior: "smooth" }); };
-  useEffect(() => { if (fotos.length < 2 || pausa || reducido() || zoom != null) return; const t = setInterval(() => ir(i + 1), 4200); return () => clearInterval(t); }, [i, pausa, fotos.length, zoom]);
-  const alMover = () => { const el = pista.current; if (el) setI(Math.round(el.scrollLeft / Math.max(1, el.clientWidth))); };
-  const flecha = { position: "absolute", top: "50%", transform: "translateY(-50%)", width: 44, height: 44, borderRadius: 44, border: "none", background: "rgba(0,0,0,.45)", color: "#fff", fontSize: 22, cursor: "pointer", display: "grid", placeItems: "center", backdropFilter: "blur(6px)" };
-  return (
-    <section aria-label="Galería de fotos" style={{ position: "relative" }} onMouseEnter={() => setPausa(true)} onMouseLeave={() => setPausa(false)} onTouchStart={() => setPausa(true)}>
-      <div ref={pista} onScroll={alMover} className="pub-pista" style={{ height: alto, borderRadius: grande ? 24 : 20 }}>
-        {fotos.map((u, k) => (
-          <button key={u + k} onClick={() => setZoom(k)} aria-label={`Ampliar foto ${k + 1} de ${fotos.length}`} style={{ flex: "0 0 100%", height: "100%", scrollSnapAlign: "start", border: "none", padding: 0, cursor: "zoom-in", background: "#000" }}>
-            <img src={u} alt="" loading={k ? "lazy" : "eager"} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-          </button>))}
-      </div>
-      {fotos.length > 1 && <>
-        <button onClick={() => ir(i - 1)} aria-label="Foto anterior" className="pub-flecha" style={{ ...flecha, left: 12 }}>‹</button>
-        <button onClick={() => ir(i + 1)} aria-label="Foto siguiente" className="pub-flecha" style={{ ...flecha, right: 12 }}>›</button>
-        <div style={{ position: "absolute", left: 0, right: 0, bottom: 12, display: "flex", justifyContent: "center", gap: 6 }}>
-          {fotos.map((_, k) => <button key={k} onClick={() => ir(k)} aria-label={`Ir a la foto ${k + 1}`} style={{ width: k === i ? 22 : 8, height: 8, borderRadius: 8, border: "none", padding: 0, cursor: "pointer", background: k === i ? "#fff" : "rgba(255,255,255,.5)", transition: "width .25s" }} />)}
-        </div>
-      </>}
-      {zoom != null && createPortal(
-        <div role="dialog" aria-label="Foto ampliada" onClick={() => setZoom(null)} style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,.92)", display: "grid", placeItems: "center", padding: 16 }}>
-          <img src={fotos[zoom]} alt="" style={{ maxWidth: "100%", maxHeight: "86vh", objectFit: "contain", borderRadius: 12 }} />
-          <button onClick={(e) => { e.stopPropagation(); setZoom((zoom - 1 + fotos.length) % fotos.length); }} aria-label="Foto anterior" style={{ ...flecha, left: 12 }}>‹</button>
-          <button onClick={(e) => { e.stopPropagation(); setZoom((zoom + 1) % fotos.length); }} aria-label="Foto siguiente" style={{ ...flecha, right: 12 }}>›</button>
-          <button onClick={() => setZoom(null)} aria-label="Cerrar" style={{ ...flecha, top: 30, right: 14, transform: "none" }}>✕</button>
-        </div>, document.body)}
-    </section>
-  );
-}
-
-const card = { background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: 16, backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)" };
-const btn = (bg, color) => ({ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, background: bg, color, border: "none", borderRadius: 14, padding: "13px 20px", fontWeight: 900, fontSize: 16, cursor: "pointer", fontFamily: "inherit" });
-const Chip = ({ children }) => <span style={{ border: "1px solid var(--line)", background: "var(--card)", borderRadius: 30, padding: "7px 13px", fontSize: 14, fontWeight: 800 }}>{children}</span>;
-const Aviso = ({ c, children }) => <div role="status" style={{ background: c, color: "#1a1205", borderRadius: 12, padding: "10px 14px", fontWeight: 800, fontSize: 14, marginBottom: 14 }}>{children}</div>;
-const ICO = { cal: "M4 6h16v15H4zM4 10h16M8 3v4M16 3v4", pin: "M12 21s-7-6.5-7-12a7 7 0 0 1 14 0c0 5.5-7 12-7 12zM12 11.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z" };
-const Linea = ({ ico, children }) => (
-  <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--c)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }} aria-hidden="true"><path d={ICO[ico]} /></svg>
-    <span style={{ fontWeight: 600, lineHeight: 1.4, textTransform: "none" }}>{children}</span>
-  </div>
-);
-
-/* ---------- Un tramo ---------- */
-function Tramo({ t, sig, avisos, n, T, onN }) {
-  const venta = t.estado === "venta";
-  const max = Math.max(0, Math.min(t.max_por_compra || 10, t.quedan ?? 99));
-  const pctVend = t.cantidad ? Math.round((1 - (t.quedan ?? 0) / t.cantidad) * 100) : null;
-  const umbralN = parseInt(avisos.umbralN, 10);
-  const pocas = venta && avisos.activo !== false && t.cantidad && t.quedan != null && t.quedan > 0 &&
-    ((Number.isFinite(umbralN) && t.quedan <= umbralN) || t.quedan / t.cantidad * 100 <= (avisos.umbralPct ?? 15));
-  const etiqueta = t.estado === "agotado" ? "Agotado" : t.estado === "finalizado" ? "Finalizado" : t.estado === "proximo" ? (t.venta_inicio ? `Desde el ${fecha(t.venta_inicio)}` : "Próximamente") : null;
-  return (
-    <div style={{ ...card, marginBottom: 10, display: "flex", flexDirection: "column", gap: 10, opacity: venta ? 1 : .6, borderColor: n ? "var(--c)" : "var(--line)", boxShadow: n ? "0 0 0 1px var(--c)" : "none" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 900, fontSize: 18, textDecoration: t.estado === "agotado" ? "line-through" : "none" }}>{t.nombre}</div>
-          {t.descripcion && <div style={{ color: "var(--muted)", fontSize: 14, marginTop: 2 }}>{t.descripcion}</div>}
-          {t.copas > 0 && <div style={{ color: "var(--muted)", fontSize: 14, marginTop: 2 }}>Incluye {t.copas} {t.copas === 1 ? "copa" : "copas"}</div>}
-        </div>
-        <div style={{ fontWeight: 900, fontSize: 22, color: venta ? "var(--c)" : "var(--muted)", flexShrink: 0 }}>{money(t.precio)}</div>
-      </div>
-      {pocas && <div className="pub-pulso" style={{ alignSelf: "flex-start", background: "var(--c)", color: T.tinta, borderRadius: 30, padding: "5px 12px", fontWeight: 900, fontSize: 13 }}>
-        {Number.isFinite(umbralN) && t.quedan <= umbralN ? `¡Últimas ${t.quedan} entradas!` : "¡Quedan pocas!"}</div>}
-      {venta && avisos.mostrarVendido !== false && pctVend != null && pctVend >= 30 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, fontWeight: 800, color: "var(--muted)" }}>
-          <span style={{ flex: 1, height: 6, borderRadius: 6, background: "var(--card2)", overflow: "hidden" }}><span style={{ display: "block", height: "100%", width: `${pctVend}%`, background: "var(--c)" }} /></span>{pctVend} % vendido
-        </div>)}
-      {venta && avisos.siguientePrecio !== false && sig && Number(sig.precio) > Number(t.precio) && <div style={{ fontSize: 13, color: "var(--muted)", fontWeight: 700 }}>Después sube a {eur(sig.precio)}</div>}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        {etiqueta ? <span style={{ fontWeight: 900, color: "var(--muted)" }}>{etiqueta}</span> : <span style={{ fontSize: 13, color: "var(--muted)" }}>Máx. {t.max_por_compra} por compra</span>}
-        {venta && <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <button aria-label={`Quitar una entrada ${t.nombre}`} disabled={n <= 0} onClick={() => onN(Math.max(0, n - 1))} style={{ ...stepBtn, opacity: n <= 0 ? .35 : 1 }}>−</button>
-          <span aria-live="polite" style={{ minWidth: 30, textAlign: "center", fontWeight: 900, fontSize: 20 }}>{n}</span>
-          <button aria-label={`Añadir una entrada ${t.nombre}`} disabled={n >= max} onClick={() => onN(Math.min(max, n + 1))} style={{ ...stepBtn, background: "var(--c)", color: T.tinta, borderColor: "var(--c)", opacity: n >= max ? .35 : 1 }}>+</button>
-        </div>}
-      </div>
-    </div>
-  );
-}
-const stepBtn = { width: 44, height: 44, borderRadius: 12, border: "1px solid var(--line)", background: "var(--card2)", color: "var(--text)", fontSize: 24, fontWeight: 800, cursor: "pointer", lineHeight: 1, fontFamily: "inherit" };
-
-/* ---------- Cuenta atrás de lanzamiento ---------- */
-function CuentaAtras({ hasta, offset, color, onFin }) {
-  const [ahora, setAhora] = useState(Date.now() + offset);
-  useEffect(() => { const t = setInterval(() => setAhora(Date.now() + offset), 250); return () => clearInterval(t); }, [offset]);
-  const ms = Math.max(0, new Date(hasta).getTime() - ahora);
-  useEffect(() => { if (ms === 0) { const t = setTimeout(onFin, 800); return () => clearTimeout(t); } }, [ms === 0]);
-  const s = Math.floor(ms / 1000), u = [[Math.floor(s / 86400), "días"], [Math.floor(s % 86400 / 3600), "horas"], [Math.floor(s % 3600 / 60), "min"], [s % 60, "seg"]];
-  return (
-    <section style={{ ...card, marginTop: 22, textAlign: "center", padding: "22px 14px" }}>
-      <div style={{ fontWeight: 900, letterSpacing: 2, textTransform: "uppercase", fontSize: 13, color: "var(--muted)" }}>La venta empieza en</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8, margin: "14px 0 10px" }}>
-        {u.map(([v, l]) => <div key={l} style={{ background: "var(--card2)", borderRadius: 14, padding: "12px 4px", border: "1px solid var(--line)" }}>
-          <div style={{ fontSize: "clamp(30px, 9cqw, 52px)", fontWeight: 900, color, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{String(v).padStart(2, "0")}</div>
-          <div style={{ fontSize: 12, fontWeight: 800, color: "var(--muted)", marginTop: 4 }}>{l}</div>
-        </div>)}
-      </div>
-      <div style={{ fontWeight: 700 }}>{fecha(hasta)}</div>
-    </section>
-  );
-}
-
 /* ---------- Datos y compra ---------- */
-const CAMPOS = [
-  { k: "telefono", t: "Teléfono", type: "tel", ac: "tel" }, { k: "dni", t: "DNI / NIE", ac: "off" }, { k: "nacimiento", t: "Fecha de nacimiento", type: "date", ac: "bday" },
-  { k: "cp", t: "Código postal", ac: "postal-code", im: "numeric" }, { k: "direccion", t: "Dirección", ac: "street-address" }, { k: "ciudad", t: "Ciudad", ac: "address-level2" },
-  { k: "genero", t: "Género", sel: ["Mujer", "Hombre", "No binario", "Prefiero no decirlo"] },
-];
-const ERRORES = {
-  email: "Revisa el correo.", nombre: "Escribe tu nombre completo.", condiciones: "Tienes que aceptar las condiciones.", edad: "Confirma la edad mínima.",
-  vacio: "Elige al menos una entrada.", cantidad: "Demasiadas entradas en una compra.", asistentes: "Falta el nombre de algún asistente.", nombre_asistente: "Escribe el nombre completo de cada asistente.",
-  limite_email: "Has llegado al máximo de entradas por persona para este evento.", tramo_proximo: "Ese tramo aún no está a la venta.", tramo_agotado: "Ese tramo se acaba de agotar.",
-  tramo_finalizado: "Ese tramo ya no está a la venta.", max_compra: "Superas el máximo por compra de un tramo.", sin_sitio: "No quedan tantas entradas en ese tramo.",
-  pago_no_disponible: "El pago online aún no está disponible para este evento.", demasiados_intentos: "Demasiados intentos seguidos. Espera unos minutos.", cerrado: "La venta está cerrada.", no_existe: "El evento ya no existe.",
-};
-function Formulario({ ev, tramos, cant, total, T, onVolver }) {
+function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
   const form = ev.formulario || {};
   const items = tramos.filter(t => cant[t.id] > 0);
   const plazas = items.flatMap(t => Array.from({ length: cant[t.id] }, (_, k) => ({ tramo: t.id, nombreTramo: t.nombre, k })));
@@ -455,6 +310,7 @@ function Formulario({ ev, tramos, cant, total, T, onVolver }) {
       if (error) throw error;
       if (!data?.ok) { const k = String(data?.motivo || ""); setErr((k.startsWith("falta_") ? `Falta: ${CAMPOS.find(f => f.k === k.slice(6))?.t || k.slice(6)}.` : ERRORES[k] || "No se ha podido completar la compra.") + (data?.tramo ? ` (${data.tramo})` : "")); setBusy(false); return; }
       try { const l = JSON.parse(localStorage.getItem(MIS) || "[]") || []; l.unshift({ slug: ev.slug, acceso: data.acceso, codigo: data.codigo, t: Date.now() }); localStorage.setItem(MIS, JSON.stringify(l.slice(0, 30))); } catch {}
+      try { onExito && onExito(); } catch {}
       window.location.assign(`/mis-entradas/${data.acceso}?nueva=1`);
     } catch { setErr(navigator.onLine ? "No se ha podido completar la compra. Inténtalo de nuevo." : "Sin conexión. Conéctate y vuelve a intentarlo."); setBusy(false); }
   };
@@ -505,17 +361,6 @@ function Formulario({ ev, tramos, cant, total, T, onVolver }) {
     </form>
   );
 }
-const lbl = { display: "flex", flexDirection: "column", gap: 6, marginBottom: 12, fontWeight: 800, fontSize: 14 };
-const inpP = { width: "100%", boxSizing: "border-box", background: "var(--card2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 12, padding: "13px 14px", fontSize: 16, fontFamily: "inherit", outline: "none" };
-const Campo = ({ l, v, on, type = "text", ac, im, sub }) => (
-  <label style={lbl}><span>{l}</span><input type={type} value={v} onChange={e => on(e.target.value)} autoComplete={ac} inputMode={im} style={inpP} />{sub && <span style={{ fontWeight: 600, fontSize: 12.5, color: "var(--muted)" }}>{sub}</span>}</label>
-);
-const Check = ({ v, on, children }) => (
-  <label style={{ display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer", lineHeight: 1.4, fontSize: 14.5 }}>
-    <input type="checkbox" checked={v} onChange={e => on(e.target.checked)} style={{ width: 22, height: 22, flexShrink: 0, accentColor: "var(--c)", marginTop: 1 }} /><span>{children}</span>
-  </label>
-);
-
 /* ===================== Mis entradas ===================== */
 function MisEntradas({ acceso }) {
   const [d, setD] = useState(undefined);
@@ -578,6 +423,18 @@ function MisEntradas({ acceso }) {
         {correo && correo !== "enviando" && <div role="status" style={{ ...card, marginBottom: 14, fontWeight: 700, fontSize: 14, borderColor: correo === "enviado" ? "#0f9d63" : "var(--line)" }}>
           {{ enviado: `Enviadas a ${p.email}. Si no las ves, mira en «Spam» o «Promociones».`, sin_correo: "El envío por correo aún no está activado. Descarga el PDF o guarda este enlace.", espera: "Acabamos de enviarlas: espera un par de minutos antes de pedirlo otra vez.", limite: "Ya se han enviado varias veces. Descarga el PDF o guarda este enlace." }[correo] || "No se ha podido enviar el correo. Descarga el PDF o guarda este enlace."}
         </div>}
+        <EntradasDePedido d={d} T={T} />
+        <div style={{ textAlign: "center", marginTop: 18 }}><a href={`/e/${ev.slug}`} style={{ color: "var(--muted)", fontWeight: 700 }}>Volver al evento</a></div>
+      </div>
+    </div>
+  );
+}
+
+// Las entradas de un pedido (un evento), con su QR. Se usa en «Mis entradas» y en la compra de varios eventos
+function EntradasDePedido({ d, T }) {
+  const ev = d.evento;
+  const desde = ev.inicio ? new Date(new Date(ev.inicio).getTime() - (ev.qr_horas_antes ?? 24) * 3600000) : null;
+  return (<>
         {d.entradas.map(x => (
           <div key={x.numero} style={{ ...card, marginBottom: 12, padding: 0, overflow: "hidden" }}>
             <div style={{ padding: "14px 16px", background: "linear-gradient(135deg, var(--c), color-mix(in srgb, var(--c) 55%, #000))", color: T.tinta }}>
@@ -600,30 +457,81 @@ function MisEntradas({ acceso }) {
           {ev.vestimenta ? <div><b>Vestimenta:</b> {ev.vestimenta}</div> : null}
           {ev.autorizacion_url ? <div style={{ marginTop: 6 }}>Menores de {ev.autorizacion_edad || 16}: <a href={ev.autorizacion_url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--c)", fontWeight: 800 }}>descarga la autorización</a>, rellénala y tráela impresa.</div> : null}
         </div>}
-        <div style={{ textAlign: "center", marginTop: 18 }}><a href={`/e/${ev.slug}`} style={{ color: "var(--muted)", fontWeight: 700 }}>Volver al evento</a></div>
+  </>);
+}
+
+/* ===================== Mis entradas de una compra de varios eventos ===================== */
+function MisCompra({ acceso }) {
+  const [d, setD] = useState(undefined);
+  const [pdf, setPdf] = useState(null);
+  const [correo, setCorreo] = useState("");
+  const nueva = new URLSearchParams(window.location.search).has("nueva");
+  const enviarCorreo = async (auto = false) => {
+    setCorreo("enviando");
+    try {
+      const { data } = await supabase.functions.invoke("web-enviar-entradas", { body: { compra: acceso, origen: window.location.origin } });
+      const m = data?.ok ? "enviado" : data?.motivo || "error";
+      setCorreo(auto && m !== "enviado" ? "" : m);
+    } catch { setCorreo(auto ? "" : "error"); }
+  };
+  useEffect(() => {
+    if (!nueva) return;
+    const k = "tixfast_correo_c_" + acceso;
+    try { if (sessionStorage.getItem(k)) return; sessionStorage.setItem(k, "1"); } catch {}
+    enviarCorreo(true);
+  }, [acceso]);
+  useEffect(() => {
+    if (!/^[0-9a-f-]{36}$/i.test(acceso)) { setD(null); return; }
+    supabase.rpc("web_compra", { p_acceso: acceso }).then(({ data, error }) => setD(error ? "error" : data || null));
+    document.title = "Mis entradas";
+  }, [acceso]);
+  if (d === undefined) return <Mensaje titulo="Cargando tus entradas…" />;
+  if (d === "error") return <Mensaje titulo="No se han podido cargar" texto="Revisa tu conexión y vuelve a abrir el enlace." />;
+  if (!d) return <Mensaje titulo="Enlace no válido" texto="Revisa que el enlace esté completo." />;
+  const c = d.compra, o = d.organizacion, pedidos = d.pedidos || [];
+  const T = tema(o?.diseno ? { color: o.diseno.color, fondo: o.diseno.fondo, letra: o.diseno.letra } : pedidos[0]?.evento?.diseno);
+  const n = pedidos.reduce((s, p) => s + (p.entradas || []).length, 0);
+  const descargar = async (p, i) => {
+    setPdf(i);
+    try { const { pdfEntradas } = await import("./pdfEntradas.js"); await pdfEntradas(p); }
+    catch (e) { console.error(e); alert("No se ha podido crear el PDF. Inténtalo de nuevo."); }
+    finally { setPdf(null); }
+  };
+  const copiar = async () => { try { await navigator.clipboard.writeText(window.location.href.split("?")[0]); alert("Enlace copiado"); } catch {} };
+  return (
+    <div style={{ ...T.vars, minHeight: "100dvh", background: "var(--bg)", color: "var(--text)", fontFamily: T.letra }}>
+      <style>{CSS_PUB}</style>
+      <div style={{ maxWidth: 560, margin: "0 auto", padding: "max(16px, env(safe-area-inset-top)) 16px calc(30px + env(safe-area-inset-bottom))" }}>
+        {o && <a href={`/o/${o.slug}`} style={{ display: "flex", alignItems: "center", gap: 10, color: "inherit", textDecoration: "none", marginBottom: 14, fontWeight: 900, fontSize: 18 }}>
+          {o.logo_url ? <img src={o.logo_url} alt={o.nombre} style={{ height: 36, maxWidth: 160, objectFit: "contain" }} /> : o.nombre}</a>}
+        {nueva && <div style={{ ...card, background: "#0f9d63", color: "#fff", border: "none", marginBottom: 14, textAlign: "center" }}>
+          <div style={{ fontSize: 26, fontWeight: 900 }}>¡Ya tienes tus entradas!</div>
+          <div style={{ marginTop: 4, opacity: .95 }}>Compra {c.codigo} · {n} {n === 1 ? "entrada" : "entradas"}{pedidos.length > 1 ? ` para ${pedidos.length} eventos` : ""}. Guarda esta página.</div>
+        </div>}
+        {c.prueba && <Aviso c="#ffb400">Entradas de PRUEBA: no son válidas para entrar.</Aviso>}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+          <button onClick={copiar} style={{ ...btn("var(--card2)", "var(--text)"), flex: "1 1 140px", border: "1px solid var(--line)" }}>Copiar enlace</button>
+          <button onClick={() => enviarCorreo(false)} disabled={correo === "enviando"} style={{ ...btn("var(--card2)", "var(--text)"), flex: "1 1 200px", border: "1px solid var(--line)", fontSize: 15 }}>{correo === "enviando" ? "Enviando…" : `Enviar a ${c.email}`}</button>
+        </div>
+        {correo && correo !== "enviando" && <div role="status" style={{ ...card, marginBottom: 14, fontWeight: 700, fontSize: 14, borderColor: correo === "enviado" ? "#0f9d63" : "var(--line)" }}>
+          {{ enviado: `Enviadas a ${c.email}. Si no las ves, mira en «Spam» o «Promociones».`, sin_correo: "El envío por correo aún no está activado. Descarga los PDF o guarda este enlace.", espera: "Acabamos de enviarlas: espera un par de minutos antes de pedirlo otra vez.", limite: "Ya se han enviado varias veces. Descarga los PDF o guarda este enlace." }[correo] || "No se ha podido enviar el correo. Descarga los PDF o guarda este enlace."}
+        </div>}
+        {pedidos.map((p, i) => (
+          <section key={p.acceso || i} style={{ marginTop: i ? 26 : 0 }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
+              {p.evento.flyer_url && <img src={p.evento.flyer_url} alt="" style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 12 }} />}
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 900, fontSize: 21, lineHeight: 1.1, overflowWrap: "anywhere" }}>{p.evento.nombre}</div>
+                <div style={{ color: "var(--muted)", fontWeight: 700, marginTop: 4 }}>{fecha(p.evento.inicio || p.evento.fecha)}{p.evento.recinto ? ` · ${p.evento.recinto}` : ""}</div>
+              </div>
+            </div>
+            <button onClick={() => descargar(p, i)} disabled={pdf != null} style={{ ...btn(T.d.color, T.tinta), width: "100%", marginBottom: 12 }}>{pdf === i ? "Creando PDF…" : `Descargar PDF de ${p.evento.nombre}`}</button>
+            <EntradasDePedido d={p} T={T} />
+          </section>))}
+        {o && <div style={{ textAlign: "center", marginTop: 18 }}><a href={`/o/${o.slug}`} style={{ color: "var(--muted)", fontWeight: 700 }}>Ver más eventos de {o.nombre}</a></div>}
       </div>
     </div>
   );
 }
 
-const CSS_PUB = `
-*{box-sizing:border-box}
-body{margin:0}
-.pub-cont{container-type:inline-size;container-name:pub}
-.pub-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:20px}
-.pub-dos{display:grid;grid-template-columns:minmax(0,1fr);gap:20px}
-@container pub (min-width:860px){.pub-grid{grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:36px;align-items:start}.pub-flyer{position:sticky;top:20px}.pub-dos{grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:32px;align-items:start}}
-.pub-solo-ancho{display:none}
-.pub-flecha{display:none !important}
-@container pub (min-width:700px){.pub-solo-ancho{display:block}.pub-flecha{display:grid !important}}
-.pub-pista{display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;background:#000}
-.pub-pista::-webkit-scrollbar{display:none}
-.pub-barra{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;align-items:center;gap:14px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:var(--card);border-top:1px solid var(--line);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
-@media (min-width:860px){.pub-barra{left:50%;right:auto;bottom:18px;transform:translateX(-50%);width:min(620px,calc(100vw - 32px));border:1px solid var(--line);border-radius:18px;box-shadow:0 20px 50px rgba(0,0,0,.35)}}
-@keyframes pubPulso{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
-.pub-pulso{animation:pubPulso 1.6s ease-in-out infinite}
-@keyframes pubKb{from{transform:scale(1.1)}to{transform:scale(1)}}
-.pub-kb{animation:pubKb 9s ease-out both}
-@media (prefers-reduced-motion:reduce){.pub-pulso,.pub-kb{animation:none}}
-button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--c);outline-offset:2px}
-`;
+const barraPrevia = { position: "sticky", left: 0, right: 0, bottom: 0, transform: "none", width: "auto", borderRadius: 0 };

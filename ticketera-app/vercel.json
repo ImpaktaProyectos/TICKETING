@@ -51,6 +51,14 @@
     {
       "source": "/mis-entradas/:acceso*",
       "destination": "/index.html"
+    },
+    {
+      "source": "/o/:slug*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/compra/:acceso*",
+      "destination": "/index.html"
     }
   ]
 }

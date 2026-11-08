@@ -482,3 +482,51 @@ export async function webAnularEntrada(id, anular = true) {
   const r = ok(await supabase.rpc("web_anular_entrada", { p_id: id, p_anular: anular }));
   if (!r?.ok) { const e = new Error(r?.motivo === "sin_sitio" ? "Ese tramo ya está lleno: no se puede recuperar" : "No se ha podido cambiar"); e.mostrar = true; throw e; }
 }
+
+/* ===================== Organizaciones (microsite de la marca) ===================== */
+export async function orgListar() {
+  const { data, error } = await supabase.from("ticket_web_organizaciones").select("*").order("creado_en");
+  if (error) throw error;
+  return data || [];
+}
+export async function orgCrear(nombre) {
+  const base = slugDe(nombre).slice(0, 50) || "mi-organizacion";
+  for (let i = 0; i < 6; i++) {
+    const slug = i ? `${base}-${Math.random().toString(36).slice(2, 5)}` : base;
+    const r = await supabase.from("ticket_web_organizaciones").insert({ nombre: nombre.trim().slice(0, 80), slug: slug.length < 3 ? slug + "-org" : slug, diseno: {} }).select("*").single();
+    if (!r.error) return r.data;
+    if (r.error.code !== "23505") throw r.error;
+  }
+  throw new Error("No se ha podido crear el enlace");
+}
+export async function orgGuardar(id, patch) {
+  ok(await supabase.from("ticket_web_organizaciones").update({ ...patch, actualizado_en: new Date().toISOString() }).eq("id", id));
+}
+export async function orgCambiarSlug(id, slug) {
+  const s = slugDe(slug).slice(0, 60);
+  if (s.length < 3) throw new Error("El enlace necesita al menos 3 letras");
+  const r = await supabase.from("ticket_web_organizaciones").update({ slug: s }).eq("id", id);
+  if (r.error) throw new Error(r.error.code === "23505" ? "Ese enlace ya lo usa otra organización" : "No se ha podido cambiar el enlace");
+  return s;
+}
+export async function orgBorrar(id) { ok(await supabase.from("ticket_web_organizaciones").delete().eq("id", id)); }
+export async function orgSubir(orgId, tipo, file) {
+  const { data: u } = await supabase.auth.getUser();
+  const ext = (file.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5);
+  const path = `${u.user.id}/org-${orgId}/${tipo}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`;
+  ok(await supabase.storage.from("web-eventos").upload(path, file, { cacheControl: "31536000", upsert: false, contentType: file.type }));
+  return supabase.storage.from("web-eventos").getPublicUrl(path).data.publicUrl;
+}
+// Eventos con venta online de la cuenta (para asignarlos a una organización)
+export async function orgEventos() {
+  const { data, error } = await supabase.from("ticket_web_eventos").select("evento_id, slug, estado, modo, flyer_url, organizacion_id, ticket_eventos(nombre, fecha, inicio, fin)");
+  if (error) throw error;
+  return (data || []).map(x => ({ ...x, nombre: x.ticket_eventos?.nombre, fecha: x.ticket_eventos?.fecha, inicio: x.ticket_eventos?.inicio, fin: x.ticket_eventos?.fin }))
+    .sort((a, b) => String(b.inicio || b.fecha || "").localeCompare(String(a.inicio || a.fecha || "")));
+}
+export async function orgAsignarEvento(eventoId, orgId) { ok(await supabase.from("ticket_web_eventos").update({ organizacion_id: orgId }).eq("evento_id", eventoId)); }
+export async function orgPublica(slug) {
+  const { data, error } = await supabase.rpc("web_organizacion_publica", { p_slug: slug });
+  if (error) throw error;
+  return data;
+}

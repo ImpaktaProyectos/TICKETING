@@ -6,6 +6,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as crm from "./crmdb";
 import { money, useIsMobile, C, Icon, Tile, Badge, Seg, Sheet, Field, Seccion } from "./ui";
 import { Landing, PLANTILLAS_WEB } from "../web/Publico.jsx";
+import { Organizaciones } from "./Organizaciones.jsx";
 
 const urlVenta = (slug) => `${window.location.origin}/e/${slug}`;
 const ESTADOS = { borrador: { t: "Borrador", c: "var(--muted)" }, publicado: { t: "A la venta", c: "var(--green)" }, cerrado: { t: "Venta cerrada", c: "var(--red)" } };
@@ -132,7 +133,20 @@ export function FechaHora({ valor, onChange, titulo = "Elige día y hora", place
 }
 
 /* ===================== Pantalla principal ===================== */
-export function Entradas({ ev, events, onSelectEvent, flash }) {
+export function Entradas(props) {
+  const [modo, setModo] = useState(() => { try { return localStorage.getItem("tixfast_entradas_modo") || "eventos"; } catch { return "eventos"; } });
+  const cambiar = (m) => { setModo(m); try { localStorage.setItem("tixfast_entradas_modo", m); } catch {} };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div role="tablist" aria-label="Entradas" style={{ display: "flex", gap: 6, background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 14, padding: 4, alignSelf: "flex-start", maxWidth: "100%" }}>
+        {[["eventos", "Eventos", "ticket"], ["orgs", "Organizaciones", "globe"]].map(([k, t, i]) => (
+          <button key={k} role="tab" aria-selected={modo === k} onClick={() => cambiar(k)} style={{ display: "inline-flex", alignItems: "center", gap: 8, minHeight: 40, padding: "0 16px", borderRadius: 11, border: "none", fontWeight: 900, fontSize: 14.5, cursor: "pointer", background: modo === k ? "var(--accent)" : "transparent", color: modo === k ? "#fff" : "var(--text)" }}><Icon n={i} s={16} />{t}</button>))}
+      </div>
+      {modo === "orgs" ? <Organizaciones flash={props.flash} /> : <EntradasEventos {...props} />}
+    </div>
+  );
+}
+function EntradasEventos({ ev, events, onSelectEvent, flash }) {
   const isMobile = useIsMobile();
   const [lista, setLista] = useState(null);        // { eventoId: resumen de su venta online }
   const [d, setD] = useState(null);                // { ficha, tramos } del evento elegido
@@ -332,6 +346,9 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
         {finMal && <div style={{ fontSize: 13, color: "var(--red)", fontWeight: 700, marginTop: -6, marginBottom: 6 }}>La hora de fin es anterior al inicio. Si acaba de madrugada, elige el día siguiente.</div>}
         {evLocal.inicio && evLocal.inicio.length <= 10 && <div style={{ fontSize: 13, color: "var(--amber)", fontWeight: 700, marginTop: -6 }}>Falta la hora de inicio: toca la fecha y elige la hora.</div>}
       </>)}
+      {tarjeta("globe", "Organización", "La marca o la sala que organiza. El evento sale en su microsite y se puede comprar junto a sus otras fiestas.", (
+        <SelectorOrg valor={f.organizacion_id || ""} onChange={(v) => setFicha({ organizacion_id: v || null })} />
+      ))}
       {tarjeta("building", "Dónde y cómo", "Aparece en la página de venta.", <>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0 12px" }}>
           <Field l="Recinto"><input style={C.input} value={evLocal.recinto} maxLength={120} placeholder="Ej. Sala Apolo" onChange={e => setEv("recinto", e.target.value, "recinto")} /></Field>
@@ -632,6 +649,19 @@ function GaleriaEditor({ fotos, isMobile, onOrden, onSubir }) {
 const fotoBtn = { width: 30, height: 30, borderRadius: 8, border: "none", background: "rgba(0,0,0,.6)", color: "#fff", display: "grid", placeItems: "center", cursor: "pointer", padding: 0 };
 
 /* ===================== Piezas ===================== */
+function SelectorOrg({ valor, onChange }) {
+  const [orgs, setOrgs] = useState(null);
+  useEffect(() => { crm.orgListar().then(setOrgs).catch(() => setOrgs([])); }, []);
+  if (orgs === null) return <div style={{ color: "var(--muted)" }}>Cargando…</div>;
+  if (!orgs.length) return <div style={{ fontSize: 13.5, color: "var(--muted)" }}>Aún no tienes organizaciones. Créala en la pestaña <b>Organizaciones</b> (arriba) y luego elígela aquí.</div>;
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <button onClick={() => onChange("")} aria-pressed={!valor} style={{ ...C.seg, borderColor: !valor ? "var(--accent)" : "var(--line)", color: !valor ? "var(--accent)" : "var(--text)" }}>Ninguna</button>
+      {orgs.map(o => <button key={o.id} onClick={() => onChange(o.id)} aria-pressed={valor === o.id} style={{ ...C.seg, borderColor: valor === o.id ? "var(--accent)" : "var(--line)", color: valor === o.id ? "var(--accent)" : "var(--text)", display: "inline-flex", alignItems: "center", gap: 8 }}>
+        {o.logo_url && <img src={o.logo_url} alt="" style={{ height: 18, maxWidth: 50, objectFit: "contain" }} />}{valor === o.id && <Icon n="check" s={14} w={3} />}{o.nombre}</button>)}
+    </div>
+  );
+}
 const Sw = ({ on, onClick, l, sub, primero }) => (
   <label style={{ ...C.toggleRow, padding: "11px 0", borderTop: primero ? "none" : "1px solid var(--line)", cursor: "pointer" }}>
     <span><span style={{ display: "block" }}>{l}</span>{sub && <span style={{ display: "block", fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>{sub}</span>}</span>
