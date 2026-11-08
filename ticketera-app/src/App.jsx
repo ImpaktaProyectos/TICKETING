@@ -41,7 +41,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.08d";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.08e";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -336,7 +336,6 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [updateReady, setUpdateReady] = useState(false);
   useEffect(() => { const h = () => setUpdateReady(true); window.addEventListener("tixfast-update", h); if (window.__tixfastUpdate) setUpdateReady(true); return () => window.removeEventListener("tixfast-update", h); }, []);
-  const [showCheck, setShowCheck] = useState(false);
   // Modo prueba POR BARRA: toda barra empieza en prueba (imprime "NO VÁLIDO" y no cuenta)
   // hasta que se pulsa "Iniciar venta". Tras el cierre Z vuelve a quedar sin vender.
   const [payFlow, setPayFlow] = useState(null);   // cobro avanzado en curso
@@ -848,9 +847,9 @@ export default function App() {
 
       {/* ===== LOGIN ===== */}
       {role === null && (
-        <RoleGate ev={ev} events={state.events} adminPin={ev.pin_admin} supervisorPin={ev.pin_supervisor}
+        <RoleGate ev={ev} events={state.events} online={online} pending={pending}
           onSelectEvent={id => dispatch({ type: "SELECT_EVENT", id })}
-          onRole={(r, puntoId, modo) => { if (puntoId) dispatch({ type: "SET_PUNTO", id: puntoId }); setRole(r); setView("pos"); const crmMode = modo === "crm" && r === "admin"; setAppMode(crmMode ? "crm" : "tpv"); setShowCheck(!crmMode && r !== "validador"); }} />
+          onRole={(r, puntoId, modo) => { if (puntoId) dispatch({ type: "SET_PUNTO", id: puntoId }); setRole(r); setView("pos"); const crmMode = modo === "crm" && r === "admin"; setAppMode(crmMode ? "crm" : "tpv");  }} />
       )}
 
       {/* ===== CAJERO ===== */}
@@ -996,7 +995,6 @@ export default function App() {
             )}
             <div style={{ display: "flex", gap: 8, marginBottom: 14 }}><OnlinePill /><PrinterPill /></div>
             <div className="menu-group" style={S.menuGroup}>
-              <MenuRow big icon="check" label="Comprobación previa" onClick={() => { setMenuOpen(false); setShowCheck(true); }} right={<span style={{ color: "var(--muted)" }}><Ic n="chev" s={16} /></span>} />
               <MenuRow big icon="printer" label="Ticket de prueba" onClick={() => { setMenuOpen(false); testPrint(); }} right={<span style={{ color: "var(--muted)" }}><Ic n="chev" s={16} /></span>} />
               <MenuRow big icon="refresh" label="Buscar actualización" onClick={async () => { if (!navigator.onLine || !(await fetch("/manifest.webmanifest", { cache: "no-store" }).then(r => r.ok).catch(() => false))) { flash("Sin internet: no se puede actualizar ahora (la app sigue funcionando)", "warn"); return; } try { const rs = await navigator.serviceWorker?.getRegistrations?.() || []; for (const r of rs) await r.unregister(); const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); } catch {} window.location.reload(true); }} right={<span style={{ color: "var(--muted)" }}><Ic n="chev" s={16} /></span>} />
             </div>
@@ -1042,30 +1040,6 @@ export default function App() {
             else if (f.kind === "combo") doSellCombo(f.combo, f.vouchers, f.total, pay);
           }}
         />
-      )}
-
-      {/* ===== Comprobación previa (antes de vender) ===== */}
-      {showCheck && role && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 70, background: "var(--bg)", overflow: "auto", padding: "calc(16px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom))" }}>
-          <div style={{ maxWidth: 520, margin: "0 auto" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}><img src="/brand/tixfast_isotipo_app.svg" alt="" width="36" height="36" /><div style={S.display}>Comprobación previa</div></div>
-            <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 18 }}>Revisa esto antes de abrir la barra.</div>
-
-            <CheckCard state={online ? "ok" : "warn"} title="Conexión" value={online ? (pending ? `En línea · ${pending} por subir` : "En línea") : `Sin conexión · ${pending} en cola`} note={online ? "Las ventas se guardan y suben en tiempo real." : "Puedes vender e imprimir igual; subirá solo cuando vuelva el wifi."} />
-
-            <CheckCard state="ok" title="Evento y barra" value={`${ev.name} · ${punto.name}`} note="¿No es la barra correcta? Pulsa abajo “Cambiar de barra”." />
-
-            <CheckCard state={printer === "live" ? "ok" : "warn"} title="Impresora" value={`Papel ${ev.paper} mm · ${printer === "live" ? "Impresión real" : "SIMULACIÓN (no imprime)"}`} note={printer === "live" ? "Haz una prueba para confirmar tamaño y corte." : "Estás en simulación: activa la impresión real con el botón 🖨️ de arriba."}>
-              <button onClick={testPrint} style={{ ...S.btnPrimary, marginTop: 12, width: "100%" }}>🖨️ Imprimir ticket de prueba</button>
-            </CheckCard>
-
-            <CheckCard state="ok" title="Numeración de tickets" value={`Próximo folio: ${prefijoDePunto(punto)}${getDeviceTag()}-${String(peekFolio(ev.id, punto.id) + 1).padStart(4, "0")}`} note={`Cada barra numera por separado en este dispositivo.${getDeviceTag() ? "" : " Si otra tablet usa ESTA misma barra, ponles una letra distinta para no repetir folios."}`} />
-
-            <button onClick={() => setShowCheck(false)} style={{ ...S.btnPrimary, width: "100%", padding: "16px", fontSize: 17, marginTop: 6 }}>✅ Todo listo · Empezar a vender</button>
-            <button onClick={() => { setShowCheck(false); exitToLogin(); }} style={{ ...S.btnGhost, width: "100%", marginTop: 10, padding: "13px" }}>Cambiar de barra / rol</button>
-            <div style={{ textAlign: "center", fontSize: 12, color: "var(--muted)", marginTop: 14 }}>TIXFAST · versión {APP_VERSION}</div>
-          </div>
-        </div>
       )}
 
       {/* ===== Zona de impresión oculta (fuera de pantalla; en impresión se coloca en 0,0) ===== */}
@@ -1278,47 +1252,202 @@ function MenuRow({ icon, label, onClick, tone, right, big }) {
 }
 
 /* ---------------------- Login ---------------------- */
-function RoleGate({ ev, events, adminPin, supervisorPin, onSelectEvent, onRole }) {
-  const [mode, setMode] = useState(null); // null | cajero | admin | supervisor
+function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 0 }) {
+  const isMobile = useIsMobile();
+  const [mode, setMode] = useState(null);            // null | cajero | validador | admin | supervisor | crm
+  const [verEventos, setVerEventos] = useState(false);
   const puntos = ev.puntos.filter(p => !p.archivado);
-  const [op, setOp] = useState(puntos[0]?.id);
-  useEffect(() => { setOp(ev.puntos.filter(p => !p.archivado)[0]?.id); }, [ev.id]);
+  const claveUltima = "tixfast_ultima_barra_" + ev.id;
+  const ultima = (() => { try { return localStorage.getItem(claveUltima); } catch { return null; } })();
+  const entrarBarra = (m, id) => { try { localStorage.setItem(claveUltima, id); } catch {} onRole(m, id); };
+  useEffect(() => { setMode(null); }, [ev.id]);
+  const abiertas = puntos.filter(p => p.estado === "abierta").length;
+  const fechaEv = (() => { try { return new Date((ev.startsAt || ev.date + "T12:00")).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" }); } catch { return ev.date; } })();
+  const horaEv = ev.startsAt && ev.startsAt.length > 10 ? ev.startsAt.slice(11, 16) : "";
   const roles = [
-    { k: "cajero", icon: "receipt", t: "Cajero", d: "Solo TPV e impresión" },
-    { k: "supervisor", icon: "eye", t: "Supervisor", d: "TPV + informes + cierres" },
-    { k: "admin", icon: "shield", t: "Administrador", d: "Configura todo" },
-    { k: "crm", icon: "crm", t: "CRM", d: "Ingresos, socios y cuentas" },
-    ...(ev.qrActivo || ev.qrClave ? [{ k: "validador", icon: "scan", t: "Validar tickets", d: "Escanea los QR al servir", wide: true }] : []),
+    { k: "supervisor", icon: "eye", t: "Supervisor", d: "Informes, cierres y anulaciones", pin: true },
+    { k: "admin", icon: "shield", t: "Administrador", d: "Configura el evento", pin: true },
+    { k: "crm", icon: "crm", t: "CRM", d: "Entradas, cuentas y socios", pin: true },
+    ...(ev.qrActivo || ev.qrClave ? [{ k: "validador", icon: "scan", t: "Validar QR", d: "Escanea al servir" }] : []),
   ];
+  const estadoBarra = (p) => p.estado === "abierta" ? ["Abierta", "var(--green)"] : p.estado === "cerrada" ? ["Cerrada (Z hecho)", "var(--red)"] : ["En pruebas", "var(--amber)"];
+  const hoy = new Date().toISOString().slice(0, 10);
+  const evOrden = [...events].sort((a, b) => { const fa = a.date < hoy, fb = b.date < hoy; if (fa !== fb) return fa ? 1 : -1; return fa ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date); });
+  const proximo = evOrden.find(e => e.date >= hoy)?.id;
+
   return (
-    <div style={S.gateWrap}>
-      <div style={S.gateCard}>
-        <img src="/brand/tixfast_logo_horizontal_oscuro.svg" alt="TIXFAST" style={{ height: 32, width: "auto", display: "block", margin: "0 auto" }} />
-        <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13, margin: "8px 0 22px" }}>Elige evento y entra con tu rol</div>
-        <div style={S.sideLabel}>Evento</div>
-        <select value={ev.id} onChange={e => onSelectEvent(e.target.value)} style={{ ...S.select, marginBottom: 18 }}>{events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
+    <div className="tg" role="main">
+      <style>{TG_CSS}</style>
+      <div className="tg-luz" aria-hidden="true"><span /><span /></div>
+      <header className="tg-top">
+        <img src="/brand/tixfast_logo_horizontal_oscuro.svg" alt="TIXFAST" style={{ height: isMobile ? 26 : 30, width: "auto", display: "block" }} />
+        <span className="tg-pill" style={{ color: online ? "var(--green)" : "var(--amber)" }} aria-live="polite">
+          <span className="tg-dot" style={{ background: online ? "var(--green)" : "var(--amber)" }} />{online ? (pending ? `En línea · ${pending} por subir` : "En línea") : `Sin conexión${pending ? ` · ${pending} en cola` : ""}`}
+        </span>
+      </header>
 
-        {mode === null && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {roles.map(r => <button key={r.k} className="gate-role" onClick={() => setMode(r.k)} style={{ ...S.gateRole, ...(r.wide ? { gridColumn: "1 / -1" } : {}) }}><span style={{ ...S.gateIco, ...(r.k === "cajero" ? S.gateIcoMain : {}) }}><Ic n={r.icon} s={24} /></span><span style={{ fontWeight: 800, fontSize: 16, marginTop: 4 }}>{r.t}</span><span style={{ fontSize: 12, color: "var(--muted)" }}>{r.d}</span></button>)}
+      <div className="tg-main">
+        <section className="tg-izq">
+          <div className="tg-eyebrow">{mode === "cajero" || mode === "validador" ? "Paso 2 de 2" : "Bienvenido"}</div>
+          <h1 className="tg-h1">{mode === "cajero" ? "¿En qué barra trabajas?" : mode === "validador" ? "¿En qué barra validas?" : "¿Quién entra hoy?"}</h1>
+          <button type="button" className="tg-evento" onClick={() => setVerEventos(true)} aria-label={`Evento: ${ev.name}. Cambiar de evento`}>
+            <span className="tg-ev-ico" aria-hidden="true">{ev.logo ? <img src={ev.logo} alt="" /> : <Ic n="store" s={22} />}</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span className="tg-ev-label">Evento</span>
+              <span className="tg-ev-nombre">{ev.name}</span>
+              <span className="tg-ev-meta">{cap1(fechaEv)}{horaEv ? ` · ${horaEv}` : ""}{ev.venue ? ` · ${ev.venue}` : ""}</span>
+            </span>
+            {events.length > 1 && <span className="tg-cambiar">Cambiar<Ic n="chev" s={14} /></span>}
+          </button>
+          <div className="tg-datos">
+            <span><b>{puntos.length}</b> {puntos.length === 1 ? "barra" : "barras"}</span>
+            <span><b style={{ color: abiertas ? "var(--green)" : "var(--muted)" }}>{abiertas}</b> abiertas</span>
+            {ev.qrActivo && <span><Ic n="qr" s={14} /> QR activo</span>}
           </div>
-        )}
+        </section>
 
-        {(mode === "cajero" || mode === "validador") && (
-          <div>
-            <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 8 }}>{mode === "validador" ? "¿En qué barra vas a validar?" : "¿En qué punto de venta trabajas?"}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>{puntos.map(p => <button key={p.id} onClick={() => setOp(p.id)} style={{ ...S.chip, textAlign: "center", ...(op === p.id ? S.chipActive : {}) }}>{p.name}</button>)}</div>
-            <button onClick={() => onRole(mode, op)} style={S.btnPrimary}>{mode === "validador" ? "Abrir el validador →" : "Entrar al TPV →"}</button>
-            <button onClick={() => setMode(null)} style={{ ...S.btnGhost, marginTop: 8, width: "100%" }}>Volver</button>
-          </div>
-        )}
-        {mode === "supervisor" && <PinModal correct={supervisorPin} onOk={() => onRole("supervisor")} onClose={() => setMode(null)} label="PIN de supervisor" />}
-        {mode === "admin" && <PinModal correct={adminPin} onOk={() => onRole("admin")} onClose={() => setMode(null)} label="PIN de administrador" />}
-        {mode === "crm" && <PinModal correct={adminPin} onOk={() => onRole("admin", null, "crm")} onClose={() => setMode(null)} label="PIN de administrador para el CRM" />}
+        <section className="tg-der" aria-label="Elige cómo entrar">
+          {(mode === null || mode === "admin" || mode === "supervisor" || mode === "crm") && (<>
+            <button type="button" className="tg-cajero" onClick={() => puntos.length === 1 ? entrarBarra("cajero", puntos[0].id) : setMode("cajero")}>
+              <span className="tg-cajero-ico" aria-hidden="true"><Ic n="receipt" s={28} w={2.1} /></span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span className="tg-cajero-t">Vender</span>
+                <span className="tg-cajero-d">Cajero · TPV e impresión de tickets</span>
+              </span>
+              <span className="tg-flecha" aria-hidden="true"><Ic n="chev" s={20} w={2.4} /></span>
+            </button>
+            <div className="tg-roles">
+              {roles.map(r => (
+                <button type="button" key={r.k} className="tg-rol" onClick={() => setMode(r.k)}>
+                  <span className="tg-rol-ico" aria-hidden="true"><Ic n={r.icon} s={22} /></span>
+                  <span className="tg-rol-t">{r.t}</span>
+                  <span className="tg-rol-d">{r.d}</span>
+                  {r.pin && <span className="tg-pin" title="Pide PIN o contraseña"><Ic n="lock" s={12} w={2.2} />PIN</span>}
+                </button>))}
+            </div>
+          </>)}
+
+          {(mode === "cajero" || mode === "validador") && (
+            <div>
+              <button type="button" className="tg-volver" onClick={() => setMode(null)}><Ic n="chev" s={14} style={{ transform: "rotate(180deg)" }} />Volver</button>
+              <div className="tg-barras">
+                {puntos.map(p => { const [txt, col] = estadoBarra(p); const ult = p.id === ultima; return (
+                  <button type="button" key={p.id} className={"tg-barra" + (ult ? " tg-barra-ult" : "")} onClick={() => entrarBarra(mode, p.id)}>
+                    <span className="tg-barra-ico" aria-hidden="true"><Ic n={mode === "validador" ? "scan" : "store"} s={22} /></span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span className="tg-barra-n">{p.name}</span>
+                      <span className="tg-barra-e"><span className="tg-dot" style={{ background: col }} />{txt}{ult ? " · la última vez" : ""}</span>
+                    </span>
+                    <span className="tg-flecha tg-flecha-s" aria-hidden="true"><Ic n="chev" s={18} w={2.4} /></span>
+                  </button>); })}
+                {!puntos.length && <div className="tg-vacio">Este evento aún no tiene barras. Entra como administrador para crearlas.</div>}
+              </div>
+            </div>
+          )}
+        </section>
       </div>
+
+      <footer className="tg-pie">TIXFAST · versión {APP_VERSION}</footer>
+
+      {verEventos && (
+        <div style={isMobile ? S.sheetWrap : S.overlay} onClick={() => setVerEventos(false)}>
+          <div role="dialog" aria-label="Elegir evento" className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, width: 480, maxWidth: "94vw", maxHeight: "80dvh", overflow: "auto", textAlign: "left" }} onClick={e => e.stopPropagation()}>
+            {isMobile && <div style={S.grab} />}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontWeight: 900, fontSize: 18 }}>Elige el evento</div>
+              <button onClick={() => setVerEventos(false)} style={S.iconBtn} aria-label="Cerrar"><Ic n="close" /></button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {evOrden.map(e => { const pasado = e.date < hoy; const sel = e.id === ev.id; return (
+                <button key={e.id} onClick={() => { onSelectEvent(e.id); setVerEventos(false); }} className="tg-evrow"
+                  style={{ borderColor: sel ? "var(--accent)" : "var(--line)", background: sel ? "rgba(255,90,60,.08)" : "var(--surface2)", opacity: pasado && !sel ? .7 : 1 }}>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontWeight: 900, fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</span>
+                    <span style={{ display: "block", fontSize: 13, color: "var(--muted)", marginTop: 2 }}>{dateFmt(e.date)}{e.venue ? ` · ${e.venue}` : ""}</span>
+                  </span>
+                  {e.id === proximo && !sel && <span style={{ fontSize: 11, fontWeight: 900, color: "var(--accent)", border: "1px solid var(--accent)", borderRadius: 999, padding: "2px 8px" }}>PRÓXIMO</span>}
+                  {pasado && <span style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)" }}>Pasado</span>}
+                  {sel && <Ic n="check" s={20} w={2.6} style={{ color: "var(--accent)" }} />}
+                </button>); })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mode === "supervisor" && <PinModal correct={ev.pin_supervisor} onOk={() => onRole("supervisor")} onClose={() => setMode(null)} label="PIN de supervisor" />}
+      {mode === "admin" && <PinModal correct={ev.pin_admin} onOk={() => onRole("admin")} onClose={() => setMode(null)} label="PIN de administrador" />}
+      {mode === "crm" && <PinModal correct={ev.pin_admin} onOk={() => onRole("admin", null, "crm")} onClose={() => setMode(null)} label="PIN de administrador para el CRM" />}
     </div>
   );
 }
+const cap1 = (t) => t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+
+// Pantalla de entrada: marca TIXFAST, luz suave en movimiento, tarjetas grandes para el dedo
+const TG_CSS = `
+.tg{position:relative;min-height:100%;box-sizing:border-box;overflow:auto;display:flex;flex-direction:column;background:#08090d;color:var(--text);
+  padding:calc(14px + env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom));isolation:isolate}
+.tg *{box-sizing:border-box}
+.tg button{font:inherit;color:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.tg button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.tg-luz{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
+.tg-luz span{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55}
+.tg-luz span:nth-child(1){width:62vmax;height:62vmax;left:-18vmax;top:-30vmax;background:radial-gradient(circle,rgba(255,90,60,.55),transparent 62%);animation:tgA 18s ease-in-out infinite alternate}
+.tg-luz span:nth-child(2){width:52vmax;height:52vmax;right:-20vmax;bottom:-26vmax;background:radial-gradient(circle,rgba(124,77,255,.35),transparent 62%);animation:tgB 22s ease-in-out infinite alternate}
+@keyframes tgA{to{transform:translate(8vmax,6vmax) scale(1.08)}}
+@keyframes tgB{to{transform:translate(-7vmax,-5vmax) scale(1.1)}}
+@media (prefers-reduced-motion:reduce){.tg-luz span{animation:none}}
+.tg-top{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:1120px;width:100%;margin:0 auto}
+.tg-pill{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;padding:6px 11px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);backdrop-filter:blur(8px);white-space:nowrap}
+.tg-dot{width:8px;height:8px;border-radius:8px;display:inline-block;flex-shrink:0}
+.tg-main{flex:1;display:grid;grid-template-columns:minmax(0,1fr);gap:22px;max-width:1120px;width:100%;margin:0 auto;padding:28px 0 18px;align-content:center}
+@media (min-width:900px){.tg-main{grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:56px;align-items:center}}
+.tg-eyebrow{font-size:12px;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+.tg-h1{margin:6px 0 18px;font-size:clamp(30px,6.4vw,52px);line-height:1.02;font-weight:900;letter-spacing:-.035em}
+.tg-evento{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:16px;border-radius:20px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(10px);transition:border-color .15s,background .15s}
+.tg-evento:hover{border-color:rgba(255,90,60,.5);background:rgba(255,255,255,.06)}
+.tg-ev-ico{width:52px;height:52px;border-radius:14px;display:grid;place-items:center;flex-shrink:0;background:rgba(255,90,60,.14);color:var(--accent);overflow:hidden}
+.tg-ev-ico img{width:100%;height:100%;object-fit:cover}
+.tg-ev-label{display:block;font-size:11px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.tg-ev-nombre{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:clamp(18px,3.4vw,24px);font-weight:900;letter-spacing:-.02em;line-height:1.15;margin-top:2px;overflow:hidden;overflow-wrap:anywhere}
+.tg-ev-meta{display:block;font-size:13.5px;color:var(--muted);margin-top:3px;line-height:1.35}
+.tg-cambiar{display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:800;color:var(--text);padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.07);flex-shrink:0}
+.tg-cambiar svg{transform:rotate(0)}
+.tg-datos{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:14px;font-size:13px;color:var(--muted)}
+.tg-datos span{display:inline-flex;align-items:center;gap:5px}
+.tg-datos b{color:var(--text);font-weight:900}
+.tg-cajero{position:relative;display:flex;align-items:center;gap:16px;width:100%;text-align:left;padding:22px 20px;border:none;border-radius:22px;color:#fff !important;
+  background:linear-gradient(135deg,#ff6a45 0%,#ff4d2e 55%,#e8372a 100%);box-shadow:0 18px 44px rgba(255,77,46,.35),inset 0 1px 0 rgba(255,255,255,.25);transition:transform .1s,box-shadow .15s;overflow:hidden}
+.tg-cajero::after{content:"";position:absolute;inset:0;background:linear-gradient(115deg,transparent 30%,rgba(255,255,255,.18) 50%,transparent 70%);transform:translateX(-100%);animation:tgBrillo 5s ease-in-out infinite}
+@keyframes tgBrillo{0%,70%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){.tg-cajero::after{animation:none}}
+.tg-cajero:hover{box-shadow:0 22px 54px rgba(255,77,46,.45),inset 0 1px 0 rgba(255,255,255,.25)}
+.tg-cajero:active,.tg-rol:active,.tg-barra:active,.tg-evento:active{transform:scale(.985)}
+.tg-cajero-ico{width:58px;height:58px;border-radius:16px;display:grid;place-items:center;background:rgba(255,255,255,.18);flex-shrink:0}
+.tg-cajero-t{display:block;font-size:28px;font-weight:900;letter-spacing:-.03em;line-height:1}
+.tg-cajero-d{display:block;font-size:14px;font-weight:700;opacity:.88;margin-top:5px}
+.tg-flecha{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:rgba(255,255,255,.18);flex-shrink:0}
+.tg-flecha-s{width:34px;height:34px;background:rgba(255,255,255,.06);color:var(--muted)}
+.tg-roles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
+.tg-rol{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;padding:16px 14px 15px;border-radius:18px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(10px);transition:border-color .15s,background .15s,transform .1s;min-height:118px}
+.tg-rol:hover{border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.065)}
+.tg-rol-ico{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;background:rgba(255,255,255,.07);margin-bottom:8px}
+.tg-rol-t{font-size:16px;font-weight:900;letter-spacing:-.01em}
+.tg-rol-d{font-size:12.5px;color:var(--muted);line-height:1.35}
+.tg-pin{position:absolute;top:12px;right:12px;display:inline-flex;align-items:center;gap:3px;font-size:10.5px;font-weight:900;letter-spacing:.06em;color:var(--muted);padding:3px 7px;border-radius:999px;border:1px solid rgba(255,255,255,.12)}
+.tg-volver{display:inline-flex;align-items:center;gap:6px;background:none;border:none;padding:6px 2px;margin-bottom:10px;font-size:14px;font-weight:800;color:var(--muted)}
+.tg-barras{display:flex;flex-direction:column;gap:10px}
+.tg-barra{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:16px;border-radius:18px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(10px);transition:border-color .15s,transform .1s;min-height:76px}
+.tg-barra:hover{border-color:rgba(255,90,60,.5)}
+.tg-barra-ult{border-color:rgba(255,90,60,.55);background:rgba(255,90,60,.08)}
+.tg-barra-ico{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;background:rgba(255,90,60,.14);color:var(--accent);flex-shrink:0}
+.tg-barra-n{display:block;font-size:18px;font-weight:900;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tg-barra-e{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);margin-top:3px}
+.tg-vacio{padding:18px;border-radius:16px;border:1px dashed rgba(255,255,255,.15);color:var(--muted);font-size:14px;text-align:center}
+.tg-pie{text-align:center;font-size:12px;color:var(--muted);opacity:.8;max-width:1120px;width:100%;margin:0 auto}
+.tg-evrow{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:14px;border-radius:14px;border:1px solid var(--line);color:var(--text);font:inherit;cursor:pointer}
+@media (max-width:520px){.tg-evento{align-items:flex-start;padding:14px}.tg-ev-ico{width:44px;height:44px}.tg-cambiar{padding:7px 8px;font-size:12.5px}}
+@media (max-width:360px){.tg-cambiar{font-size:0;gap:0;padding:8px}.tg-cambiar svg{width:16px;height:16px}.tg-cajero{padding:18px 14px;gap:12px}.tg-cajero-t{font-size:24px}.tg-cajero-ico{width:48px;height:48px}.tg-rol{min-height:108px;padding:14px 12px}.tg-roles{gap:10px}}
+`;
 
 /* ---------------------- Selector de iconos (emojis por categorías) ---------------------- */
 const EMOJI_CATS = [
@@ -1683,23 +1812,6 @@ function Stat({ label, value, accent }) {
 }
 
 /* ---------------------- Tarjeta de comprobación previa ---------------------- */
-function CheckCard({ state, title, value, note, children }) {
-  const c = state === "ok" ? "var(--green)" : state === "warn" ? "var(--amber)" : "var(--muted)";
-  const icon = state === "ok" ? "✓" : state === "warn" ? "!" : "•";
-  return (
-    <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ width: 26, height: 26, borderRadius: "50%", background: c, color: "#0b0c10", display: "grid", placeItems: "center", fontWeight: 900, flexShrink: 0 }}>{icon}</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>{title}</div>
-          <div style={{ fontWeight: 800, fontSize: 16, wordBreak: "break-word" }}>{value}</div>
-        </div>
-      </div>
-      {note && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 8 }}>{note}</div>}
-      {children}
-    </div>
-  );
-}
 
 /* ============================================================
    POS
