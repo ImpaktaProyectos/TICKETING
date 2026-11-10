@@ -74,6 +74,14 @@ export function botellasReservados(ev) {
   });
   return out;
 }
+// Botellas de una venta de reservado por su nombre: tarifa exacta, «TARIFA · 3 BOT.» o «RESERVADO 3 BOT.» (reserva apuntada a mano)
+export function botellasDeNombre(nombre, resBot) {
+  const k = String(nombre || "").trim().toUpperCase();
+  if (resBot[k] !== undefined) return resBot[k];
+  const m = k.match(/^(.*) · (\d+) BOT\.$/); if (m && resBot[m[1]] !== undefined) return Number(m[2]);
+  const q = k.match(/^RESERVADO(?: (\d+) BOT\.)?$/); if (q) return Number(q[1] || 0);
+  return null;
+}
 const recetaReservado = (botellas, cfg) => botellas > 0 ? [{ familia: "destilado", cantidad: botellas * (Number(cfg.botellaMl) || STOCK_DEF.botellaMl) }] : [];
 
 // ---- Productos del TPV del evento con lo vendido (los bonos se descomponen en sus productos) ----
@@ -115,7 +123,8 @@ export function calcularStock({ ev, sales, articulos, movimientos, recetas, cont
   const productos = productosEvento(ev, sales).map(p => {
     const guardada = recetaMap[p.nombre];
     // Reservados: la sugerencia sale de sus botellas (un reservado con 2 botellas gasta 2 botellas de destilado)
-    const items = guardada !== undefined ? guardada : resBot[p.nombre] !== undefined ? recetaReservado(resBot[p.nombre], cfg) : sugerirReceta(p.nombre, cfg);
+    const nb = botellasDeNombre(p.nombre, resBot);
+    const items = guardada !== undefined ? guardada : nb !== null ? recetaReservado(nb, cfg) : sugerirReceta(p.nombre, cfg);
     return { ...p, items, estado: guardada !== undefined ? (guardada.length ? "confirmada" : "nogasta") : items === null ? "sinreceta" : items.length ? "sugerida" : "nogasta-sugerida" };
   });
   const tpvFam = {}, tpvArt = {};

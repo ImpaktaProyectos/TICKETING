@@ -116,6 +116,40 @@ export function cobroTarifa(r, tarifa, ventas, porUuid) {
   return { total, senal, aCobrar: r2(total - senal), yaCobrada: ya };
 }
 
+/* ---------- La reserva en sí: personas, botellas (bebida + mezcla) y precio ---------- */
+// Vale con o sin tarifa. Precio: automático (tarifa + botellas de más al precio de la botella extra),
+// a mano por botella, o un total cerrado. Lo que se cobra en taquilla es ese total menos la señal.
+export const pedidoDe = (r) => (r && r.estado !== "libre" && r.pedido && typeof r.pedido === "object" ? r.pedido : null);
+export const precioBotellaExtra = (cfg) => { const x = cfg.extras.find(e => (parseInt(e.botellas, 10) || 0) === 1) || cfg.extras.find(e => (parseInt(e.botellas, 10) || 0) > 0); return x ? r2(num(x.precio) / Math.max(1, parseInt(x.botellas, 10) || 1)) : null; };
+export function calcPedido(r, cfg) {
+  const p = pedidoDe(r) || {};
+  const t = cfg.tarifas.find(z => z.id === r?.tarifaId) || null;
+  const bots = Array.isArray(p.botellas) ? p.botellas : [];
+  const incl = t ? Math.max(0, parseInt(t.botellas, 10) || 0) : 0;
+  const pExtra = precioBotellaExtra(cfg);
+  const modo = ["auto", "botella", "total"].includes(p.precioModo) ? p.precioModo : "auto";
+  // precio automático de cada botella: las incluidas en la tarifa se reparten su precio; las demás, a precio de botella extra
+  const auto = bots.map((b, i) => (t && i < incl ? r2(num(t.precio) / Math.max(1, Math.min(incl, bots.length))) : pExtra));
+  const lineas = bots.map((b, i) => ({ ...b, incluida: !!t && i < incl, auto: auto[i], precio: modo === "botella" ? (b.precio == null || b.precio === "" ? auto[i] : num(b.precio)) : auto[i] }));
+  let total = null, falta = false;
+  if (modo === "total") total = p.total == null || p.total === "" ? null : r2(num(p.total));
+  else if (modo === "botella") { falta = lineas.some(l => l.precio == null); total = r2(lineas.reduce((a, l) => a + (num(l.precio) || 0), 0)); if (!bots.length && t) total = r2(num(t.precio)); }
+  else { const extra = Math.max(0, bots.length - incl); falta = extra > 0 && pExtra == null; total = r2((t ? num(t.precio) : 0) + extra * (pExtra || 0)); }
+  const n = bots.length || (t ? incl : 0);
+  const hay = !!t || bots.length > 0 || (modo === "total" && total != null);
+  const nombreVenta = t ? (bots.length && bots.length !== incl ? `${t.nombre} · ${bots.length} BOT.` : t.nombre) : `RESERVADO${n ? ` ${n} BOT.` : ""}`;
+  const desc = bots.map(b => [b.bebida || "Botella", b.mezcla].filter(Boolean).join(" + ")).join(" · ");
+  return { tarifa: t, botellas: lineas, n, modo, total: hay ? total : null, falta, hay, personas: p.personas ?? null, nombreVenta, desc, pExtra, incl };
+}
+// Lo que se cobra en taquilla para esta reserva (null si no hay nada que cobrar)
+export function itemPedido(r, cfg) {
+  const c = calcPedido(r, cfg);
+  if (!c.hay || c.total == null) return null;
+  return { id: c.tarifa?.id || "pedido", tipo: "tarifa", pedido: true, nombre: c.nombreVenta, precio: c.total, botellas: c.n, incluye: c.desc || c.tarifa?.incluye || "", emoji: c.tarifa?.emoji || "🛋️", color: c.tarifa?.color };
+}
+const BEBIDAS = ["Absolut", "Smirnoff", "Grey Goose", "Beefeater", "Puerto de Indias", "Bombay Sapphire", "Tanqueray", "Hendrick's", "Seagram's", "Barceló", "Brugal", "Bacardí", "Havana Club", "Ballantine's", "J&B", "Johnnie Walker", "Jack Daniel's", "Jägermeister", "Moët", "Champán"];
+const MEZCLAS = ["Coca-Cola", "Coca-Cola Zero", "Fanta Naranja", "Fanta Limón", "Sprite", "Seven Up", "Tónica", "Red Bull", "Zumo de piña", "Zumo de naranja", "Agua con gas", "Sin mezcla"];
+
 /* ============================================================
    ESTILOS (mismos colores y formas que el TPV)
    ============================================================ */
@@ -189,10 +223,12 @@ export function LineaReservados({ ev, punto, res, testMode, isMobile, onElegir, 
 }
 
 /* ---------- Elegir reservado y confirmar el cobro ---------- */
-export function CobrarReservado({ ev, item, res, sales, fijo, onCobrar, onClose }) {
+export function CobrarReservado({ ev, item: itemTpv, res, sales, fijo, onCobrar, onClose }) {
   const porUuid = useMemo(() => mapaVentas(sales), [sales]);
   const [sel, setSel] = useState(fijo || null);
   const r = sel ? res.reservados.find(x => x.id === sel) : null;
+  // Si el reservado tiene su reserva apuntada (botellas, precio), se cobra eso en lugar de la tarifa del botón
+  const item = itemTpv.tipo === "tarifa" && !itemTpv.pedido && r ? (itemPedido(r, resCfg(ev)) || itemTpv) : itemTpv;
   const tarifa = item.tipo === "tarifa";
   const cobro = r && tarifa ? cobroTarifa(r, item, res.ventas, porUuid) : null;
   const aCobrar = cobro ? cobro.aCobrar : r2(num(item.precio));
@@ -227,7 +263,8 @@ export function CobrarReservado({ ev, item, res, sales, fijo, onCobrar, onClose 
           <div style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 14, padding: 14 }}>
             {tarifa ? (<>
               <Linea t={item.nombre} v={money(cobro.total)} />
-              {item.incluye && <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "-2px 0 6px" }}>Incluye: {item.incluye}</div>}
+              {item.incluye && <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "-2px 0 6px" }}>{item.pedido ? "" : "Incluye: "}{item.incluye}</div>}
+              {item.pedido && item !== itemTpv && <div style={{ fontSize: 12.5, color: "var(--accent)", fontWeight: 700, margin: "0 0 6px" }}>Se cobra la reserva apuntada de {r.nombre}{r.cliente ? ` (${r.cliente})` : ""}</div>}
               {cobro.senal > 0 && <Linea t={`Señal pagada${r.senalMetodo ? " (" + METODOS[r.senalMetodo] + ")" : ""}`} v={"− " + money(cobro.senal)} c="var(--green)" />}
             </>) : <Linea t={`${item.nombre}${item.botellas ? ` · cuenta ${item.botellas} botella${item.botellas > 1 ? "s" : ""}` : ""}`} v={money(item.precio)} />}
             <div style={{ borderTop: "1px solid var(--line)", marginTop: 8, paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -255,16 +292,33 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
   const totBot = Object.values(stats).reduce((t, s) => t + s.botellas, 0);
   const totImp = r2(Object.values(stats).reduce((t, s) => t + s.total, 0));
   const tarifaDe = (r) => cfg.tarifas.find(t => t.id === r.tarifaId);
-  const sinConfig = cfg.tarifas.length + cfg.extras.length === 0 || res.reservados.length === 0;
+  const sinConfig = res.reservados.length === 0;
+  const puedeReservar = role === "admin" || role === "supervisor";
+  const nuevaReserva = () => {
+    const libre = res.reservados.find(r => r.estado === "libre");
+    if (!libre) { flash(res.reservados.length ? "No queda ningún reservado libre" : "Crea primero los reservados en Configuración", "warn"); return; }
+    setFicha({ id: libre.id, nueva: true });
+  };
+  const DATOS = ["estado", "cliente", "telefono", "nota", "tarifaId", "senal", "senalMetodo", "promotorId", "llegadaEn", "pedido"];
+  const guardarFicha = (r, x, destino) => {
+    if (destino === r.id) { res.guardar(x); flash(`${x.nombre} guardado`); setFicha(null); return; }
+    const d = res.reservados.find(z => z.id === destino);
+    if (!d || d.estado !== "libre") { flash("Ese reservado ya no está libre", "warn"); return; }
+    const reserva = Object.fromEntries(DATOS.map(k => [k, x[k]]));
+    res.guardar({ ...d, ...reserva });
+    if (r.estado !== "libre") res.guardar({ ...r, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: 0, senalMetodo: "", promotorId: "", llegadaEn: null, pedido: null });
+    flash(r.estado === "libre" ? `Reserva guardada en ${d.nombre}` : `Reserva movida de ${r.nombre} a ${d.nombre}`); setFicha(null);
+  };
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontSize: 22, fontWeight: 800 }}>⭐ Reservados VIP</div>
-          <div style={R.sub}>{ev.name}{cfg.puntos.length ? ` · se cobran en ${ev.puntos.filter(p => cfg.puntos.includes(p.id)).map(p => p.name).join(", ")}` : " · aún sin punto de venta elegido"}</div>
+          <div style={{ fontSize: isMobile ? 19 : 22, fontWeight: 800 }}>⭐ Reservados VIP</div>
+          <div style={{ ...R.sub, display: isMobile ? "none" : "block" }}>{ev.name}{cfg.puntos.length ? ` · se cobran en ${ev.puntos.filter(p => cfg.puntos.includes(p.id)).map(p => p.name).join(", ")}` : " · aún sin punto de venta elegido"}</div>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {onVentaSocio && (role === "admin" || role === "supervisor") && tab === "mapa" && <button onClick={() => onVentaSocio(null)} style={{ ...R.small, background: "var(--green)", color: "#04231a", border: "none", padding: "9px 13px" }}>💶 Vender sin ticket</button>}
+          {!isMobile && puedeReservar && tab === "mapa" && <button onClick={nuevaReserva} style={{ ...R.small, background: "var(--accent)", color: "#fff", border: "none", padding: "9px 13px" }}>+ Nueva reserva</button>}
+          {!isMobile && onVentaSocio && puedeReservar && tab === "mapa" && <button onClick={() => onVentaSocio(null)} style={{ ...R.small, background: "var(--green)", color: "#04231a", border: "none", padding: "9px 13px" }}>💶 Vender sin ticket</button>}
           {role === "admin" && <div style={{ display: "inline-flex", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: 3 }}>
             {[["mapa", "Mapa"], ["config", "Configuración"]].map(([k, t]) => <button key={k} onClick={() => setTab(k)} style={{ border: "none", borderRadius: 9, padding: "8px 14px", fontWeight: 800, fontSize: 13.5, cursor: "pointer", background: tab === k ? "var(--accent)" : "transparent", color: tab === k ? "#fff" : "var(--text)" }}>{t}</button>)}
           </div>}
@@ -273,13 +327,18 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
       </div>
 
       {tab === "mapa" && (<>
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,minmax(0,1fr))" : "repeat(5,minmax(0,1fr))", gap: 10, marginBottom: 14 }}>
+        {isMobile ? (
+          <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 2 }}>
+            {[["dentro", cuenta("llegado"), ESTADOS.llegado.c], ["por llegar", cuenta("reservado"), ESTADOS.reservado.c], ["libres", cuenta("libre"), ESTADOS.libre.c], ["🍾", totBot, "var(--text)"], ["", money(totImp), "var(--green)"]].map(([l, v, c], i) => (
+              <div key={i} style={{ flexShrink: 0, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 12, padding: "7px 11px", fontSize: 13, fontWeight: 700, color: "var(--muted)", whiteSpace: "nowrap" }}><b style={{ color: c, fontSize: 16 }}>{v}</b> {l}</div>))}
+          </div>
+        ) : <div style={{ display: "grid", gridTemplateColumns: "repeat(5,minmax(0,1fr))", gap: 10, marginBottom: 14 }}>
           <Kpi l="Han llegado" v={cuenta("llegado")} c={ESTADOS.llegado.c} />
           <Kpi l="Por llegar" v={cuenta("reservado")} c={ESTADOS.reservado.c} />
           <Kpi l="Libres" v={cuenta("libre")} c={ESTADOS.libre.c} />
           <Kpi l="Botellas" v={totBot} />
           <Kpi l="Importe" v={money(totImp)} c="var(--green)" />
-        </div>
+        </div>}
         {sinConfig && (
           <div style={{ ...R.panel, borderStyle: "dashed", textAlign: "center", color: "var(--muted)", marginBottom: 14 }}>
             {role === "admin"
@@ -287,18 +346,20 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
               : "El administrador aún no ha configurado los reservados de este evento."}
           </div>
         )}
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,minmax(0,1fr))" : "repeat(auto-fill, minmax(190px,1fr))", gap: 12 }}>
-          {res.reservados.map(r => { const e = ESTADOS[r.estado] || ESTADOS.libre; const s = stats[r.id]; const t = tarifaDe(r); return (
-            <button key={r.id} onClick={() => setFicha(r.id)} style={{ textAlign: "left", background: `linear-gradient(180deg, ${e.bg}, var(--surface))`, border: `2px solid ${e.c}`, borderRadius: 18, padding: 14, color: "var(--text)", cursor: "pointer", minHeight: 150, display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,minmax(0,1fr))" : "repeat(auto-fill, minmax(190px,1fr))", gap: isMobile ? 10 : 12, alignItems: isMobile ? "start" : "stretch" }}>
+          {res.reservados.map(r => { const e = ESTADOS[r.estado] || ESTADOS.libre; const s = stats[r.id]; const t = tarifaDe(r); const P = calcPedido(r, cfg); return (
+            <button key={r.id} onClick={() => setFicha({ id: r.id })} style={{ textAlign: "left", background: `linear-gradient(180deg, ${e.bg}, var(--surface))`, border: `2px solid ${e.c}`, borderRadius: 18, padding: 14, color: "var(--text)", cursor: "pointer", minHeight: isMobile && r.estado === "libre" ? 0 : 150, display: "flex", flexDirection: "column", gap: 4 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6 }}>
                 <span style={{ fontSize: 28, fontWeight: 900, lineHeight: 1 }}>{r.nombre}</span>
-                <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textAlign: "right" }}>{TAMANOS[r.tamano]}{r.personas ? ` · ${r.personas} pers.` : ""}</span>
+                <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textAlign: "right" }}>{TAMANOS[r.tamano]}{P.personas != null ? <><br /><b style={{ color: "var(--text)", fontSize: 12.5 }}>👥 {P.personas}</b></> : r.personas ? ` · ${r.personas} pers.` : ""}</span>
               </div>
               <Estado e={r.estado} />
-              <div style={{ fontWeight: 800, fontSize: 14.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minHeight: 20 }}>{r.cliente || <span style={{ color: "var(--muted)", fontWeight: 600 }}>Sin cliente</span>}</div>
-              <div style={{ fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t ? t.nombre : "Sin tarifa"}{r.senal > 0 ? ` · señal ${money(r.senal)}` : ""}</div>
+              {(r.cliente || !isMobile) && <div style={{ fontWeight: 800, fontSize: 14.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minHeight: 20 }}>{r.cliente || <span style={{ color: "var(--muted)", fontWeight: 600 }}>Sin cliente</span>}</div>}
+              <div style={{ fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{P.desc || (t ? t.nombre : r.estado === "libre" ? "" : "Sin botellas apuntadas")}</div>
+              {r.estado !== "libre" && P.total != null && <div style={{ fontSize: 12.5, fontWeight: 800 }}>Reserva {money(P.total)}</div>}
+              {r.estado !== "libre" && r.senal > 0 && <div style={{ fontSize: 12, fontWeight: 700, color: "var(--amber)" }}>Señal {money(r.senal)}</div>}
               <div style={{ marginTop: "auto", display: "flex", justifyContent: "space-between", alignItems: "baseline", paddingTop: 6, borderTop: "1px solid var(--line)" }}>
-                <span style={{ fontSize: 13, fontWeight: 800 }}>🍾 {s.botellas}</span>
+                <span style={{ fontSize: 13, fontWeight: 800 }}>🍾 {s.botellas}{P.n && s.botellas !== P.n && r.estado !== "libre" ? <span style={{ color: "var(--muted)", fontWeight: 700 }}> / {P.n}</span> : null}</span>
                 <span style={{ fontSize: 15, fontWeight: 900, color: s.total > 0 ? "var(--green)" : "var(--muted)" }}>{money(s.total)}</span>
               </div>
             </button>); })}
@@ -307,70 +368,145 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
 
       {tab === "config" && role === "admin" && <ConfigReservados ev={ev} cfg={cfg} res={res} isMobile={isMobile} flash={flash} onGuardarCfg={onGuardarCfg} />}
 
-      {ficha && (() => { const r = res.reservados.find(x => x.id === ficha); if (!r) return null; return (
-        <FichaReservado ev={ev} cfg={cfg} r={r} stats={stats[r.id]} puedeCobrar={cfg.puntos.includes(punto.id)} puntoNombre={punto.name}
-          onVentaSocio={onVentaSocio && (role === "admin" || role === "supervisor") ? (x) => { if (JSON.stringify(x) !== JSON.stringify(r)) res.guardar(x); setFicha(null); onVentaSocio(r.id); } : null}
+      {isMobile && tab === "mapa" && puedeReservar && (
+        <div style={{ position: "sticky", bottom: 0, zIndex: 5, display: "flex", gap: 8, padding: "12px 0 calc(4px + env(safe-area-inset-bottom))", marginTop: 12, background: "linear-gradient(180deg, transparent, var(--bg) 30%)" }}>
+          <button onClick={nuevaReserva} style={{ ...R.primary, flex: 1, padding: "15px 10px", fontSize: 16 }}>+ Nueva reserva</button>
+          {onVentaSocio && <button onClick={() => onVentaSocio(null)} style={{ ...R.primary, flex: 1, padding: "15px 10px", fontSize: 16, background: "var(--green)", color: "#04231a" }}>💶 Vender</button>}
+        </div>)}
+
+      {ficha && (() => { const r = res.reservados.find(x => x.id === ficha.id); if (!r) return null; return (
+        <FichaReservado key={r.id + (ficha.nueva ? "n" : "")} ev={ev} cfg={cfg} r={r} reservados={res.reservados} conVentas={!!stats[r.id]?.lineas.length} nueva={!!ficha.nueva} stats={stats[r.id]} puedeCobrar={cfg.puntos.includes(punto.id)} puntoNombre={punto.name}
+          onVentaSocio={onVentaSocio && puedeReservar ? (x) => { if (JSON.stringify(x) !== JSON.stringify(r)) res.guardar(x); setFicha(null); onVentaSocio(r.id); } : null}
           onClose={() => setFicha(null)}
-          onGuardar={(x) => { res.guardar(x); flash(`${x.nombre} guardado`); setFicha(null); }}
-          onCobrar={(x, t) => { res.guardar(x); setFicha(null); onCobrarTarifa(t, x); }} />); })()}
+          onGuardar={(x, destino) => guardarFicha(r, x, destino)}
+          onCobrar={(x) => { const it = itemPedido(x, cfg); if (!it) { flash("Pon el precio de la reserva", "warn"); return; } res.guardar(x); setFicha(null); onCobrarTarifa(it, x); }} />); })()}
     </div>
   );
 }
 const Kpi = ({ l, v, c }) => <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: "12px 14px", minWidth: 0 }}><div style={{ fontSize: 11.5, color: "var(--muted)", textTransform: "uppercase", letterSpacing: .6, fontWeight: 700 }}>{l}</div><div style={{ fontSize: 24, fontWeight: 800, color: c || "var(--text)", lineHeight: 1.2 }}>{v}</div></div>;
 
-/* ---------- Ficha de un reservado: reserva previa, señal, llegada y consumos ---------- */
-function FichaReservado({ ev, cfg, r, stats, puedeCobrar, puntoNombre, onClose, onGuardar, onCobrar, onVentaSocio }) {
-  const [x, setX] = useState({ ...r, senal: r.senal ? String(r.senal).replace(".", ",") : "" });
+/* ---------- Ficha de un reservado: la reserva completa, señal, llegada y consumos ---------- */
+// Se usa también para «Nueva reserva» (nueva = true). El selector de arriba deja colocar la reserva
+// en cualquier reservado y moverla a otro mientras no tenga ventas.
+const pedidoForm = (p) => ({ personas: p?.personas != null ? String(p.personas) : "", botellas: (p?.botellas || []).map(b => ({ id: b.id || uid(), bebida: b.bebida || "", mezcla: b.mezcla || "", precio: b.precio != null ? String(b.precio).replace(".", ",") : "" })), precioModo: p?.precioModo || "auto", total: p?.total != null ? String(p.total).replace(".", ",") : "" });
+const pedidoLimpio = (f) => {
+  const botellas = f.botellas.map(b => ({ id: b.id, bebida: b.bebida.trim(), mezcla: b.mezcla.trim(), precio: b.precio === "" ? null : r2(num(b.precio)) }));
+  const personas = f.personas === "" ? null : Math.max(0, parseInt(f.personas, 10) || 0);
+  const total = f.total === "" ? null : r2(num(f.total));
+  if (!botellas.length && personas == null && f.precioModo === "auto") return null;
+  return { personas, botellas, precioModo: f.precioModo, total };
+};
+function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puedeCobrar, puntoNombre, onClose, onGuardar, onCobrar, onVentaSocio }) {
+  const [x, setX] = useState(() => ({ ...r, senal: r.senal ? String(r.senal).replace(".", ",") : "", pedido: pedidoForm(pedidoDe(r)) }));
+  const [destino, setDestino] = useState(r.id);
   const set = (k, v) => setX(o => ({ ...o, [k]: v }));
-  const limpio = () => ({ ...x, senal: r2(Math.max(0, num(x.senal))), llegadaEn: x.estado === "llegado" ? (x.llegadaEn || new Date().toISOString()) : x.estado === "libre" ? null : x.llegadaEn });
-  const t = cfg.tarifas.find(z => z.id === x.tarifaId);
-  const cambiado = JSON.stringify(limpio()) !== JSON.stringify({ ...r, senal: r2(r.senal || 0), llegadaEn: r.llegadaEn });
-  const liberar = () => setX(o => ({ ...o, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: "", senalMetodo: "", promotorId: "", llegadaEn: null }));
+  const setP = (k, v) => setX(o => ({ ...o, pedido: { ...o.pedido, [k]: v } }));
+  const setB = (id, patch) => setX(o => ({ ...o, pedido: { ...o.pedido, botellas: o.pedido.botellas.map(b => b.id === id ? { ...b, ...patch } : b) } }));
+  const ultima = x.pedido.botellas[x.pedido.botellas.length - 1];
+  const addB = () => setX(o => ({ ...o, pedido: { ...o.pedido, botellas: [...o.pedido.botellas, { id: uid(), bebida: ultima?.bebida || "", mezcla: ultima?.mezcla || "", precio: "" }] } }));
+  const delB = (id) => setX(o => ({ ...o, pedido: { ...o.pedido, botellas: o.pedido.botellas.filter(b => b.id !== id) } }));
+  const limpio = () => {
+    const pedido = pedidoLimpio(x.pedido);
+    const conDatos = !!(String(x.cliente || "").trim() || pedido || x.tarifaId || num(x.senal) > 0);
+    const estado = x.estado === "libre" && conDatos ? "reservado" : x.estado;
+    return { ...x, estado, pedido, senal: r2(Math.max(0, num(x.senal))), llegadaEn: estado === "llegado" ? (x.llegadaEn || new Date().toISOString()) : estado === "libre" ? null : x.llegadaEn };
+  };
+  const L = limpio();
+  const C = calcPedido({ ...L, estado: L.estado === "libre" ? "reservado" : L.estado }, cfg);
+  const senal = num(x.senal);
+  const enTaquilla = C.total != null ? r2(Math.max(0, C.total - Math.min(senal, C.total))) : null;
+  const moviendo = destino !== r.id;
+  const cambiado = moviendo || JSON.stringify(L) !== JSON.stringify({ ...r, senal: r2(r.senal || 0), llegadaEn: r.llegadaEn, pedido: pedidoDe(r) ? pedidoLimpio(pedidoForm(pedidoDe(r))) : null });
+  const liberar = () => setX(o => ({ ...o, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: "", senalMetodo: "", promotorId: "", llegadaEn: null, pedido: pedidoForm(null) }));
   const promotor = cfg.promotores.find(p => p.id === x.promotorId);
+  const dest = reservados.find(z => z.id === destino) || r;
+  const sugeridas = (k, base) => [...new Set([...reservados.flatMap(z => (pedidoDe(z)?.botellas || []).map(b => b[k]).filter(Boolean)), ...base])];
+  const seg = (on) => ({ flex: 1, border: "none", borderRadius: 9, padding: "9px 6px", fontWeight: 800, fontSize: 13, cursor: "pointer", background: on ? "var(--accent)" : "transparent", color: on ? "#fff" : "var(--text)" });
+  const mover = !conVentas;
   return (
-    <Hoja title={`Reservado ${r.nombre}`} sub={`${TAMANOS[r.tamano]}${r.personas ? ` · ${r.personas} personas` : ""}`} onClose={onClose}
+    <Hoja title={nueva ? "Nueva reserva" : `Reservado ${dest.nombre}`} sub={nueva ? "Elige el reservado y apunta lo que lleva. Se guarda al momento en todos los equipos." : `${TAMANOS[dest.tamano]}${dest.personas ? ` · caben ${dest.personas}` : ""}`} onClose={onClose}
       footer={<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {puedeCobrar && t && stats && !stats.tarifaCobrada && <button onClick={() => onCobrar(limpio(), t)} style={{ ...R.primary, flex: "2 1 220px", background: "var(--green)", color: "#04231a" }}>💶 Cobrar en taquilla · {money(r2(num(t.precio) - Math.min(num(x.senal), num(t.precio))))}</button>}
-        {onVentaSocio && <button onClick={() => onVentaSocio(limpio())} style={{ ...R.ghost, flex: "1 1 140px", borderColor: "var(--green)", color: "var(--green)" }}>💶 Vender sin ticket</button>}
-        <button onClick={() => onGuardar(limpio())} disabled={!cambiado} style={{ ...R.primary, flex: "1 1 140px", opacity: cambiado ? 1 : .45 }}>Guardar</button>
+        {!nueva && !moviendo && puedeCobrar && C.total != null && stats && !stats.tarifaCobrada && <button onClick={() => onCobrar(L)} style={{ ...R.primary, flex: "2 1 220px", background: "var(--green)", color: "#04231a" }}>💶 Cobrar en taquilla · {money(enTaquilla)}</button>}
+        {!nueva && !moviendo && onVentaSocio && <button onClick={() => onVentaSocio(L)} style={{ ...R.ghost, flex: "1 1 140px", borderColor: "var(--green)", color: "var(--green)" }}>💶 Vender sin ticket</button>}
+        <button onClick={() => onGuardar(L, destino)} disabled={!cambiado} style={{ ...R.primary, flex: "1 1 140px", opacity: cambiado ? 1 : .45 }}>{nueva ? `Guardar en ${dest.nombre}` : moviendo ? `Mover a ${dest.nombre}` : "Guardar"}</button>
       </div>}>
-      <Field label="Estado">
+      <Field label={nueva ? "Reservado" : mover ? "Reservado · toca otro para moverla" : "Reservado"}>
+        <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4, WebkitOverflowScrolling: "touch" }}>
+          {reservados.map(z => { const libre = z.estado === "libre" || z.id === r.id; const on = z.id === destino; const e = ESTADOS[z.id === r.id ? "libre" : z.estado] || ESTADOS.libre; const puede = libre && (mover || z.id === r.id); return (
+            <button key={z.id} disabled={!puede} onClick={() => setDestino(z.id)} aria-pressed={on} style={{ flexShrink: 0, minWidth: 64, textAlign: "center", borderRadius: 12, padding: "8px 10px", cursor: puede ? "pointer" : "default", border: `2px solid ${on ? "var(--accent)" : "var(--line)"}`, background: on ? "rgba(255,90,60,.14)" : "transparent", color: "var(--text)", opacity: puede ? 1 : .35 }}>
+              <div style={{ fontWeight: 900, fontSize: 17 }}>{z.nombre}</div>
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: on ? "var(--accent)" : z.id === r.id || z.estado === "libre" ? e.c : (ESTADOS[z.estado] || e).c }}>{z.id === r.id && !nueva ? "Actual" : z.estado === "libre" ? (z.tamano === "grande" ? "Libre · G" : "Libre") : (ESTADOS[z.estado] || e).t}</div>
+            </button>); })}
+        </div>
+        {conVentas && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Ya tiene ventas esta noche: no se puede mover a otro reservado.</div>}
+      </Field>
+      {!nueva && <Field label="Estado">
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {Object.entries(ESTADOS).map(([k, e]) => <button key={k} onClick={() => set("estado", k)} style={{ ...R.chip, borderColor: x.estado === k ? e.c : "var(--line)", background: x.estado === k ? e.bg : "transparent", color: x.estado === k ? e.c : "var(--text)" }}>{e.t}</button>)}
         </div>
-      </Field>
+      </Field>}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <Field label="Cliente" style={{ flex: "2 1 200px" }}><input value={x.cliente} maxLength={120} onChange={e => set("cliente", e.target.value)} placeholder="Nombre de quien reserva" style={R.input} /></Field>
+        <Field label="Cliente" style={{ flex: "2 1 180px" }}><input value={x.cliente} maxLength={120} onChange={e => set("cliente", e.target.value)} placeholder="Reserva de…" autoFocus={nueva} style={R.input} /></Field>
+        <Field label="Personas" style={{ flex: "0 1 96px" }}><input value={x.pedido.personas} inputMode="numeric" onChange={e => setP("personas", e.target.value.replace(/\D/g, "").slice(0, 3))} placeholder={dest.personas ? String(dest.personas) : "—"} style={{ ...R.input, fontWeight: 800, textAlign: "center" }} /></Field>
         <Field label="Teléfono" style={{ flex: "1 1 140px" }}><input value={x.telefono} maxLength={40} inputMode="tel" onChange={e => set("telefono", e.target.value)} style={R.input} /></Field>
       </div>
-      <Field label="Tarifa reservada">
-        <select value={x.tarifaId || ""} onChange={e => set("tarifaId", e.target.value)} style={R.input}>
-          <option value="">Sin tarifa</option>
-          {cfg.tarifas.map(z => <option key={z.id} value={z.id}>{z.nombre} · {money(z.precio)}</option>)}
-        </select>
-        {t?.incluye && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 5 }}>Incluye: {t.incluye}</div>}
-      </Field>
+
+      <div style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 14, padding: 12, marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+          <div style={{ fontWeight: 800 }}>🍾 Botellas <span style={{ color: "var(--muted)", fontWeight: 700 }}>· {x.pedido.botellas.length}</span></div>
+          <select value={x.tarifaId || ""} onChange={e => set("tarifaId", e.target.value)} aria-label="Tarifa" style={{ ...R.input, width: "auto", maxWidth: "58%", padding: "8px 10px", fontSize: 14 }}>
+            <option value="">Sin tarifa</option>
+            {cfg.tarifas.map(z => <option key={z.id} value={z.id}>{z.nombre} · {money(z.precio)}{z.botellas ? ` · ${z.botellas} bot.` : ""}</option>)}
+          </select>
+        </div>
+        <datalist id="res-bebidas">{sugeridas("bebida", BEBIDAS).map(v => <option key={v} value={v} />)}</datalist>
+        <datalist id="res-mezclas">{sugeridas("mezcla", MEZCLAS).map(v => <option key={v} value={v} />)}</datalist>
+        {C.botellas.map((b, i) => (
+          <div key={b.id} style={{ display: "grid", gridTemplateColumns: x.pedido.precioModo === "botella" ? "1fr 1fr 84px 34px" : "1fr 1fr 34px", gap: 6, alignItems: "center", marginBottom: 6 }}>
+            <input value={x.pedido.botellas[i].bebida} list="res-bebidas" maxLength={60} onChange={e => setB(b.id, { bebida: e.target.value })} placeholder={`Botella ${i + 1}`} aria-label={`Botella ${i + 1}`} style={{ ...R.input, padding: "10px", fontWeight: 700 }} />
+            <input value={x.pedido.botellas[i].mezcla} list="res-mezclas" maxLength={60} onChange={e => setB(b.id, { mezcla: e.target.value })} placeholder="Mezcla" aria-label={`Mezcla de la botella ${i + 1}`} style={{ ...R.input, padding: "10px" }} />
+            {x.pedido.precioModo === "botella" && <input value={x.pedido.botellas[i].precio} inputMode="decimal" onChange={e => setB(b.id, { precio: e.target.value.replace(/[^\d.,]/g, "").slice(0, 8) })} placeholder={b.auto != null ? String(b.auto).replace(".", ",") : "€"} aria-label={`Precio de la botella ${i + 1}`} style={{ ...R.input, padding: "10px 8px", fontWeight: 800, textAlign: "right" }} />}
+            <button onClick={() => delB(b.id)} aria-label={`Quitar la botella ${i + 1}`} style={{ ...R.small, padding: "9px 0", justifyContent: "center", color: "var(--muted)" }}>✕</button>
+          </div>))}
+        <button onClick={addB} style={{ ...R.ghost, width: "100%", padding: "10px", borderStyle: "dashed" }}>+ Añadir botella</button>
+
+        <div style={{ display: "flex", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 12, padding: 3, margin: "12px 0 8px" }}>
+          {[["auto", "Automático"], ["botella", "Por botella"], ["total", "Precio total"]].map(([k, t]) => <button key={k} onClick={() => setP("precioModo", k)} aria-pressed={x.pedido.precioModo === k} style={seg(x.pedido.precioModo === k)}>{t}</button>)}
+        </div>
+        {x.pedido.precioModo === "auto" && <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>
+          {C.tarifa ? <>{C.tarifa.nombre} {money(C.tarifa.precio)}{C.incl ? ` con ${C.incl} botella${C.incl > 1 ? "s" : ""}` : ""}</> : "Sin tarifa"}
+          {Math.max(0, C.botellas.length - C.incl) > 0 && (C.pExtra != null ? <> + {Math.max(0, C.botellas.length - C.incl)} × {money(C.pExtra)} (botella extra)</> : <span style={{ color: "var(--amber)", fontWeight: 700 }}> · no hay precio de botella extra en Configuración: pon el precio por botella o el total</span>)}
+        </div>}
+        {x.pedido.precioModo === "botella" && <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Escribe el precio de cada botella. Si lo dejas vacío se usa el automático.</div>}
+        {x.pedido.precioModo === "total" && <Field label="Precio total del reservado (€)" style={{ marginBottom: 0 }}><input value={x.pedido.total} inputMode="decimal" onChange={e => setP("total", e.target.value.replace(/[^\d.,]/g, "").slice(0, 8))} placeholder="0,00" style={{ ...R.input, fontWeight: 900, fontSize: 20 }} /></Field>}
+        <div style={{ borderTop: "1px solid var(--line)", marginTop: 10, paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+          <b>Total reserva</b><b style={{ fontSize: 24 }}>{C.total != null ? money(C.total) : "—"}</b>
+        </div>
+      </div>
+
       <div style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 14, padding: "12px 12px 2px", marginBottom: 12 }}>
         <div style={{ fontWeight: 800, marginBottom: 8 }}>Señal pagada al promotor</div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <Field label="Importe (€)" style={{ flex: "1 1 110px" }}><input value={x.senal} inputMode="decimal" onChange={e => set("senal", e.target.value.replace(/[^\d.,]/g, "").slice(0, 8))} placeholder="0,00" style={{ ...R.input, fontWeight: 800 }} /></Field>
-          <Field label="Cómo la pagó" style={{ flex: "1 1 130px" }}><select value={x.senalMetodo || ""} onChange={e => set("senalMetodo", e.target.value)} style={R.input}><option value="">—</option>{Object.entries(METODOS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
-          <Field label="Promotor" style={{ flex: "1 1 150px" }}><select value={x.promotorId || ""} onChange={e => set("promotorId", e.target.value)} style={R.input}><option value="">—</option>{cfg.promotores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select></Field>
+          <Field label="Importe (€)" style={{ flex: "1 1 100px" }}><input value={x.senal} inputMode="decimal" onChange={e => set("senal", e.target.value.replace(/[^\d.,]/g, "").slice(0, 8))} placeholder="0,00" style={{ ...R.input, fontWeight: 800 }} /></Field>
+          <Field label="Cómo la pagó" style={{ flex: "1 1 120px" }}><select value={x.senalMetodo || ""} onChange={e => set("senalMetodo", e.target.value)} style={R.input}><option value="">—</option>{Object.entries(METODOS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+          <Field label="Promotor" style={{ flex: "1 1 140px" }}><select value={x.promotorId || ""} onChange={e => set("promotorId", e.target.value)} style={R.input}><option value="">—</option>{cfg.promotores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select></Field>
         </div>
-        {t && num(x.senal) > 0 && stats?.tarifaCobrada && <div style={{ fontSize: 13, marginBottom: 10, color: "var(--green)", fontWeight: 700 }}>✓ Tarifa cobrada en taquilla con la señal ya descontada.</div>}
-        {t && num(x.senal) > 0 && !stats?.tarifaCobrada && <div style={{ fontSize: 13, marginBottom: 10 }}>En taquilla pagará <b style={{ color: "var(--accent)" }}>{money(r2(num(t.precio) - Math.min(num(x.senal), num(t.precio))))}</b> ({money(t.precio)} − {money(num(x.senal))} de señal){promotor?.telefono ? <> · <a href={`tel:${promotor.telefono.replace(/[^\d+]/g, "")}`} style={{ color: "var(--muted)" }}>llamar a {promotor.nombre}</a></> : null}</div>}
+        {C.total != null && senal > 0 && stats?.tarifaCobrada && <div style={{ fontSize: 13, marginBottom: 10, color: "var(--green)", fontWeight: 700 }}>✓ Cobrado en taquilla con la señal ya descontada.</div>}
+        {C.total != null && !stats?.tarifaCobrada && <div style={{ fontSize: 13, marginBottom: 10 }}>En taquilla pagará <b style={{ color: "var(--accent)" }}>{money(enTaquilla)}</b>{senal > 0 ? ` (${money(C.total)} − ${money(senal)} de señal)` : ""}{promotor?.telefono ? <> · <a href={`tel:${promotor.telefono.replace(/[^\d+]/g, "")}`} style={{ color: "var(--muted)" }}>llamar a {promotor.nombre}</a></> : null}</div>}
       </div>
       <Field label="Nota"><input value={x.nota} maxLength={500} onChange={e => set("nota", e.target.value)} placeholder="Cumpleaños, bengalas a las 2:00…" style={R.input} /></Field>
-      {x.telefono && <div style={{ marginBottom: 12 }}><a href={`https://wa.me/${x.telefono.replace(/[^\d]/g, "").replace(/^(?=[67]\d{8}$)/, "34")}?text=${encodeURIComponent(`Hola ${x.cliente || ""}, te escribimos de ${ev.name} sobre tu reservado ${r.nombre}.`)}`} target="_blank" rel="noopener noreferrer" style={{ ...R.small, textDecoration: "none", color: "#22d3a6" }}>💬 WhatsApp a {x.cliente || "el cliente"}</a></div>}
+      {x.telefono && <div style={{ marginBottom: 12 }}><a href={`https://wa.me/${x.telefono.replace(/[^\d]/g, "").replace(/^(?=[67]\d{8}$)/, "34")}?text=${encodeURIComponent(`Hola ${x.cliente || ""}, te escribimos de ${ev.name} sobre tu reservado ${dest.nombre}.`)}`} target="_blank" rel="noopener noreferrer" style={{ ...R.small, textDecoration: "none", color: "#22d3a6" }}>💬 WhatsApp a {x.cliente || "el cliente"}</a></div>}
 
-      <div style={{ fontWeight: 800, margin: "6px 0 4px" }}>Esta noche · 🍾 {stats?.botellas || 0} botellas · {money(stats?.total || 0)}</div>
-      {stats?.lineas.length ? stats.lineas.map(v => (
-        <div key={v.clientUuid} style={{ ...R.row, fontSize: 13.5 }}>
-          <span style={{ color: "var(--muted)", width: 44 }}>{hora(v.ts)}</span>
-          <span style={{ flex: 1, minWidth: 0 }}>{v.nombre}{v.botellas ? ` · ${v.botellas} bot.` : ""}{v.senal > 0 ? ` · señal −${money(v.senal)}` : ""}</span>
-        </div>)) : <div style={{ color: "var(--muted)", fontSize: 13, padding: "6px 0 10px" }}>Aún no ha comprado nada.</div>}
-      {r.estado !== "libre" && <button onClick={liberar} style={{ ...R.small, marginTop: 10, color: "var(--muted)" }}>Dejar libre (borra cliente y señal)</button>}
-      {!puedeCobrar && t && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>El cobro en taquilla se hace desde los puntos de venta de reservados, no desde {puntoNombre}.</div>}
+      {!nueva && <>
+        <div style={{ fontWeight: 800, margin: "6px 0 4px" }}>Esta noche · 🍾 {stats?.botellas || 0} botellas · {money(stats?.total || 0)}</div>
+        {stats?.lineas.length ? stats.lineas.map(v => (
+          <div key={v.clientUuid} style={{ ...R.row, fontSize: 13.5 }}>
+            <span style={{ color: "var(--muted)", width: 44 }}>{hora(v.ts)}</span>
+            <span style={{ flex: 1, minWidth: 0 }}>{v.nombre}{v.botellas ? ` · ${v.botellas} bot.` : ""}{v.senal > 0 ? ` · señal −${money(v.senal)}` : ""}</span>
+          </div>)) : <div style={{ color: "var(--muted)", fontSize: 13, padding: "6px 0 10px" }}>Aún no ha comprado nada.</div>}
+        {r.estado !== "libre" && <button onClick={liberar} style={{ ...R.small, marginTop: 10, color: "var(--muted)" }}>Dejar libre (borra la reserva)</button>}
+        {!puedeCobrar && C.total != null && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>El cobro en taquilla se hace desde los puntos de venta de reservados, no desde {puntoNombre}.</div>}
+      </>}
     </Hoja>
   );
 }
@@ -509,7 +645,9 @@ export function VentaSocio({ ev, res, sales, fijo, defCaja, onVender, onClose })
   const [comprobando, setComprobando] = useState(false);
   const acceso = secretoDe(ev, "admin"); const esClave = acceso.tipo === "clave";
   const r = sel ? res.reservados.find(x => x.id === sel) : null;
-  const item = items.find(x => x.id === itemId);
+  const deReserva = r ? itemPedido(r, cfg) : null;
+  const lista = deReserva ? [{ ...deReserva, id: "__reserva" }, ...items] : items;
+  const item = lista.find(x => x.id === itemId);
   const cobro = r && item?.tipo === "tarifa" ? cobroTarifa(r, item, res.ventas, porUuid) : null;
   const precio = item ? (cobro ? cobro.aCobrar : r2(num(item.precio))) : 0;
   const cajaObj = cajas.find(p => p.id === caja);
@@ -546,9 +684,9 @@ export function VentaSocio({ ev, res, sales, fijo, defCaja, onVender, onClose })
             </button>); })}
         </div>}
       {paso(2, "Qué se vende")}
-      {items.length === 0 ? <div style={{ color: "var(--muted)", fontSize: 13 }}>No hay tarifas ni extras configurados.</div> :
+      {lista.length === 0 ? <div style={{ color: "var(--muted)", fontSize: 13 }}>No hay tarifas ni extras configurados, ni reserva apuntada en este reservado.</div> :
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {items.map(it => <button key={it.id} onClick={() => { setItemId(it.id); setErr(""); }} style={chip(itemId === it.id)}>{it.emoji || (it.tipo === "tarifa" ? "🛋️" : "🍾")} {it.nombre} · {money(it.precio)}</button>)}
+          {lista.map(it => <button key={it.id} onClick={() => { setItemId(it.id); setErr(""); }} style={chip(itemId === it.id)}>{it.id === "__reserva" ? `⭐ Su reserva · ${it.nombre}` : `${it.emoji || (it.tipo === "tarifa" ? "🛋️" : "🍾")} ${it.nombre}`} · {money(it.precio)}</button>)}
         </div>}
       {cobro && cobro.senal > 0 && <div style={{ fontSize: 13, marginTop: 8, color: "var(--green)", fontWeight: 700 }}>Se descuenta la señal: {money(cobro.total)} − {money(cobro.senal)} = {money(cobro.aCobrar)}</div>}
       {cobro?.yaCobrada && <div style={{ fontSize: 13, marginTop: 8, color: "var(--amber)", fontWeight: 700 }}>⚠️ Este reservado ya tiene una tarifa cobrada.</div>}
@@ -581,8 +719,8 @@ export function InformeReservados({ ev, res, sales, isMobile }) {
   const csv = () => {
     const cell = (v) => { let x = String(v ?? "").replace(/[;\r\n]+/g, " "); if (/^[=+\-@\t]/.test(x) && !/^-?\d+([.,]\d+)?$/.test(x)) x = "'" + x; return x; };
     const n2 = (v) => String(r2(v)).replace(".", ",");
-    const rows = [["Reservado", "Tamaño", "Estado", "Cliente", "Teléfono", "Tarifa", "Señal", "Pago señal", "Promotor", "Llegada", "Botellas", "Cobrado en TPV", "Total"]]
-      .concat(filas.map(f => [f.r.nombre, TAMANOS[f.r.tamano], ESTADOS[f.r.estado]?.t, f.r.cliente, f.r.telefono, f.t?.nombre || "", n2(f.r.senal || 0), METODOS[f.r.senalMetodo] || "", f.p?.nombre || "", f.r.llegadaEn ? hora(f.r.llegadaEn) : "", f.s.botellas, n2(f.s.cobrado), n2(f.s.total)]));
+    const rows = [["Reservado", "Tamaño", "Estado", "Cliente", "Teléfono", "Personas", "Tarifa", "Botellas reservadas", "Precio reserva", "Señal", "Pago señal", "Promotor", "Llegada", "Botellas", "Cobrado en TPV", "Total"]]
+      .concat(filas.map(f => { const P = calcPedido(f.r, cfg); return [f.r.nombre, TAMANOS[f.r.tamano], ESTADOS[f.r.estado]?.t, f.r.cliente, f.r.telefono, P.personas ?? "", f.t?.nombre || "", P.desc, P.total != null && f.r.estado !== "libre" ? n2(P.total) : "", n2(f.r.senal || 0), METODOS[f.r.senalMetodo] || "", f.p?.nombre || "", f.r.llegadaEn ? hora(f.r.llegadaEn) : "", f.s.botellas, n2(f.s.cobrado), n2(f.s.total)]; }));
     const blob = new Blob(["﻿" + rows.map(r => r.map(cell).join(";")).join("\r\n")], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `reservados_${ev.name.replace(/[^\w-]+/g, "_")}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   };

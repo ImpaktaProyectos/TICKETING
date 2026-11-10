@@ -4,7 +4,7 @@ import { uid } from "./supabase";
 import { logout } from "./auth";
 import * as db from "./db";
 import { secretoDe, estadoDe, comprobar as comprobarPin, crearHuella, problema as problemaPin, fuerza as fuerzaPin, disponible as cifradoDisponible } from "./pin";
-import { useReservados, LineaReservados, CobrarReservado, ReservadosVista, InformeReservados, copiarReservados, resCfg, VentaSocio, efectivoSocios } from "./reservados";
+import { useReservados, LineaReservados, CobrarReservado, ReservadosVista, InformeReservados, copiarReservados, resCfg, VentaSocio, efectivoSocios, calcPedido } from "./reservados";
 import { nextFolios, prefijoDePunto, peekFolio, getDeviceTag, resetFolios, seedFolio } from "./folio";
 import QrCodigo from "./qr/QrCodigo";
 import { crearToken } from "./qr/token";
@@ -43,7 +43,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.08i";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.10a";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -669,6 +669,13 @@ export default function App() {
   const notasRes = ({ item, reservado, precio, cobro }) => {
     const n = [];
     if (resCfg(ev).lineaTicket) n.push({ t: `RESERVADO ${reservado.nombre}`.toUpperCase(), b: true });
+    // Lo que lleva la reserva (para que la barra sepa qué sacar): «2× ABSOLUT + COCA-COLA»
+    if (item.pedido) {
+      const P = calcPedido(res.reservados.find(x => x.id === reservado.id) || reservado, resCfg(ev)); const m = new Map();
+      P.botellas.forEach(b => { const k = [b.bebida || "Botella", b.mezcla].filter(Boolean).join(" + "); m.set(k, (m.get(k) || 0) + 1); });
+      m.forEach((c, k) => n.push({ t: `${c}x ${k}`.toUpperCase().slice(0, 42) }));
+      if (P.personas != null) n.push({ t: `${P.personas} personas` });
+    }
     if (cobro && cobro.senal > 0) { n.push({ t: `Total ${money(cobro.total)}` }); n.push({ t: `Señal pagada -${money(cobro.senal)}` }); n.push({ t: `Pagado ahora ${money(precio)}` }); }
     return n;
   };
@@ -695,7 +702,8 @@ export default function App() {
   const enlazarRes = ({ item, reservado, precio, cobro }, cu) => {
     const actual = res.reservados.find(x => x.id === reservado.id) || reservado;
     const tarifa = item.tipo === "tarifa";
-    if (actual.estado !== "llegado" || (tarifa && actual.tarifaId !== item.id)) res.guardar({ ...actual, estado: "llegado", tarifaId: tarifa ? item.id : actual.tarifaId, llegadaEn: actual.llegadaEn || new Date().toISOString() });
+    const esTarifaReal = tarifa && resCfg(ev).tarifas.some(t => t.id === item.id);
+    if (actual.estado !== "llegado" || (esTarifaReal && actual.tarifaId !== item.id)) res.guardar({ ...actual, estado: "llegado", tarifaId: esTarifaReal ? item.id : actual.tarifaId, llegadaEn: actual.llegadaEn || new Date().toISOString() });
     res.enlazar({ clientUuid: cu, reservadoId: reservado.id, tipo: tarifa ? "tarifa" : "extra", itemId: item.id, nombre: item.nombre, botellas: Number(item.botellas) || 0, total: tarifa ? cobro.total : precio, senal: tarifa ? cobro.senal : 0 }).then(r => { if (r?.offline) setPending(db.pendingCount()); });
   };
   // Venta de un socio desde el móvil: sin ticket, a la caja que elija, con efectivo/tarjeta y PIN de admin
@@ -984,28 +992,29 @@ export default function App() {
             <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={{ ...S.select, ...S.mSelect, flex: 1, minWidth: 0 }}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn} aria-label="Menú"><Ic n="menu" /></button>
           </header>
-          <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
+          <div style={{ padding: 12, paddingBottom: safeView === "reservados" ? 0 : 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
             {avisoPin}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: "10px 12px 10px 14px" }}>
+            {safeView !== "reservados" && <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: "10px 12px 10px 14px" }}>
               <div style={{ minWidth: 0 }}><div style={S.miniLabel}>Barra activa</div><div style={{ fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 6 }}><span style={{ color: "var(--accent)" }}><Ic n="store" s={14} w={2.2} /></span>{punto.name}</div></div>
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
                 <div style={{ textAlign: "right" }}><div style={S.miniLabel}>Tickets</div><div style={{ fontWeight: 800, fontSize: 18, lineHeight: 1.1 }}>{totals.count}</div></div>
                 <button onClick={verFacturacion} style={{ ...S.iconBtn, color: "var(--accent)" }} aria-label="Consultar facturación"><Ic n="euro" /></button>
               </div>
-            </div>
+            </div>}
             {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
-            {safeView === "reservados" && vistaRes()}
+            {safeView === "reservados" && vistaRes({ onCerrar: () => setView("pos") })}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
             {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
             {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
             {safeView === "reports" && <InformeReservados ev={ev} res={res} sales={evSales} isMobile={isMobile} />}
             {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
           </div>
-          <nav style={S.bottomNav}>
+          {/* En Reservados la barra de abajo se quita: toda la pantalla para trabajar; se vuelve con «← Volver al TPV» o el menú */}
+          {safeView !== "reservados" && <nav style={S.bottomNav}>
             {navItems.map(n => <button key={n.id} aria-current={safeView === n.id ? "page" : undefined} onClick={() => goNav(n.id)} style={{ ...S.bTab, ...(safeView === n.id ? S.bTabActive : {}) }}>
               <span style={{ ...S.bTabIco, ...(safeView === n.id ? S.bTabIcoActive : {}) }}><Ic n={n.icon} s={21} w={safeView === n.id ? 2.2 : 1.9} /></span>{n.label}
             </button>)}
-          </nav>
+          </nav>}
         </div>
       ) : (
         <div style={{ display: "flex", height: "100%" }}>
@@ -1041,7 +1050,7 @@ export default function App() {
             <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
               {avisoPin}
               {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
-              {safeView === "reservados" && vistaRes()}
+              {safeView === "reservados" && vistaRes({ onCerrar: () => setView("pos") })}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
               {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
               {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
