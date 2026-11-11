@@ -397,7 +397,8 @@ export async function savePrevision(eventoId, datos) {
 const sinAcentos = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "");
 export const slugDe = (t) => sinAcentos(t).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50) || "evento";
 export const FORM_DEF = { telefono: "no", dni: "no", nacimiento: "no", cp: "no", direccion: "no", ciudad: "no", genero: "no", dni_asistente: "no" };
-export const AVISOS_DEF = { activo: true, umbralPct: 15, umbralN: "", mostrarVendido: true, siguientePrecio: true };
+export { AVISOS_DEF } from "../web/avisos";
+import { AVISOS_DEF } from "../web/avisos";
 export const DISENO_DEF = { color: "#ff5a3c", fondo: "oscuro", fondoFlyer: true, letra: "inter" };
 
 export async function webListar() {

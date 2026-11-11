@@ -3,6 +3,7 @@
 // (/o/<organización>) y las páginas de sus eventos (/e/<evento>). Se paga todo de una vez:
 // un formulario, una compra (web_comprar_varios: todo o nada) y un «Mis entradas».
 // Los precios que se ven aquí son orientativos: el total lo calcula siempre el servidor.
+import { avisosDe } from "./avisos";
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "../supabase";
@@ -146,7 +147,7 @@ export function ElegirEntradas({ slug, carrito, T, onClose, previa }) {
       {ev && <>
         <div style={{ color: "var(--muted)", fontWeight: 700, marginBottom: 12 }}>{cap(fecha(ev.inicio || ev.fecha))}{ev.recinto ? ` · ${ev.recinto}` : ""}</div>
         {tramos.length === 0 && <div style={card}>Aún no hay entradas a la venta.</div>}
-        {tramos.map((t, i) => <Tramo key={t.id} t={t} sig={tramos.slice(i + 1).find(x => x.estado === "proximo")} avisos={ev.avisos || {}} n={carrito.de(slug, t.id)} T={T} onN={(n) => carrito.poner(ev, t, n)} />)}
+        {tramos.map((t, i) => <Tramo key={t.id} t={t} sig={tramos.slice(i + 1).find(x => x.estado === "proximo")} avisos={avisosDe(ev.avisos)} n={carrito.de(slug, t.id)} T={T} onN={(n) => carrito.poner(ev, t, n)} />)}
         <a href={`/e/${slug}`} style={{ display: "block", textAlign: "center", color: "var(--muted)", fontWeight: 800, marginTop: 6 }}>Ver toda la información del evento</a>
       </>}
     </Hoja>

@@ -1,6 +1,6 @@
 // ===================== PIEZAS COMUNES DE LAS PÁGINAS PÚBLICAS =====================
 // Página del evento, microsite de la organización, carrito y «Mis entradas».
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { base32, hexToBytes, QR_PREFIJO } from "../qr/token";
 
@@ -101,18 +101,20 @@ export const Linea = ({ ico, children }) => (
 );
 
 /* ---------- Un tramo ---------- */
-export function Tramo({ t, sig, avisos, n, T, onN }) {
+export function Tramo({ t, sig, avisos, n, T, onN, offset = 0, top = false, onFin }) {
   const venta = t.estado === "venta";
+  const modo = avisos.modoQuedan || "pocas";
   const max = Math.max(0, Math.min(t.max_por_compra || 10, t.quedan ?? 99));
   const pctVend = t.cantidad ? Math.round((1 - (t.quedan ?? 0) / t.cantidad) * 100) : null;
   const umbralN = parseInt(avisos.umbralN, 10);
-  const pocas = venta && avisos.activo !== false && t.cantidad && t.quedan != null && t.quedan > 0 &&
+  const pocas = venta && avisos.activo !== false && modo !== "porcentaje" && t.cantidad && t.quedan != null && t.quedan > 0 &&
     ((Number.isFinite(umbralN) && t.quedan <= umbralN) || t.quedan / t.cantidad * 100 <= (avisos.umbralPct ?? 15));
   const etiqueta = t.estado === "agotado" ? "Agotado" : t.estado === "finalizado" ? "Finalizado" : t.estado === "proximo" ? (t.venta_inicio ? `Desde el ${fecha(t.venta_inicio)}` : "Próximamente") : null;
   return (
     <div style={{ ...card, marginBottom: 10, display: "flex", flexDirection: "column", gap: 10, opacity: venta ? 1 : .6, borderColor: n ? "var(--c)" : "var(--line)", boxShadow: n ? "0 0 0 1px var(--c)" : "none" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
+          {top && venta && <div style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "color-mix(in srgb, var(--c) 18%, transparent)", color: "var(--c)", borderRadius: 30, padding: "3px 10px", fontWeight: 900, fontSize: 12, marginBottom: 6 }}>★ El más elegido</div>}
           <div style={{ fontWeight: 900, fontSize: 18, textDecoration: t.estado === "agotado" ? "line-through" : "none" }}>{t.nombre}</div>
           {t.descripcion && <div style={{ color: "var(--muted)", fontSize: 14, marginTop: 2 }}>{t.descripcion}</div>}
           {t.copas > 0 && <div style={{ color: "var(--muted)", fontSize: 14, marginTop: 2 }}>Incluye {t.copas} {t.copas === 1 ? "copa" : "copas"}</div>}
@@ -121,7 +123,10 @@ export function Tramo({ t, sig, avisos, n, T, onN }) {
       </div>
       {pocas && <div className="pub-pulso" style={{ alignSelf: "flex-start", background: "var(--c)", color: T.tinta, borderRadius: 30, padding: "5px 12px", fontWeight: 900, fontSize: 13 }}>
         {Number.isFinite(umbralN) && t.quedan <= umbralN ? `¡Últimas ${t.quedan} entradas!` : "¡Quedan pocas!"}</div>}
-      {venta && avisos.mostrarVendido !== false && pctVend != null && pctVend >= 30 && (
+      {venta && modo === "exacto" && t.cantidad && t.quedan != null && t.quedan > 0 && (
+        <div style={{ fontSize: 14, fontWeight: 800 }}>Quedan <Cifra v={t.quedan} c="var(--c)" /> de {t.cantidad} a este precio</div>)}
+      {venta && avisos.cuentaTramo !== false && t.venta_fin && <RelojTramo hasta={t.venta_fin} offset={offset} onFin={onFin} />}
+      {venta && (avisos.mostrarVendido !== false || modo === "porcentaje") && pctVend != null && pctVend >= (modo === "porcentaje" ? 10 : 30) && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, fontWeight: 800, color: "var(--muted)" }}>
           <span style={{ flex: 1, height: 6, borderRadius: 6, background: "var(--card2)", overflow: "hidden" }}><span style={{ display: "block", height: "100%", width: `${pctVend}%`, background: "var(--c)" }} /></span>{pctVend} % vendido
         </div>)}
@@ -138,6 +143,72 @@ export function Tramo({ t, sig, avisos, n, T, onN }) {
   );
 }
 export const stepBtn = { width: 44, height: 44, borderRadius: 12, border: "1px solid var(--line)", background: "var(--card2)", color: "var(--text)", fontSize: 24, fontWeight: 800, cursor: "pointer", lineHeight: 1, fontFamily: "inherit" };
+
+/* ---------- Técnicas de venta (siempre con datos reales) ---------- */
+// Número que «cae» con una pequeña animación cada vez que cambia (p. ej. al venderse una entrada)
+export function Cifra({ v, c }) {
+  const [k, setK] = useState(0); const prev = useRef(v);
+  useEffect(() => { if (prev.current !== v) { prev.current = v; setK(x => x + 1); } }, [v]);
+  return <b key={k} className={k ? "pub-tick" : ""} style={{ color: c, fontVariantNumeric: "tabular-nums" }}>{v}</b>;
+}
+// Reloj hasta que acaba el precio del tramo (su fin de venta real). Solo los últimos 7 días.
+export function RelojTramo({ hasta, offset = 0, onFin }) {
+  const [ahora, setAhora] = useState(Date.now() + offset);
+  useEffect(() => { const t = setInterval(() => setAhora(Date.now() + offset), 1000); return () => clearInterval(t); }, [offset]);
+  const ms = new Date(hasta).getTime() - ahora;
+  useEffect(() => { if (ms <= 0 && onFin) { const t = setTimeout(onFin, 1200); return () => clearTimeout(t); } }, [ms <= 0]);
+  if (!(ms > 0) || ms > 7 * 864e5) return null;
+  const s = Math.floor(ms / 1000), d = Math.floor(s / 86400), p = (x) => String(x).padStart(2, "0");
+  const txt = `${d ? `${d} d ` : ""}${p(Math.floor(s % 86400 / 3600))}:${p(Math.floor(s % 3600 / 60))}:${p(s % 60)}`;
+  return <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 800 }}>
+    <span aria-hidden="true">⏱</span><span>Este precio acaba en <b style={{ color: "var(--c)", fontVariantNumeric: "tabular-nums" }}>{txt}</b></span>
+  </div>;
+}
+const haceTxt = (s) => (s < 90 ? "ahora mismo" : s < 3600 ? `hace ${Math.round(s / 60)} min` : s < 86400 ? `hace ${Math.round(s / 3600)} h` : "ayer");
+// Avisos discretos de compras reales recientes («Alguien ha comprado 2 entradas · hace 3 min»). Sin nombres.
+export function AvisosCompra({ social, servidor, offset = 0, T }) {
+  const vistos = useRef(new Set()); const n = useRef(0);
+  const [actual, setActual] = useState(null);
+  const lista = useMemo(() => {
+    const base = new Date(servidor || Date.now()).getTime();
+    return (social?.recientes || []).filter(r => r && r.n > 0 && r.hace < 72 * 3600).map(r => ({ ...r, en: base - r.hace * 1000, clave: `${Math.round((base - r.hace * 1000) / 1000)}-${r.n}-${r.tramo || ""}` }));
+  }, [social, servidor]);
+  const listaRef = useRef(lista); listaRef.current = lista;
+  useEffect(() => {
+    let vivo = true, t1, t2;
+    const siguiente = () => {
+      if (!vivo || n.current >= 5 || document.visibilityState === "hidden") { t1 = setTimeout(siguiente, 15000); return; }
+      const r = listaRef.current.find(x => !vistos.current.has(x.clave));
+      if (r) { vistos.current.add(r.clave); n.current++; setActual(r); t2 = setTimeout(() => vivo && setActual(null), 6500); }
+      t1 = setTimeout(siguiente, r ? 16000 + Math.random() * 8000 : 12000);
+    };
+    t1 = setTimeout(siguiente, 7000);
+    return () => { vivo = false; clearTimeout(t1); clearTimeout(t2); };
+  }, []);
+  if (!actual) return null;
+  const s = Math.max(0, (Date.now() + offset - actual.en) / 1000);
+  return (
+    <div role="status" aria-live="polite" className="pub-noti" onClick={() => setActual(null)}
+      style={{ position: "fixed", zIndex: 25, left: 12, bottom: "calc(96px + env(safe-area-inset-bottom))", maxWidth: "min(340px, calc(100vw - 24px))", display: "flex", alignItems: "center", gap: 10, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 14, padding: "10px 14px", boxShadow: "0 16px 40px -12px rgba(0,0,0,.5)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", cursor: "pointer", fontSize: 13.5 }}>
+      <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: 10, display: "grid", placeItems: "center", background: "var(--c)", color: T?.tinta || "#fff", fontWeight: 900, flexShrink: 0 }}>✓</span>
+      <span style={{ lineHeight: 1.3 }}><b>Alguien{actual.ciudad ? ` de ${actual.ciudad}` : ""}</b> ha comprado {actual.n} {actual.n === 1 ? "entrada" : "entradas"}{actual.tramo ? ` · ${actual.tramo}` : ""}<br /><span style={{ color: "var(--muted)", fontSize: 12.5 }}>{haceTxt(s)}</span></span>
+    </div>
+  );
+}
+// Franja de datos reales encima de las entradas: vendidas en 24 h, total y cuenta atrás al evento
+export function PruebaSocial({ ev, avisos, offset = 0 }) {
+  const so = ev.social || {}; const items = [];
+  if (avisos.vendidas24 && so.h24 >= 5) items.push(["🔥", <><b>{so.h24}</b> entradas vendidas en las últimas 24 h</>]);
+  const min = parseInt(avisos.minTotal, 10);
+  if (avisos.totalVendidas && so.total >= (Number.isFinite(min) ? min : 50)) items.push(["👥", <>Ya van <b>{so.total}</b> personas con entrada</>]);
+  const ini = new Date(ev.inicio || (ev.fecha ? ev.fecha + "T22:00" : "")).getTime(), falta = ini - (Date.now() + offset);
+  if (avisos.cuentaEvento && falta > 0 && falta < 31 * 864e5) { const d = Math.floor(falta / 864e5), h = Math.floor(falta % 864e5 / 36e5);
+    items.push(["⏳", d >= 1 ? <>Faltan <b>{d} {d === 1 ? "día" : "días"}</b>{d < 3 && h ? ` y ${h} h` : ""}</> : <>¡Es <b>hoy</b>! Faltan {h ? `${h} h` : "minutos"}</>]); }
+  if (!items.length) return null;
+  return <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+    {items.map(([i, t], k) => <div key={k} style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 12, padding: "9px 12px", fontSize: 14 }}><span aria-hidden="true">{i}</span><span>{t}</span></div>)}
+  </div>;
+}
 
 /* ---------- Cuenta atrás de lanzamiento ---------- */
 export function CuentaAtras({ hasta, offset, color, onFin }) {
@@ -203,7 +274,11 @@ body{margin:0}
 .pub-pulso{animation:pubPulso 1.6s ease-in-out infinite}
 @keyframes pubKb{from{transform:scale(1.1)}to{transform:scale(1)}}
 .pub-kb{animation:pubKb 9s ease-out both}
-@media (prefers-reduced-motion:reduce){.pub-pulso,.pub-kb{animation:none}}
+@keyframes pubTick{0%{transform:translateY(-35%);opacity:.2}100%{transform:none;opacity:1}}
+.pub-tick{display:inline-block;animation:pubTick .45s ease-out}
+@keyframes pubNoti{from{transform:translateY(16px);opacity:0}to{transform:none;opacity:1}}
+.pub-noti{animation:pubNoti .35s ease-out both}
+@media (prefers-reduced-motion:reduce){.pub-pulso,.pub-kb,.pub-tick,.pub-noti{animation:none}}
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--c);outline-offset:2px}
 `;
 

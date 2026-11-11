@@ -4,8 +4,9 @@
 // No necesita sesión. Solo habla con las funciones públicas del servidor (nunca con las tablas).
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
+import { avisosDe } from "./avisos";
 import QrCodigo from "../qr/QrCodigo";
-import { textoQR, money, eur, fecha, hora, tema, Mensaje, MIS, cap, reducido, Diapositivas, Galeria, card, btn, Chip, Aviso, Linea, Tramo, CuentaAtras, CAMPOS, ERRORES, lbl, inpP, Campo, Check, CSS_PUB, InfoPrivacidad, PRIVACIDAD_VERSION } from "./comun";
+import { textoQR, money, eur, fecha, hora, tema, Mensaje, MIS, cap, reducido, Diapositivas, Galeria, card, btn, Chip, Aviso, Linea, Tramo, CuentaAtras, AvisosCompra, PruebaSocial, CAMPOS, ERRORES, lbl, inpP, Campo, Check, CSS_PUB, InfoPrivacidad, PRIVACIDAD_VERSION } from "./comun";
 export { textoQR } from "./comun";
 import { useCarrito, BarraCarrito, HojaCarrito, ElegirEntradas, CompraVarios } from "./Carrito";
 import PaginaOrganizacion, { MasFiestas } from "./Microsite";
@@ -36,7 +37,14 @@ function PaginaEvento({ slug }) {
       setEv(data || null); setError(false);
     } catch { setError(true); }
   };
-  useEffect(() => { cargar(); const t = setInterval(cargar, 60000); return () => clearInterval(t); }, [slug]);
+  // En directo: cada 20 s mientras la página está a la vista (las cifras de lo que queda bajan con cada venta real)
+  useEffect(() => {
+    cargar();
+    const t = setInterval(() => { if (document.visibilityState !== "hidden") cargar(); }, 20000);
+    const vis = () => { if (document.visibilityState === "visible") cargar(); };
+    document.addEventListener("visibilitychange", vis);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", vis); };
+  }, [slug]);
   useEffect(() => { if (ev?.nombre) document.title = `${ev.nombre} · Entradas`; }, [ev?.nombre]);
 
   if (ev === undefined && !error) return <Mensaje titulo="Cargando…" />;
@@ -69,6 +77,9 @@ export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, pre
   const lanzamiento = ev.venta_inicio && new Date(ev.venta_inicio).getTime() > ahora;
   const tramos = ev.tramos || [];
   const enVenta = tramos.filter(t => t.estado === "venta");
+  const av = avisosDe(ev.avisos);
+  // «El más elegido»: el tramo en venta con más ventas (mínimo 5), si hay más de uno a elegir
+  const topId = av.masVendido && enVenta.length > 1 ? (() => { const m = [...enVenta].sort((a, b) => (b.vendidas || 0) - (a.vendidas || 0))[0]; return (m?.vendidas || 0) >= 5 ? m.id : null; })() : null;
   const cant = conCarrito ? Object.fromEntries(tramos.map(t => [t.id, carrito.de(ev.slug, t.id)])) : cantLocal;
   const ponerN = (t, n) => conCarrito ? carrito.poner(ev, t, n) : setCant(c => ({ ...c, [t.id]: n }));
   const total = tramos.reduce((s, t) => s + (cant[t.id] || 0) * Number(t.precio), 0);
@@ -122,12 +133,13 @@ export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, pre
         : paso === "elegir" ? (<>
           <h2 style={{ fontSize: 24, margin: "0 0 12px", fontWeight: 900 }}>Entradas</h2>
           {tramos.length === 0 && <div style={card}>Aún no hay entradas a la venta.</div>}
-          {tramos.map((t, i) => <Tramo key={t.id} t={t} sig={tramos.slice(i + 1).find(x => x.estado === "proximo")} avisos={ev.avisos || {}} n={cant[t.id] || 0} T={T}
-            onN={(n) => ponerN(t, n)} />)}
+          <PruebaSocial ev={ev} avisos={av} offset={offset} />
+          {tramos.map((t, i) => <Tramo key={t.id} t={t} sig={tramos.slice(i + 1).find(x => x.estado === "proximo")} avisos={av} n={cant[t.id] || 0} T={T}
+            offset={offset} top={t.id === topId} onFin={onRecargar} onN={(n) => ponerN(t, n)} />)}
           {enVenta.length === 0 && tramos.length > 0 && <div style={{ ...card, marginTop: 8, fontWeight: 700 }}>Ahora mismo no hay entradas a la venta.</div>}
-          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", justifyContent: "center", fontSize: 12.5, color: "var(--muted)", fontWeight: 700, marginTop: 6 }}>
-            <span>✓ Entrada nominativa con QR</span><span>✓ Al momento en tu móvil y tu correo</span>
-          </div>
+          {av.confianza && <div style={{ display: "flex", gap: "6px 14px", flexWrap: "wrap", justifyContent: "center", fontSize: 12.5, color: "var(--muted)", fontWeight: 700, marginTop: 6 }}>
+            <span>✓ Entrada nominativa con QR</span><span>✓ QR de un solo uso</span><span>✓ Al momento en tu móvil y tu correo</span>
+          </div>}
         </>) : paso === "varios" ? <CompraVarios org={org} carrito={carrito} T={T} onVolver={() => setPaso("elegir")} />
         : <Formulario ev={ev} tramos={tramos} cant={cant} total={total} T={T} onVolver={() => setPaso("elegir")} onExito={() => conCarrito && carrito.quitarEvento(ev.slug)} />}
     </section>
@@ -267,6 +279,7 @@ export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, pre
           <button onClick={irAEntradas} style={{ ...btn(T.d.color, T.tinta), padding: "16px 22px", fontSize: 17 }}>{textoBoton}</button>
         </div>
       ))}
+      {!previa && abierta && paso === "elegir" && av.notificaciones && <AvisosCompra social={ev.social} servidor={ev.ahora} offset={offset} T={T} />}
       {hoja === "carrito" && <HojaCarrito carrito={carrito} T={T} orgNombre={org?.nombre} onClose={() => setHoja(null)}
         onContinuar={() => { setHoja(null); setPaso(carrito.eventos.length === 1 && carrito.eventos[0] === ev.slug ? "datos" : "varios"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
       {hoja?.evento && <ElegirEntradas slug={hoja.evento} carrito={carrito} T={T} onClose={() => setHoja(null)} />}

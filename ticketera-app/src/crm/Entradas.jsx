@@ -440,6 +440,22 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
         <Sw on={avisos.mostrarVendido} onClick={() => setFicha({ avisos: { ...avisos, mostrarVendido: !avisos.mostrarVendido } })} l="Barra de «% vendido» en cada tramo" />
         <Sw on={avisos.siguientePrecio} onClick={() => setFicha({ avisos: { ...avisos, siguientePrecio: !avisos.siguientePrecio } })} l="Avisar del precio del siguiente tramo («Después sube a 22 €»)" />
       </>)}
+      {tarjeta("trend", "Técnicas de venta", "Como en una tienda online, pero siempre con datos reales: nada se inventa. Solo salen cuando hay datos que enseñar.", <>
+        <Field l="Cómo enseñar lo que queda de cada tramo"><Seg full size="sm" valor={avisos.modoQuedan} onChange={(v) => setFicha({ avisos: { ...avisos, modoQuedan: v } })}
+          opciones={[{ k: "pocas", t: "Quedan pocas" }, { k: "exacto", t: "Número" }, { k: "porcentaje", t: "% vendido" }]} /></Field>
+        <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "-4px 0 10px" }}>{avisos.modoQuedan === "exacto" ? "«Quedan 487 de 500 a este precio»: baja con cada venta, en directo, mientras la página está abierta." : avisos.modoQuedan === "porcentaje" ? "Solo la barra de % vendido, sin cifras." : "La cifra no se ve hasta que de verdad quedan pocas (según los avisos de arriba)."}</div>
+        <Sw on={avisos.cuentaTramo} onClick={() => setFicha({ avisos: { ...avisos, cuentaTramo: !avisos.cuentaTramo } })} l="Cuenta atrás de cada precio («Este precio acaba en 15:59:12»)" sub="Usa la fecha de fin de venta del tramo. Al llegar a cero ese precio deja de venderse de verdad." />
+        <Sw on={avisos.masVendido} onClick={() => setFicha({ avisos: { ...avisos, masVendido: !avisos.masVendido } })} l="Etiqueta «El más elegido»" sub="En el tramo con más ventas, a partir de 5." />
+        <Sw on={avisos.notificaciones} onClick={() => setFicha({ avisos: { ...avisos, notificaciones: !avisos.notificaciones } })} l="Avisos de compras recientes" sub="«Alguien ha comprado 2 entradas · hace 3 min». Compras reales de las últimas 72 h; nunca nombres ni correos." />
+        {avisos.notificaciones && <div style={{ paddingLeft: 14, borderLeft: "2px solid var(--line)", marginLeft: 6 }}>
+          <Sw on={avisos.notifCiudad} onClick={() => setFicha({ avisos: { ...avisos, notifCiudad: !avisos.notifCiudad } })} l="Decir la ciudad («Alguien de Albacete…»)" sub="Solo si el formulario pide la ciudad." />
+        </div>}
+        <Sw on={avisos.vendidas24} onClick={() => setFicha({ avisos: { ...avisos, vendidas24: !avisos.vendidas24 } })} l="«34 entradas vendidas en las últimas 24 h»" sub="Solo si son 5 o más." />
+        <Sw on={avisos.totalVendidas} onClick={() => setFicha({ avisos: { ...avisos, totalVendidas: !avisos.totalVendidas } })} l="«Ya van 350 personas con entrada»" />
+        {avisos.totalVendidas && <div style={{ maxWidth: 260, marginTop: 6 }}><Field l="Enseñarlo a partir de (entradas)"><input inputMode="numeric" style={C.input} value={avisos.minTotal} onChange={e => setFicha({ avisos: { ...avisos, minTotal: limpioNum(e.target.value) } })} /></Field></div>}
+        <Sw on={avisos.cuentaEvento} onClick={() => setFicha({ avisos: { ...avisos, cuentaEvento: !avisos.cuentaEvento } })} l="Cuenta atrás hasta el evento («Faltan 3 días»)" sub="Solo el último mes antes del evento." />
+        <Sw on={avisos.confianza} onClick={() => setFicha({ avisos: { ...avisos, confianza: !avisos.confianza } })} l="Sellos de confianza bajo las entradas" sub="Entrada nominativa · QR de un solo uso · Al momento en tu móvil y tu correo." />
+      </>)}
       {tarjeta("user", "Datos que se piden al comprar", "Nombre completo, correo y el nombre de cada asistente se piden siempre (entradas nominativas).", <>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
           <Badge c="var(--green)"><Icon n="lock" s={11} w={2.4} />Nombre completo</Badge>
