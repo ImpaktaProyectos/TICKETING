@@ -19,6 +19,17 @@ import { useReservados, resCfg } from "../reservados";
 
 const COLORES = ["#ff5a3c", "#a855f7", "#3b82f6", "#22d3a6", "#ffb400", "#ec4899", "#14b8a6", "#f97316"];
 
+// Menú del CRM agrupado (opción A). Las pestañas y lo que hacen no cambian.
+const NAV_GRUPOS = [
+  ["Resumen", [["dashboard", "chart", "Panel"]]],
+  ["Dinero", [["ingresos", "wallet", "Ingresos"], ["gastos", "receipt", "Gastos"], ["entradas", "ticket", "Entradas"], ["liquidacion", "scale", "Liquidación"]]],
+  ["Planificar", [["prevision", "trend", "Previsión"], ["stock", "box", "Stock"]]],
+  ["Equipo", [["socios", "users", "Socios"]]],
+];
+const NAV_TODO = NAV_GRUPOS.flatMap(g => g[1]);
+const NAV_MOVIL = NAV_TODO.filter(n => ["dashboard", "ingresos", "gastos", "entradas"].includes(n[0]));
+const NAV_MAS = NAV_TODO.filter(n => !NAV_MOVIL.includes(n));
+
 export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent, onExit, flash }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState("dashboard");
@@ -121,37 +132,70 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
 
   const [tema, cambiarTema] = useTema();
   // Las variables de color del tema se aplican a todo el CRM (y a sus ventanas, que cuelgan de aquí)
-  const wrap = { position: "absolute", inset: 0, display: "flex", flexDirection: "column", ...TEMAS[tema], background: "var(--bg)", color: "var(--text)" };
+  const [mas, setMas] = useState(false);
+  const irA = (k) => { setMas(false); if (k === "ajustes") abrirAjustes(); else setTab(k); };
+  const titulo = (NAV_TODO.find(n => n[0] === tab) || [null, null, "Ajustes"])[2];
+  const fechaEv = (() => { try { const d = new Date(ev.startsAt || (ev.date + "T12:00:00")); return d.toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" }); } catch { return ""; } })();
+  const subEv = [fechaEv, ev.venue].filter(Boolean).join(" · ");
+  // Opción A: barra lateral clara agrupada (ordenador) / barra inferior con «Más» (móvil). Solo cambia el marco.
+  const wrap = { position: "absolute", inset: 0, display: "flex", flexDirection: isMobile ? "column" : "row", ...TEMAS[tema], background: "var(--bg)", color: "var(--text)" };
+  const navBtn = (on) => ({ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 10px", borderRadius: 10, border: "none", cursor: "pointer", textAlign: "left", font: "inherit", fontSize: 14.5, fontWeight: on ? 800 : 650, background: on ? "color-mix(in srgb, var(--accent) 13%, transparent)" : "transparent", color: on ? "var(--accent)" : "var(--text)" });
+  const enMas = NAV_MAS.some(n => n[0] === tab) || tab === "ajustes";
   return (
     <div style={wrap}>
-      {/* ===== Cabecera del CRM: oscura como la del TPV, naranja solo en lo activo ===== */}
-      <header style={{ ...C.head, padding: isMobile ? "10px 12px" : "12px 22px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width={isMobile ? 30 : 36} height={isMobile ? 30 : 36} style={{ flexShrink: 0 }} />
-          {!isMobile && <span style={C.crmPill}>CRM</span>}
-          {!isMobile && <span style={{ color: "var(--muted)", fontWeight: 700, fontSize: 13 }}>Organización del evento</span>}
-        </div>
-        <select value={ev.id} onChange={e => onSelectEvent(e.target.value)} style={{ ...C.headSelect, maxWidth: isMobile ? "none" : 280 }} aria-label="Evento">
-          {events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-        </select>
-        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-          <button onClick={cambiarTema} role="switch" aria-checked={tema === "claro"} aria-label={tema === "claro" ? "Cambiar a colores oscuros" : "Cambiar a colores claros"} title={tema === "claro" ? "Pasar a oscuro" : "Pasar a claro"}
-            style={{ ...C.backBtn, padding: isMobile ? "9px 10px" : "9px 12px", display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <Icon n={tema === "claro" ? "moon" : "sun"} s={18} w={2} />{!isMobile && (tema === "claro" ? "Oscuro" : "Claro")}
-          </button>
-          <button onClick={() => (tab === "ajustes" ? setTab(volverA) : abrirAjustes())} aria-label="Ajustes" title="Ajustes" style={{ ...C.backBtn, padding: isMobile ? "9px 10px" : "9px 12px", display: "inline-flex", alignItems: "center", gap: 6, background: tab === "ajustes" ? "rgba(255,90,60,.14)" : "var(--surface2)", color: tab === "ajustes" ? "var(--accent)" : "var(--text)", borderColor: tab === "ajustes" ? "rgba(255,90,60,.45)" : "var(--line)" }}><Icon n="gear" s={18} w={2} />{!isMobile && "Ajustes"}</button>
-          <button onClick={onExit} style={C.backBtn}>{isMobile ? "← TPV" : "← Volver al TPV"}</button>
-        </div>
-      </header>
+      {!isMobile && (
+        <aside aria-label="Menú del CRM" style={{ width: 248, flexShrink: 0, display: "flex", flexDirection: "column", gap: 16, background: "var(--surface)", borderRight: "1px solid var(--line)", padding: "max(18px, env(safe-area-inset-top)) 14px 16px", boxSizing: "border-box", overflowY: "auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 6px" }}>
+            <img src="/brand/tixfast_isotipo_app.svg" alt="" width={32} height={32} style={{ flexShrink: 0 }} />
+            <div style={{ fontWeight: 900, fontSize: 16, letterSpacing: -0.2 }}>TIXFAST <span style={{ color: "var(--muted)", fontWeight: 700 }}>CRM</span></div>
+          </div>
+          <label style={{ display: "block", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: "9px 10px 10px" }}>
+            <span style={{ display: "block", fontSize: 11, fontWeight: 800, color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase", padding: "0 2px" }}>Evento</span>
+            <select value={ev.id} onChange={e => onSelectEvent(e.target.value)} aria-label="Evento" style={{ width: "100%", background: "transparent", border: "none", color: "var(--text)", fontWeight: 900, fontSize: 14.5, padding: "2px 0", outline: "none", cursor: "pointer" }}>
+              {events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+            {subEv && <span style={{ display: "block", fontSize: 12, color: "var(--muted)", padding: "0 2px", textTransform: "capitalize" }}>{subEv}</span>}
+          </label>
+          <nav aria-label="Secciones del CRM" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {NAV_GRUPOS.map(([g, items]) => (
+              <div key={g} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase", padding: "0 10px 4px" }}>{g}</div>
+                {items.map(([k, ico, l]) => <button key={k} onClick={() => irA(k)} aria-current={tab === k ? "page" : undefined} style={navBtn(tab === k)}><Icon n={ico} s={18} c="currentColor" />{l}</button>)}
+              </div>))}
+          </nav>
+          <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 2, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+            <button onClick={() => (tab === "ajustes" ? setTab(volverA) : abrirAjustes())} aria-current={tab === "ajustes" ? "page" : undefined} style={navBtn(tab === "ajustes")}><Icon n="gear" s={18} c="currentColor" />Ajustes</button>
+            <button onClick={cambiarTema} role="switch" aria-checked={tema === "claro"} style={navBtn(false)}><Icon n={tema === "claro" ? "moon" : "sun"} s={18} c="currentColor" />{tema === "claro" ? "Modo oscuro" : "Modo claro"}</button>
+            <button onClick={onExit} style={{ ...navBtn(false), color: "var(--accent)", fontWeight: 800 }}>← Volver al TPV</button>
+          </div>
+        </aside>
+      )}
 
-      <nav style={{ ...C.tabs, padding: isMobile ? "0 12px" : "0 22px" }}>
-        {[["dashboard", "chart", "Dashboard", "Panel"], ["entradas", "ticket", "Entradas", "Entradas"], ["ingresos", "wallet", "Ingresos", "Ingresos"], ["gastos", "receipt", "Gastos", "Gastos"], ["prevision", "trend", "Previsión", "Previsión"], ["stock", "box", "Stock", "Stock"], ["liquidacion", "scale", "Liquidación", "Liquidar"], ["socios", "users", "Socios", "Socios"]].map(([k, ico, l, lm]) =>
-          <button key={k} onClick={() => setTab(k)} style={{ ...C.tab, display: "flex", alignItems: "center", gap: 8, ...(isMobile ? { flex: "1 0 auto", minWidth: 62, padding: "9px 4px 7px", fontSize: 12, flexDirection: "column", gap: 3 } : {}), ...(tab === k ? C.tabOn : {}) }}>
-            <Icon n={ico} s={isMobile ? 19 : 17} c={tab === k ? "var(--accent)" : "currentColor"} />{isMobile ? lm : l}</button>)}
-      </nav>
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        {isMobile && (
+          <header style={{ ...C.head, flexDirection: "column", alignItems: "stretch", gap: 8, padding: "max(10px, env(safe-area-inset-top)) 12px 10px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width={30} height={30} style={{ flexShrink: 0 }} />
+              <select value={ev.id} onChange={e => onSelectEvent(e.target.value)} style={C.headSelect} aria-label="Evento">
+                {events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </select>
+              <button onClick={onExit} style={C.backBtn}>← TPV</button>
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, padding: "0 2px" }}>
+              <h1 style={{ margin: 0, fontSize: 21, fontWeight: 900, letterSpacing: -0.3 }}>{titulo}</h1>
+              {subEv && <span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 700, textTransform: "capitalize", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subEv}</span>}
+            </div>
+          </header>
+        )}
 
-      <main style={{ flex: 1, overflow: "auto", padding: isMobile ? 12 : 22, WebkitOverflowScrolling: "touch" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+      <main style={{ flex: 1, overflow: "auto", padding: isMobile ? 12 : "26px 34px 40px", WebkitOverflowScrolling: "touch" }}>
+        <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+          {!isMobile && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, color: "var(--muted)", fontWeight: 700, textTransform: "capitalize" }}>{ev.name}{subEv ? ` · ${subEv}` : ""}</div>
+              <h1 style={{ margin: "4px 0 0", fontSize: 28, fontWeight: 900, letterSpacing: -0.5 }}>{titulo}</h1>
+            </div>
+          )}
           {error && <div style={{ ...C.panel, borderColor: "var(--amber)", color: "var(--amber)", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}><span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon n="alert" s={18} />{error}</span><button onClick={cargar} style={C.ghost}>Reintentar</button></div>}
           {!data && !error && <Esqueleto />}
           {data && tab === "dashboard" && (
@@ -218,6 +262,27 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
           )}
         </div>
       </main>
+
+        {isMobile && (
+          <nav aria-label="Secciones del CRM" style={{ display: "flex", background: "var(--surface)", borderTop: "1px solid var(--line)", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0 }}>
+            {[...NAV_MOVIL, ["__mas", "dots", "Más"]].map(([k, ico, l]) => { const on = k === "__mas" ? enMas : tab === k; return (
+              <button key={k} onClick={() => (k === "__mas" ? setMas(true) : irA(k))} aria-current={on && k !== "__mas" ? "page" : undefined} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "8px 2px 8px", background: "transparent", border: "none", cursor: "pointer", font: "inherit", fontSize: 11.5, fontWeight: on ? 800 : 650, color: on ? "var(--accent)" : "var(--muted)" }}>
+                <Icon n={ico} s={21} c="currentColor" /><span style={{ maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l}</span>
+              </button>); })}
+          </nav>
+        )}
+      </div>
+
+      {mas && (
+        <div onClick={() => setMas(false)} style={{ ...C.modalWrap, alignItems: "flex-end" }}>
+          <div role="dialog" aria-label="Más secciones" onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 520, background: "var(--surface)", borderRadius: "22px 22px 0 0", padding: "10px 14px", paddingBottom: "calc(14px + env(safe-area-inset-bottom))", boxSizing: "border-box" }}>
+            <div style={{ width: 40, height: 4, borderRadius: 4, background: "var(--line)", margin: "4px auto 10px" }} />
+            {[...NAV_MAS, ["ajustes", "gear", "Ajustes"]].map(([k, ico, l]) => <button key={k} onClick={() => irA(k)} style={{ ...navBtn(tab === k), padding: "13px 10px", fontSize: 15.5 }}><Icon n={ico} s={20} c="currentColor" />{l}</button>)}
+            <button onClick={cambiarTema} role="switch" aria-checked={tema === "claro"} style={{ ...navBtn(false), padding: "13px 10px", fontSize: 15.5 }}><Icon n={tema === "claro" ? "moon" : "sun"} s={20} c="currentColor" />{tema === "claro" ? "Modo oscuro" : "Modo claro"}</button>
+            <button onClick={() => setMas(false)} style={{ ...C.ghost, width: "100%", marginTop: 8 }}>Cerrar</button>
+          </div>
+        </div>
+      )}
 
       {importar && <ImportarCSV ev={ev} busy={busy} onClose={() => setImportar(false)}
         onImportar={async (ticketera, grupos) => { const ok = await run(() => crm.importarCSV(ev.id, ticketera, TICKETERA_CAT, grupos), `Importadas las ventas de ${ticketera}`); if (ok) setImportar(false); }} />}

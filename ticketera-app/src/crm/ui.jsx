@@ -27,15 +27,15 @@ export const TEMAS = {
     "--accent": "#ff5a3c", "--green": "#22d3a6", "--amber": "#ffb400", "--red": "#ff4d4d",
     "--blue": "#60a5fa", "--wa": "#4ade80", "--teal": "#2dd4bf", "--rose": "#fb7185",
     "--shadow": "none", "--overlay": "rgba(0,0,0,.72)",
-    "--hero": "radial-gradient(120% 140% at 0% 0%, rgba(255,90,60,.22), transparent 60%), #14161d",
+    "--hero": "#14161d",   // tarjetas lisas: el naranja queda solo para lo activo y los botones
     "--head": "#14161d", colorScheme: "dark",
   },
   claro: {
-    "--bg": "#fafafb", "--surface": "#ffffff", "--surface2": "#f4f5f7", "--line": "#e6e8eb", "--text": "#15171a", "--muted": "#6f747d",
+    "--bg": "#f5f6f8", "--surface": "#ffffff", "--surface2": "#f4f5f7", "--line": "#e6e8eb", "--text": "#15171a", "--muted": "#6f747d",
     "--accent": "#ff5a3c", "--green": "#0e9f75", "--amber": "#a16207", "--red": "#dc2626",
     "--blue": "#2563eb", "--wa": "#15803d", "--teal": "#0f766e", "--rose": "#e11d48",
     "--shadow": "0 1px 2px rgba(15,17,22,.04), 0 10px 28px -16px rgba(15,17,22,.14)", "--overlay": "rgba(21,23,26,.38)",
-    "--hero": "radial-gradient(120% 140% at 0% 0%, rgba(255,90,60,.09), transparent 60%), #ffffff",
+    "--hero": "#ffffff",
     "--head": "rgba(250,250,251,.9)", colorScheme: "light",
   },
 };
@@ -165,15 +165,14 @@ export function usePlegado(id, inicial = false) {
   const toggle = () => setP(v => { const n = !v; try { localStorage.setItem(K_PLEG + id, n ? "1" : "0"); } catch {} return n; });
   return [p, toggle];
 }
-const FRANJA = "linear-gradient(90deg, color-mix(in srgb, #ff5a3c 15%, var(--surface)) 0%, color-mix(in srgb, #ff7a3c 6%, var(--surface)) 55%, var(--surface) 100%)";
-const BARRA = "linear-gradient(180deg, #ff5a3c, #ff8a3c)";
+// Cabecera de sección lisa (opción A): sin degradado ni barra naranja; el color queda para lo activo
+const FRANJA = "var(--surface)";
 export function Seccion({ id, i, c, t, sub, total, totalColor, acciones, children, inicial = false, aviso }) {
   const [plegado, toggle] = usePlegado(id, inicial);
   const isMobile = useIsMobile();
   return (
     <section style={{ ...C.panel, padding: 0, overflow: "hidden", ...(aviso ? { borderColor: `color-mix(in srgb, ${aviso} 55%, transparent)` } : {}) }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, background: FRANJA, borderBottom: plegado ? "none" : "1px solid var(--line)", position: "relative" }}>
-        <span aria-hidden="true" style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 4, background: BARRA }} />
         <button type="button" onClick={toggle} aria-expanded={!plegado} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, padding: isMobile ? "13px 12px 13px 16px" : "14px 16px 14px 20px", background: "transparent", border: "none", color: "var(--text)", cursor: "pointer", textAlign: "left", font: "inherit" }}>
           {i && <Tile n={i} c={c || "var(--accent)"} s={34} />}
           <span style={{ flex: 1, minWidth: 0 }}>
@@ -200,8 +199,7 @@ export function Grupo({ id, i, c, t, n, total, totalColor, children }) {
   return (
     <div style={{ marginTop: 10 }}>
       <button type="button" onClick={toggle} aria-expanded={!plegado} style={{ width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "9px 10px 9px 12px", borderRadius: 10, border: "none", cursor: "pointer", font: "inherit", textAlign: "left", color: "var(--text)", position: "relative", overflow: "hidden",
-        background: "linear-gradient(90deg, color-mix(in srgb, #ff5a3c 10%, var(--surface2)) 0%, var(--surface2) 70%)" }}>
-        <span aria-hidden="true" style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: BARRA }} />
+        background: "var(--surface2)" }}>
         {i && <span style={{ color: c || "var(--accent)", display: "flex" }}><Icon n={i} s={16} w={2.1} /></span>}
         <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 900, textTransform: "uppercase", letterSpacing: .8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t}{n != null && <span style={{ color: "var(--muted)", fontWeight: 700, letterSpacing: 0, textTransform: "none" }}> · {n}</span>}</span>
         {total != null && <b style={{ fontSize: 14.5, flexShrink: 0, color: totalColor || "var(--text)" }}>{total}</b>}

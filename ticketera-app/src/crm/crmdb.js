@@ -172,7 +172,8 @@ export async function loadCuenta() {
     todas(() => supabase.from("ticket_crm_ingresos").select("*").order("id", { ascending: true })),
     todas(() => supabase.from("ticket_crm_gastos").select("*").order("id", { ascending: true })),
     supabase.from("ticket_crm_fuentes_punto").select("*"),
-    todas(() => supabase.from("ticket_reservados").select("id, evento_id, senal").gt("senal", 0).neq("estado", "libre").order("id", { ascending: true })).catch(() => []),
+    // Las señales son un extra: si tardan o fallan, el panel carga igual (sin ellas) en vez de quedarse esperando
+    Promise.race([todas(() => supabase.from("ticket_reservados").select("id, evento_id, senal").gt("senal", 0).neq("estado", "libre").order("id", { ascending: true })).catch(() => []), new Promise(r => setTimeout(() => r([]), 6000))]),
   ]);
   // Señales de reservados por evento (misma regla que Ingresos: reservado no libre con señal)
   const senales = {}; (sn || []).forEach(r => { senales[r.evento_id] = Math.round(((senales[r.evento_id] || 0) + Number(r.senal || 0)) * 100) / 100; });
