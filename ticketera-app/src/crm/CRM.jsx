@@ -138,7 +138,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
   const fechaEv = (() => { try { const d = new Date(ev.startsAt || (ev.date + "T12:00:00")); return d.toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" }); } catch { return ""; } })();
   const subEv = [fechaEv, ev.venue].filter(Boolean).join(" · ");
   // Opción A: barra lateral clara agrupada (ordenador) / barra inferior con «Más» (móvil). Solo cambia el marco.
-  const wrap = { position: "absolute", inset: 0, display: "flex", flexDirection: isMobile ? "column" : "row", ...TEMAS[tema], background: "var(--bg)", color: "var(--text)" };
+  const wrap = { position: "absolute", inset: 0, overflow: "hidden", display: "flex", flexDirection: isMobile ? "column" : "row", ...TEMAS[tema], background: "var(--bg)", color: "var(--text)" };
   const navBtn = (on) => ({ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 10px", borderRadius: 10, border: "none", cursor: "pointer", textAlign: "left", font: "inherit", fontSize: 14.5, fontWeight: on ? 800 : 650, background: on ? "color-mix(in srgb, var(--accent) 13%, transparent)" : "transparent", color: on ? "var(--accent)" : "var(--text)" });
   const enMas = NAV_MAS.some(n => n[0] === tab) || tab === "ajustes";
   return (
@@ -171,7 +171,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
         </aside>
       )}
 
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>   {/* minHeight 0: el contenido largo hace scroll dentro y la barra de abajo no se sale de la pantalla */}
         {isMobile && (
           <header style={{ ...C.head, flexDirection: "column", alignItems: "stretch", gap: 8, padding: "max(10px, env(safe-area-inset-top)) 12px 10px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
