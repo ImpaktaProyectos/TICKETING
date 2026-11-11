@@ -1,7 +1,7 @@
 // ===================== TIXFAST · MODO CRM (fase 1: ingresos y socios) =====================
 // Separado del TPV: se carga solo al abrirlo y solo escribe en tablas ticket_crm_*.
 // Lo vendido en las barras se LEE de las ventas que ya tiene la app (nunca se copia ni se modifica).
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import * as crm from "./crmdb";
 import { money, r2, hoy, fechaCorta, parseImporte, isInvite, useIsMobile, Dot, C, Icon, Avatar, Head, Tile, TEMAS, useTema } from "./ui";
 import { Gastos, totalesGastos } from "./Gastos";
@@ -16,6 +16,7 @@ import { Prevision } from "./Prevision";
 import { Entradas } from "./Entradas";
 import { Stock } from "./Stock";
 import { useReservados, resCfg } from "../reservados";
+const Facturacion = lazy(() => import("./fac/Facturacion"));   // módulo aparte: no toca los números de los eventos
 
 const COLORES = ["#ff5a3c", "#a855f7", "#3b82f6", "#22d3a6", "#ffb400", "#ec4899", "#14b8a6", "#f97316"];
 
@@ -25,6 +26,7 @@ const NAV_GRUPOS = [
   ["Dinero", [["ingresos", "wallet", "Ingresos"], ["gastos", "receipt", "Gastos"], ["entradas", "ticket", "Entradas"], ["liquidacion", "scale", "Liquidación"]]],
   ["Planificar", [["prevision", "trend", "Previsión"], ["stock", "box", "Stock"]]],
   ["Equipo", [["socios", "users", "Socios"]]],
+  ["Empresa", [["facturacion", "file", "Facturación"]]],
 ];
 const NAV_TODO = NAV_GRUPOS.flatMap(g => g[1]);
 const NAV_MOVIL = NAV_TODO.filter(n => ["dashboard", "ingresos", "gastos", "entradas"].includes(n[0]));
@@ -136,7 +138,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
   const irA = (k) => { setMas(false); if (k === "ajustes") abrirAjustes(); else setTab(k); };
   const titulo = (NAV_TODO.find(n => n[0] === tab) || [null, null, "Ajustes"])[2];
   const fechaEv = (() => { try { const d = new Date(ev.startsAt || (ev.date + "T12:00:00")); return d.toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" }); } catch { return ""; } })();
-  const subEv = [fechaEv, ev.venue].filter(Boolean).join(" · ");
+  const subEv = tab === "facturacion" ? "" : [fechaEv, ev.venue].filter(Boolean).join(" · ");
   // Opción A: barra lateral clara agrupada (ordenador) / barra inferior con «Más» (móvil). Solo cambia el marco.
   const wrap = { position: "absolute", inset: 0, overflow: "hidden", display: "flex", flexDirection: isMobile ? "column" : "row", ...TEMAS[tema], background: "var(--bg)", color: "var(--text)" };
   const navBtn = (on) => ({ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 10px", borderRadius: 10, border: "none", cursor: "pointer", textAlign: "left", font: "inherit", fontSize: 14.5, fontWeight: on ? 800 : 650, background: on ? "color-mix(in srgb, var(--accent) 13%, transparent)" : "transparent", color: on ? "var(--accent)" : "var(--text)" });
@@ -192,12 +194,13 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
         <div style={{ maxWidth: 1180, margin: "0 auto" }}>
           {!isMobile && (
             <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 13, color: "var(--muted)", fontWeight: 700, textTransform: "capitalize" }}>{ev.name}{subEv ? ` · ${subEv}` : ""}</div>
+              <div style={{ fontSize: 13, color: "var(--muted)", fontWeight: 700, textTransform: "capitalize" }}>{tab === "facturacion" ? "Facturas de tu empresa · aparte de los eventos" : <>{ev.name}{subEv ? ` · ${subEv}` : ""}</>}</div>
               <h1 style={{ margin: "4px 0 0", fontSize: 28, fontWeight: 900, letterSpacing: -0.5 }}>{titulo}</h1>
             </div>
           )}
-          {error && <div style={{ ...C.panel, borderColor: "var(--amber)", color: "var(--amber)", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}><span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon n="alert" s={18} />{error}</span><button onClick={cargar} style={C.ghost}>Reintentar</button></div>}
-          {!data && !error && <Esqueleto />}
+          {error && tab !== "facturacion" && <div style={{ ...C.panel, borderColor: "var(--amber)", color: "var(--amber)", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}><span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon n="alert" s={18} />{error}</span><button onClick={cargar} style={C.ghost}>Reintentar</button></div>}
+          {!data && !error && tab !== "facturacion" && <Esqueleto />}
+          {tab === "facturacion" && <Suspense fallback={<div style={{ color: "var(--muted)", padding: 30, textAlign: "center" }}>Cargando facturación…</div>}><Facturacion flash={flash} /></Suspense>}
           {data && tab === "dashboard" && (
             <Dashboard ev={ev} events={events} sales={sales} gastosCaja={gastosCaja} ajustes={data.ajustes} onSelectEvent={onSelectEvent} refreshKey={data} />
           )}

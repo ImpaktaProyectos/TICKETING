@@ -89,6 +89,7 @@ export const C = {
 
 /* ===================== ICONOS (mismo trazo que el TPV) ===================== */
 export const ICONS = {
+  download: "M12 4v12M7 11l5 5 5-5M5 20h14", share: "M12 15V3M8 7l4-4 4 4M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7",
   sun: "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4",
   moon: "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z",
   plus: "M12 5v14M5 12h14", check: "M5 12l4 4 10-10", x: "M6 6l12 12M18 6L6 18", chev: "M6 9l6 6 6-6", right: "M9 6l6 6-6 6",
