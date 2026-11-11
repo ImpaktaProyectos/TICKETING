@@ -168,10 +168,10 @@ const Barra = ({ t, v, max, c, i }) => (
 const Mini = ({ l, v, c, sub }) => <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", minWidth: 0 }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>{l}</div><div style={{ fontSize: 17, fontWeight: 900, color: c || "var(--text)", marginTop: 2, whiteSpace: "nowrap" }}>{v}</div>{sub && <div style={{ fontSize: 12, color: "var(--muted)" }}>{sub}</div>}</div>;
 const Ley = ({ c, t, marca }) => <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: marca ? 2 : 12, height: marca ? 12 : 6, borderRadius: 2, background: c }} />{t}</span>;
 const AddBtn = ({ i, t, sub, primary, onClick }) => (
-  <button onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 10, padding: sub ? "12px 14px" : "12px 8px", borderRadius: 14, cursor: "pointer", textAlign: "left", justifyContent: sub ? "flex-start" : "center", minWidth: 0,
+  <button onClick={onClick} style={{ display: "flex", flexDirection: sub ? "row" : "column", alignItems: "center", gap: sub ? 10 : 6, padding: sub ? "12px 14px" : "12px 6px", borderRadius: 14, cursor: "pointer", textAlign: "left", justifyContent: sub ? "flex-start" : "center", minWidth: 0,
     border: primary ? "none" : "1px solid var(--line)", background: primary ? "var(--accent)" : "var(--surface)", color: primary ? "#fff" : "var(--text)" }}>
     <span style={{ width: 32, height: 32, borderRadius: 10, display: "grid", placeItems: "center", flexShrink: 0, background: primary ? "rgba(255,255,255,.2)" : "color-mix(in srgb, var(--accent) 16%, transparent)", color: primary ? "#fff" : "var(--accent)" }}><Icon n={i} s={17} w={2.2} /></span>
-    <span style={{ minWidth: 0 }}><span style={{ display: "block", fontWeight: 900, fontSize: 14.5 }}>{t}</span>{sub && <span style={{ display: "block", fontSize: 12, opacity: .8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</span>}</span>
+    <span style={{ minWidth: 0 }}><span style={{ display: "block", fontWeight: 900, fontSize: sub ? 14.5 : 13.5 }}>{t}</span>{sub && <span style={{ display: "block", fontSize: 12, opacity: .8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</span>}</span>
   </button>
 );
 function EstadoBadge({ g }) {

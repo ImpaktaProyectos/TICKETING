@@ -277,7 +277,7 @@ export function CobrarReservado({ ev, item: itemTpv, res, sales, fijo, onCobrar,
     </Hoja>
   );
 }
-const Linea = ({ t, v, c }) => <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 15, padding: "4px 0", color: c || "var(--text)" }}><span>{t}</span><b>{v}</b></div>;
+const Linea = ({ t, v, c }) => <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 15, padding: "4px 0", color: c || "var(--text)" }}><span style={{ minWidth: 0 }}>{t}</span><b style={{ whiteSpace: "nowrap", flexShrink: 0 }}>{v}</b></div>;
 
 /* ============================================================
    MENÚ «RESERVADOS»: mapa + configuración

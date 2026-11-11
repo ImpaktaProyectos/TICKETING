@@ -893,7 +893,7 @@ export default function App() {
     { id: "pos", label: "TPV", icon: "pos", roles: ["admin", "supervisor"] },
     { id: "template", label: "Plantilla", icon: "template", roles: ["admin"] },
     { id: "config", label: "Evento", icon: "config", roles: ["admin"] },
-    { id: "reservados", label: "Reservados", icon: "vip", roles: ["admin", "supervisor"] },
+    { id: "reservados", label: "Reservados", short: "VIP", icon: "vip", roles: ["admin", "supervisor"] },
     { id: "reports", label: "Informes", icon: "reports", roles: ["admin", "supervisor"] },
     { id: "history", label: "Histórico", icon: "history", roles: ["admin"] },
     { id: "crm", label: "CRM", icon: "crm", roles: ["admin"] },
@@ -994,7 +994,7 @@ export default function App() {
           </header>
           <div style={{ padding: 12, paddingBottom: safeView === "reservados" ? 0 : 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
             {avisoPin}
-            {safeView !== "reservados" && <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: "10px 12px 10px 14px" }}>
+            {safeView === "pos" && <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: "10px 12px 10px 14px" }}>
               <div style={{ minWidth: 0 }}><div style={S.miniLabel}>Barra activa</div><div style={{ fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 6 }}><span style={{ color: "var(--accent)" }}><Ic n="store" s={14} w={2.2} /></span>{punto.name}</div></div>
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
                 <div style={{ textAlign: "right" }}><div style={S.miniLabel}>Tickets</div><div style={{ fontWeight: 800, fontSize: 18, lineHeight: 1.1 }}>{totals.count}</div></div>
@@ -1011,8 +1011,8 @@ export default function App() {
           </div>
           {/* En Reservados la barra de abajo se quita: toda la pantalla para trabajar; se vuelve con «← Volver al TPV» o el menú */}
           {safeView !== "reservados" && <nav style={S.bottomNav}>
-            {navItems.map(n => <button key={n.id} aria-current={safeView === n.id ? "page" : undefined} onClick={() => goNav(n.id)} style={{ ...S.bTab, ...(safeView === n.id ? S.bTabActive : {}) }}>
-              <span style={{ ...S.bTabIco, ...(safeView === n.id ? S.bTabIcoActive : {}) }}><Ic n={n.icon} s={21} w={safeView === n.id ? 2.2 : 1.9} /></span>{n.label}
+            {navItems.map(n => <button key={n.id} aria-label={n.label} aria-current={safeView === n.id ? "page" : undefined} onClick={() => goNav(n.id)} style={{ ...S.bTab, ...(safeView === n.id ? S.bTabActive : {}) }}>
+              <span style={{ ...S.bTabIco, ...(safeView === n.id ? S.bTabIcoActive : {}) }}><Ic n={n.icon} s={21} w={safeView === n.id ? 2.2 : 1.9} /></span><span style={{ maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: navItems.length > 5 ? 10.5 : 12 }}>{navItems.length > 5 ? (n.short || n.label) : n.label}</span>
             </button>)}
           </nav>}
         </div>
