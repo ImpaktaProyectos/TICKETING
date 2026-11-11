@@ -43,7 +43,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.11c";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.11d";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -992,7 +992,7 @@ export default function App() {
             <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={{ ...S.select, ...S.mSelect, flex: 1, minWidth: 0 }}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn} aria-label="Menú"><Ic n="menu" /></button>
           </header>
-          <div style={{ padding: 12, paddingBottom: safeView === "reservados" ? 0 : 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
+          <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
             {avisoPin}
             {safeView === "pos" && <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: "10px 12px 10px 14px" }}>
               <div style={{ minWidth: 0 }}><div style={S.miniLabel}>Barra activa</div><div style={{ fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 6 }}><span style={{ color: "var(--accent)" }}><Ic n="store" s={14} w={2.2} /></span>{punto.name}</div></div>
@@ -1002,19 +1002,19 @@ export default function App() {
               </div>
             </div>}
             {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
-            {safeView === "reservados" && vistaRes({ onCerrar: () => setView("pos") })}
+            {safeView === "reservados" && vistaRes({ onCerrar: () => setView("pos"), enBarra: true })}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
             {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
             {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
             {safeView === "reports" && <InformeReservados ev={ev} res={res} sales={evSales} isMobile={isMobile} />}
             {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
           </div>
-          {/* En Reservados la barra de abajo se quita: toda la pantalla para trabajar; se vuelve con «← Volver al TPV» o el menú */}
-          {safeView !== "reservados" && <nav style={S.bottomNav}>
+          {/* La barra de abajo está siempre (también en Reservados): se navega igual desde cualquier pantalla */}
+          <nav style={S.bottomNav}>
             {navItems.map(n => <button key={n.id} aria-label={n.label} aria-current={safeView === n.id ? "page" : undefined} onClick={() => goNav(n.id)} style={{ ...S.bTab, ...(safeView === n.id ? S.bTabActive : {}) }}>
               <span style={{ ...S.bTabIco, ...(safeView === n.id ? S.bTabIcoActive : {}) }}><Ic n={n.icon} s={21} w={safeView === n.id ? 2.2 : 1.9} /></span><span style={{ maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: navItems.length > 5 ? 10.5 : 12 }}>{navItems.length > 5 ? (n.short || n.label) : n.label}</span>
             </button>)}
-          </nav>}
+          </nav>
         </div>
       ) : (
         <div style={{ display: "flex", height: "100%" }}>

@@ -169,7 +169,25 @@ const R = {
   row: { display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderTop: "1px solid var(--line)" },
 };
 const Field = ({ label, children, style }) => <div style={{ marginBottom: 12, minWidth: 0, ...style }}><div style={R.label}>{label}</div>{children}</div>;
+// Las hojas se cierran también con el gesto/botón «atrás» del móvil (una entrada de historial para todas las abiertas)
+const HOJAS = [];
+function useAtras(onClose) {
+  const ref = useRef(onClose); ref.current = onClose;
+  useEffect(() => {
+    const yo = {}; HOJAS.push(yo);
+    try { if (HOJAS.length === 1 && !history.state?.tixHoja) history.pushState({ ...(history.state || {}), tixHoja: true }, ""); } catch {}
+    const onPop = () => { if (HOJAS[HOJAS.length - 1] !== yo) return; yo.porAtras = true; ref.current?.(); setTimeout(() => { try { if (HOJAS.length && !history.state?.tixHoja) history.pushState({ ...(history.state || {}), tixHoja: true }, ""); } catch {} }, 0); };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      const i = HOJAS.indexOf(yo); if (i >= 0) HOJAS.splice(i, 1);
+      // Cerrada con la X o tocando fuera: quita la entrada de historial si ya no queda ninguna hoja (tras abrir la siguiente, si la hay)
+      if (!yo.porAtras) setTimeout(() => { try { if (!HOJAS.length && history.state?.tixHoja) history.back(); } catch {} }, 0);
+    };
+  }, []);
+}
 function Hoja({ title, sub, onClose, children, footer, ancho = 560 }) {
+  useAtras(onClose);
   return (
     <div style={R.wrap} onClick={onClose}>
       <div className="sheet-anim" style={{ ...R.sheet, maxWidth: ancho }} onClick={e => e.stopPropagation()} role="dialog" aria-label={title}>
@@ -282,7 +300,7 @@ const Linea = ({ t, v, c }) => <div style={{ display: "flex", justifyContent: "s
 /* ============================================================
    MENÚ «RESERVADOS»: mapa + configuración
    ============================================================ */
-export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, onGuardarCfg, onCobrarTarifa, onVentaSocio, onCerrar }) {
+export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, onGuardarCfg, onCobrarTarifa, onVentaSocio, onCerrar, enBarra }) {
   const cfg = resCfg(ev);
   const [tab, setTab] = useState("mapa");
   const [ficha, setFicha] = useState(null);
@@ -295,12 +313,17 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
   const sinConfig = res.reservados.length === 0;
   const puedeReservar = role === "admin" || role === "supervisor";
   const nuevaReserva = () => {
+    const b = leerBorrador(ev.id);
+    if (b?.nueva && res.reservados.some(r => r.id === b.rid && r.estado === "libre")) { setFicha({ id: b.rid, nueva: true }); return; }
     const libre = res.reservados.find(r => r.estado === "libre");
     if (!libre) { flash(res.reservados.length ? "No queda ningún reservado libre" : "Crea primero los reservados en Configuración", "warn"); return; }
     setFicha({ id: libre.id, nueva: true });
   };
   const DATOS = ["estado", "cliente", "telefono", "nota", "tarifaId", "senal", "senalMetodo", "promotorId", "llegadaEn", "pedido"];
+  const [borr, setBorr] = useState(() => leerBorrador(ev.id));
+  useEffect(() => { if (!ficha) setBorr(leerBorrador(ev.id)); }, [ficha, ev.id]);
   const guardarFicha = (r, x, destino) => {
+    borrarBorrador(ev.id);
     if (destino === r.id) { res.guardar(x); flash(`${x.nombre} guardado`); setFicha(null); return; }
     const d = res.reservados.find(z => z.id === destino);
     if (!d || d.estado !== "libre") { flash("Ese reservado ya no está libre", "warn"); return; }
@@ -326,6 +349,12 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
         </div>
       </div>
 
+      {tab === "mapa" && borr && !ficha && res.reservados.some(z => z.id === borr.rid) && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "rgba(255,180,0,.12)", border: "1px solid rgba(255,180,0,.45)", borderRadius: 14, padding: "10px 12px", marginBottom: 12 }}>
+          <span style={{ flex: "1 1 180px", fontSize: 14 }}>✏️ Tienes una reserva a medias{borr.cliente ? <> de <b>{borr.cliente}</b></> : ""}{borr.sitio ? ` en ${borr.sitio}` : ""}.</span>
+          <button onClick={() => setFicha({ id: borr.rid, nueva: !!borr.nueva })} style={{ ...R.small, background: "var(--accent)", color: "#fff", border: "none", padding: "9px 13px" }}>Continuar</button>
+          <button onClick={() => { borrarBorrador(ev.id); setBorr(null); }} style={{ ...R.small, padding: "9px 12px" }}>Descartar</button>
+        </div>)}
       {tab === "mapa" && (<>
         {isMobile ? (
           <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 2 }}>
@@ -369,7 +398,7 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
       {tab === "config" && role === "admin" && <ConfigReservados ev={ev} cfg={cfg} res={res} isMobile={isMobile} flash={flash} onGuardarCfg={onGuardarCfg} />}
 
       {isMobile && tab === "mapa" && puedeReservar && (
-        <div style={{ position: "sticky", bottom: 0, zIndex: 5, display: "flex", gap: 8, padding: "12px 0 calc(4px + env(safe-area-inset-bottom))", marginTop: 12, background: "linear-gradient(180deg, transparent, var(--bg) 30%)" }}>
+        <div style={{ position: "sticky", bottom: enBarra ? -12 : 0, zIndex: 5, display: "flex", gap: 8, padding: enBarra ? "12px 0 12px" : "12px 0 calc(4px + env(safe-area-inset-bottom))", marginTop: 12, background: "linear-gradient(180deg, transparent, var(--bg) 30%)" }}>
           <button onClick={nuevaReserva} style={{ ...R.primary, flex: 1, padding: "15px 10px", fontSize: 16 }}>+ Nueva reserva</button>
           {onVentaSocio && <button onClick={() => onVentaSocio(null)} style={{ ...R.primary, flex: 1, padding: "15px 10px", fontSize: 16, background: "var(--green)", color: "#04231a" }}>💶 Vender</button>}
         </div>)}
@@ -396,9 +425,18 @@ const pedidoLimpio = (f) => {
   if (!botellas.length && personas == null && f.precioModo === "auto") return null;
   return { personas, botellas, precioModo: f.precioModo, total };
 };
+// Borrador de la reserva: lo escrito se guarda en este equipo al momento y vuelve al abrir la ficha otra vez
+const K_BORR = (evId) => `tixfast_res_borrador_${evId}`;
+export const leerBorrador = (evId) => { try { const b = JSON.parse(localStorage.getItem(K_BORR(evId)) || "null"); return b && Date.now() - b.ts < 36 * 3600e3 ? b : null; } catch { return null; } };
+export const borrarBorrador = (evId) => { try { localStorage.removeItem(K_BORR(evId)); } catch {} };
+const guardarBorrador = (evId, b) => { try { localStorage.setItem(K_BORR(evId), JSON.stringify({ ...b, ts: Date.now() })); } catch {} };
 function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puedeCobrar, puntoNombre, onClose, onGuardar, onCobrar, onVentaSocio }) {
-  const [x, setX] = useState(() => ({ ...r, senal: r.senal ? String(r.senal).replace(".", ",") : "", pedido: pedidoForm(pedidoDe(r)) }));
-  const [destino, setDestino] = useState(r.id);
+  const base = () => ({ ...r, senal: r.senal ? String(r.senal).replace(".", ",") : "", pedido: pedidoForm(pedidoDe(r)) });
+  const [borr] = useState(() => { const b = leerBorrador(ev.id); return b && b.rid === r.id && !!b.nueva === !!nueva ? b : null; });
+  const [x, setX] = useState(() => (borr ? borr.x : base()));
+  const [destino, setDestino] = useState(() => (borr && reservados.some(z => z.id === borr.destino && (z.estado === "libre" || z.id === r.id)) ? borr.destino : r.id));
+  const [recuperado, setRecuperado] = useState(!!borr);
+  const descartar = () => { borrarBorrador(ev.id); setX(base()); setDestino(r.id); setRecuperado(false); };
   const set = (k, v) => setX(o => ({ ...o, [k]: v }));
   const setP = (k, v) => setX(o => ({ ...o, pedido: { ...o.pedido, [k]: v } }));
   const setB = (id, patch) => setX(o => ({ ...o, pedido: { ...o.pedido, botellas: o.pedido.botellas.map(b => b.id === id ? { ...b, ...patch } : b) } }));
@@ -417,6 +455,7 @@ function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puede
   const enTaquilla = C.total != null ? r2(Math.max(0, C.total - Math.min(senal, C.total))) : null;
   const moviendo = destino !== r.id;
   const cambiado = moviendo || JSON.stringify(L) !== JSON.stringify({ ...r, senal: r2(r.senal || 0), llegadaEn: r.llegadaEn, pedido: pedidoDe(r) ? pedidoLimpio(pedidoForm(pedidoDe(r))) : null });
+  useEffect(() => { if (cambiado) guardarBorrador(ev.id, { rid: r.id, nueva: !!nueva, x, destino, cliente: String(x.cliente || "").trim(), sitio: dest.nombre }); else if (!recuperado) { const b = leerBorrador(ev.id); if (b && b.rid === r.id && !!b.nueva === !!nueva) borrarBorrador(ev.id); } }, [x, destino]);
   const liberar = () => setX(o => ({ ...o, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: "", senalMetodo: "", promotorId: "", llegadaEn: null, pedido: pedidoForm(null) }));
   const promotor = cfg.promotores.find(p => p.id === x.promotorId);
   const dest = reservados.find(z => z.id === destino) || r;
@@ -426,10 +465,15 @@ function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puede
   return (
     <Hoja title={nueva ? "Nueva reserva" : `Reservado ${dest.nombre}`} sub={nueva ? "Elige el reservado y apunta lo que lleva. Se guarda al momento en todos los equipos." : `${TAMANOS[dest.tamano]}${dest.personas ? ` · caben ${dest.personas}` : ""}`} onClose={onClose}
       footer={<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {cambiado && <div style={{ flexBasis: "100%", fontSize: 12, color: "var(--muted)", marginBottom: -2 }}>✏️ Borrador guardado en este equipo: si cierras, no se pierde.</div>}
         {!nueva && !moviendo && puedeCobrar && C.total != null && stats && !stats.tarifaCobrada && <button onClick={() => onCobrar(L)} style={{ ...R.primary, flex: "2 1 220px", background: "var(--green)", color: "#04231a" }}>💶 Cobrar en taquilla · {money(enTaquilla)}</button>}
         {!nueva && !moviendo && onVentaSocio && <button onClick={() => onVentaSocio(L)} style={{ ...R.ghost, flex: "1 1 140px", borderColor: "var(--green)", color: "var(--green)" }}>💶 Vender sin ticket</button>}
         <button onClick={() => onGuardar(L, destino)} disabled={!cambiado} style={{ ...R.primary, flex: "1 1 140px", opacity: cambiado ? 1 : .45 }}>{nueva ? `Guardar en ${dest.nombre}` : moviendo ? `Mover a ${dest.nombre}` : "Guardar"}</button>
       </div>}>
+      {recuperado && <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,180,0,.12)", border: "1px solid rgba(255,180,0,.45)", borderRadius: 12, padding: "10px 12px", marginBottom: 12, fontSize: 13.5 }}>
+        <span style={{ flex: 1 }}>✏️ Seguimos con lo que habías escrito{borr?.ts ? ` (${hora(new Date(borr.ts).toISOString())})` : ""}.</span>
+        <button onClick={descartar} style={{ ...R.small, padding: "7px 10px" }}>Descartar</button>
+      </div>}
       <Field label={nueva ? "Reservado" : mover ? "Reservado · toca otro para moverla" : "Reservado"}>
         <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4, WebkitOverflowScrolling: "touch" }}>
           {reservados.map(z => { const libre = z.estado === "libre" || z.id === r.id; const on = z.id === destino; const e = ESTADOS[z.id === r.id ? "libre" : z.estado] || ESTADOS.libre; const puede = libre && (mover || z.id === r.id); return (
