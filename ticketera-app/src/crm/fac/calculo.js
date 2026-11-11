@@ -21,3 +21,16 @@ export const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "ju
 // URL de cotejo de la AEAT para el QR tributario (RD 1007/2023, Orden HAC/1177/2024)
 export const urlQR = (f) => `https://www2.agenciatributaria.gob.es/wlpl/TIKE-CONT/ValidarQR?nif=${encodeURIComponent(f.emisor?.nif || "")}&numserie=${encodeURIComponent(f.codigo || "")}&fecha=${(f.fecha || "").split("-").reverse().join("-")}&importe=${Number(f.total || 0).toFixed(2)}`;
 export const CATEGORIAS_GASTO = ["Proveedores y compras", "Alquiler", "Sonido e iluminación", "Artistas y DJ", "Personal", "Publicidad y marketing", "Transporte", "Suministros", "Software y suscripciones", "Gestoría y asesoría", "Seguros", "Bancos y comisiones", "Otros"];
+
+// Días que lleva vencida una factura (0 si no ha vencido o no tiene vencimiento)
+export const diasVencida = (f, hoy) => { if (!f.vencimiento || !hoy || f.vencimiento >= hoy) return 0; return Math.round((new Date(hoy + "T12:00") - new Date(f.vencimiento + "T12:00")) / 864e5); };
+// Texto del recordatorio de cobro (correo o WhatsApp)
+export function textoRecordatorio(f, E = {}, hoy) {
+  const dias = diasVencida(f, hoy), quien = E.nombre_comercial || E.razon_social || "";
+  const asunto = `Recordatorio: factura ${f.codigo} pendiente de pago`;
+  const cuerpo = [`Hola${f.contacto?.nombre ? `, ${f.contacto.nombre}` : ""}:`, "",
+    `Te recordamos que la factura ${f.codigo} del ${fechaES(f.fecha)}, por ${eur(f.total)}, ${dias ? `venció el ${fechaES(f.vencimiento)} (hace ${dias} ${dias === 1 ? "día" : "días"})` : f.vencimiento ? `vence el ${fechaES(f.vencimiento)}` : "está pendiente de pago"}.`,
+    E.iban ? `Puedes hacer la transferencia a ${E.iban} indicando «${f.codigo}».` : "",
+    "Si ya la has pagado, no hagas caso de este mensaje.", "", "Un saludo,", quien].filter((x, i, a) => x !== "" || a[i - 1] !== "").join("\n");
+  return { asunto, cuerpo };
+}

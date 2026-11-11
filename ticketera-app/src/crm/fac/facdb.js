@@ -8,6 +8,7 @@ const traducir = (m = "") => {
   if (/row-level security|permission denied/i.test(m)) return "No tienes permiso para esto";
   if (/ticket_fac_emisor_nif_check/.test(m)) return "El NIF no es válido: solo letras y números, sin guiones";
   if (/ticket_fac_codigo_uq/.test(m)) return "Ya existe una factura con ese número";
+  if (/ticket_fac_recurrentes/.test(m) && /does not exist|schema cache/i.test(m)) return "Falta activar las facturas que se repiten en la base de datos";
   if (/violates check constraint/.test(m)) return "Hay algún dato no válido o demasiado largo";
   return m.replace(/^.*?ERROR:\s*/, "");
 };
@@ -19,7 +20,9 @@ export async function cargar() {
     supabase.from("ticket_fac_contactos").select("*").order("nombre").range(0, 4999),
     supabase.from("ticket_fac_facturas").select("*").order("fecha", { ascending: false }).order("numero", { ascending: false, nullsFirst: true }).range(0, 9999),
   ]);
-  return { emisor: ok(em), contactos: ok(cs) || [], facturas: ok(fs) || [] };
+  // Las plantillas recurrentes son opcionales: si la tabla aún no existe, el módulo sigue funcionando.
+  const rs = await supabase.from("ticket_fac_recurrentes").select("*").order("nombre");
+  return { emisor: ok(em), contactos: ok(cs) || [], facturas: ok(fs) || [], recurrentes: rs.error ? [] : rs.data || [], hayRecurrentes: !rs.error };
 }
 
 const limpiaNif = (v) => String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -58,6 +61,20 @@ export async function borrarFactura(f) {
   if (f.archivo_path) await supabase.storage.from("facturas").remove([f.archivo_path]).catch(() => {});
   ok(await supabase.from("ticket_fac_facturas").delete().eq("id", f.id));
 }
+// Recordatorio de cobro: solo se anota cuándo se avisó (también en facturas ya emitidas)
+export async function marcarRecordada(id) { ok(await supabase.from("ticket_fac_facturas").update({ recordada_en: new Date().toISOString() }).eq("id", id)); }
+
+// ---------- Facturas que se repiten ----------
+export async function generarRecurrentes() { return ok(await supabase.rpc("fac_generar_recurrentes")) || 0; }
+export async function guardarRecurrente(r) {
+  const fila = { nombre: String(r.nombre || "").trim(), activa: r.activa !== false, cada_meses: Number(r.cada_meses) || 1, inicio: r.inicio,
+    contacto_id: r.contacto_id || null, contacto: r.contacto || {}, lineas: r.lineas || [], irpf_pct: Number(r.irpf_pct) || 0,
+    forma_pago: r.forma_pago || null, notas: r.notas || null, plantilla: r.plantilla || null, actualizado_en: new Date().toISOString() };
+  if (r.id) return ok(await supabase.from("ticket_fac_recurrentes").update(fila).eq("id", r.id).select("*").single());
+  return ok(await supabase.from("ticket_fac_recurrentes").insert(fila).select("*").single());
+}
+export async function borrarRecurrente(id) { ok(await supabase.from("ticket_fac_recurrentes").delete().eq("id", id)); }
+
 export async function registro() { return ok(await supabase.from("ticket_fac_registro").select("*").order("id", { ascending: false }).range(0, 199)) || []; }
 
 // ---------- Archivos: año / trimestre / mes / ingresos|gastos ----------

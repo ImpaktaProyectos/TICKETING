@@ -123,7 +123,7 @@ export async function pdfFactura(f, emisorActual, op = {}) {
   const yTot = y; y += 14;
 
   // QR tributario (a la izquierda de los totales)
-  if (!borrador && (op.qr ?? emisorActual?.qr ?? true)) {
+  if (!borrador && (op.qr ?? emisorActual?.qr ?? false)) {
     const lado = 28, yq = yTot - 30;
     dibujarQR(doc, urlQR(f), M, yq, lado);
     txt("QR tributario", M + lado + 3, yq + 5, { s: 8, b: true, c: gris });

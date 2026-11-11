@@ -4,13 +4,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { C, Icon, Tile, Badge, Seg, Sheet, Field, useIsMobile } from "../ui";
 import * as fdb from "./facdb";
-import { calcular, baseLinea, eur, fechaES, num, IVAS, IRPFS, trimestre, MESES, CATEGORIAS_GASTO } from "./calculo";
+import { calcular, baseLinea, eur, fechaES, num, IVAS, IRPFS, trimestre, MESES, CATEGORIAS_GASTO, diasVencida, textoRecordatorio } from "./calculo";
 import { webSubir } from "../crmdb";
 
 const hoyISO = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
 const masDias = (iso, n) => { const d = new Date(iso + "T12:00"); d.setDate(d.getDate() + (Number(n) || 0)); return d.toISOString().slice(0, 10); };
 const nuevoId = () => Math.random().toString(36).slice(2, 10);
 const lineaVacia = (iva = 21) => ({ id: nuevoId(), concepto: "", cantidad: 1, precio: "", descuento: "", iva });
+const gastoVacio = () => ({ tipo: "recibida", estado: "pendiente", fecha: hoyISO(), categoria: CATEGORIAS_GASTO[0], lineas: [{ id: nuevoId(), concepto: "", cantidad: 1, precio: "", iva: 21 }], irpf_pct: 0, contacto: {} });
 const PAGOS = ["Transferencia", "Bizum", "Tarjeta", "Efectivo", "Domiciliación"];
 const PLANTILLAS = [{ k: "clasica", t: "Clásica", sub: "Logo, línea de color y tabla limpia" }, { k: "moderna", t: "Moderna", sub: "Cabecera a color, muy de marca" }, { k: "minimal", t: "Minimal", sub: "Blanco y negro, sobria" }];
 const COLORES = ["#ff5a3c", "#15171c", "#2563eb", "#7c3aed", "#0e9f75", "#db2777", "#d97706"];
@@ -21,6 +22,12 @@ const estadoDe = (f) => {
   if (f.vencimiento && f.vencimiento < hoyISO()) return ["Vencida", "var(--red)"];
   return ["Pendiente", "var(--amber)"];
 };
+async function cargarPdfjs() {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const w = await import("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url");
+  pdfjs.GlobalWorkerOptions.workerSrc = w.default;
+  return pdfjs;
+}
 const descargarBlob = (blob, nombre) => { const u = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = u; a.download = nombre; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000); };
 
 export default function Facturacion({ flash }) {
@@ -33,8 +40,17 @@ export default function Facturacion({ flash }) {
   const [gasto, setGasto] = useState(null);        // factura recibida
   const [contacto, setContacto] = useState(null);  // { ...contacto, alGuardar }
   const [busy, setBusy] = useState(false);
-  const cargar = async () => { try { setD(await fdb.cargar()); setError(""); } catch (e) { setError(e.message || "No se han podido cargar las facturas"); } };
-  useEffect(() => { cargar(); }, []);
+  const [recordar, setRecordar] = useState(null);  // factura a la que mandar un recordatorio de cobro
+  const [recurrente, setRecurrente] = useState(null); // plantilla de factura que se repite
+  const cargar = async () => { try { const x = await fdb.cargar(); setD(x); setError(""); return x; } catch (e) { setError(e.message || "No se han podido cargar las facturas"); return null; } };
+  useEffect(() => { (async () => {
+    const x = await cargar();
+    // Facturas que se repiten: al abrir, se preparan como borradores las que tocan (nunca se emiten solas)
+    if (x?.hayRecurrentes && x.recurrentes.some(r => r.activa)) {
+      try { const n = await fdb.generarRecurrentes(); if (n > 0) { flash(n === 1 ? "Se ha preparado 1 factura que se repite: está en borradores" : `Se han preparado ${n} facturas que se repiten: están en borradores`); await cargar(); } } catch {}
+    }
+  })(); }, []);
+  const archivarPdf = async (em) => { const { pdfFactura } = await import("./pdfFactura"); const doc = await pdfFactura({ ...em, rectifica_codigo: d?.facturas.find(z => z.id === em.rectifica_id)?.codigo }, d?.emisor); const path = await fdb.subirArchivo(em, doc.output("blob")); await fdb.ponerArchivo(em.id, path); return path; };
   const run = async (fn, okMsg) => { setBusy(true); try { const r = await fn(); if (okMsg) flash(okMsg); return r ?? true; } catch (e) { flash(e.message || "Algo ha fallado", "warn"); return null; } finally { setBusy(false); } };
 
   if (error && !d) return <div style={{ ...C.panel, color: "var(--amber)", fontWeight: 700 }}>{error} <button onClick={cargar} style={{ ...C.btnSm, marginLeft: 8 }}>Reintentar</button></div>;
@@ -51,7 +67,7 @@ export default function Facturacion({ flash }) {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ overflowX: "auto", maxWidth: "100%" }}><Seg size={isMobile ? "sm" : "md"} valor={vista} onChange={setVista} opciones={VISTAS} /></div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => setGasto({ tipo: "recibida", estado: "pendiente", fecha: hoyISO(), categoria: CATEGORIAS_GASTO[0], lineas: [{ id: nuevoId(), concepto: "", cantidad: 1, precio: "", iva: 21 }], irpf_pct: 0, contacto: {} })} style={C.btnGhost}><Icon n="receipt" s={17} />{isMobile ? "Gasto" : "Añadir gasto"}</button>
+          <button onClick={() => setGasto(gastoVacio())} style={C.btnGhost}><Icon n="receipt" s={17} />{isMobile ? "Gasto" : "Añadir gasto"}</button>
           <button onClick={() => nuevaFactura()} style={C.btnPrimary}><Icon n="plus" s={17} w={2.4} />{isMobile ? "Factura" : "Nueva factura"}</button>
         </div>
       </div>
@@ -63,9 +79,10 @@ export default function Facturacion({ flash }) {
           <button onClick={() => setVista("ajustes")} style={C.btnPrimary}>Rellenar ahora</button>
         </section>)}
 
-      {vista === "resumen" && <Resumen d={d} isMobile={isMobile} busy={busy} flash={flash} run={run} onVer={(f) => f.tipo === "recibida" ? setGasto(f) : f.estado === "borrador" ? setEditor(f) : setVer(f)} />}
+      {vista === "resumen" && <Resumen d={d} isMobile={isMobile} busy={busy} flash={flash} run={run} onVer={(f) => f.tipo === "recibida" ? setGasto(f) : f.estado === "borrador" ? setEditor(f) : setVer(f)}
+        onRecordar={(f) => setRecordar(f)} onRecurrente={(r) => setRecurrente(r)} />}
       {vista === "ventas" && <Lista d={d} tipo="emitida" isMobile={isMobile} onNueva={() => nuevaFactura()} onAbrir={(f) => f.estado === "borrador" ? setEditor(f) : setVer(f)} />}
-      {vista === "gastos" && <Lista d={d} tipo="recibida" isMobile={isMobile} onNueva={() => setGasto({ tipo: "recibida", estado: "pendiente", fecha: hoyISO(), categoria: CATEGORIAS_GASTO[0], lineas: [{ id: nuevoId(), concepto: "", cantidad: 1, precio: "", iva: 21 }], irpf_pct: 0, contacto: {} })} onAbrir={(f) => setGasto(f)} />}
+      {vista === "gastos" && <Lista d={d} tipo="recibida" isMobile={isMobile} onNueva={() => setGasto(gastoVacio())} onAbrir={(f) => setGasto(f)} />}
       {vista === "contactos" && <Contactos d={d} isMobile={isMobile} onAbrir={(c) => setContacto(c)} />}
       {vista === "ajustes" && <DatosFiscales E={E} busy={busy} isMobile={isMobile} flash={flash}
         onGuardar={async (x) => { const r = await run(() => fdb.guardarEmisor(x), E ? "Datos fiscales guardados" : "Listo: ya puedes hacer facturas"); if (r) { await cargar(); if (!E) setVista("ventas"); } }} />}
@@ -78,15 +95,20 @@ export default function Facturacion({ flash }) {
         onEmitir={async (x) => {
           const g = await run(() => fdb.guardarFactura(x)); if (!g) return;
           const em = await run(() => fdb.emitir(g.id)); if (!em) { await cargar(); return; }
-          try { const { pdfFactura } = await import("./pdfFactura"); const doc = await pdfFactura({ ...em, rectifica_codigo: d.facturas.find(z => z.id === em.rectifica_id)?.codigo }, E); const path = await fdb.subirArchivo(em, doc.output("blob")); await fdb.ponerArchivo(em.id, path); } catch {}
-          flash(`Factura ${em.codigo} emitida`); setEditor(null); await cargar(); setVer({ ...em });
+          // La factura ya está emitida aunque falle el PDF: se avisa y se puede volver a guardar desde la factura
+          let pdfOk = true; try { await archivarPdf(em); } catch { pdfOk = false; }
+          flash(pdfOk ? `Factura ${em.codigo} emitida` : `Factura ${em.codigo} emitida, pero no se ha podido guardar el PDF en el archivo. Ábrela y pulsa «Guardar PDF»`, pdfOk ? undefined : "warn");
+          setEditor(null); await cargar(); setVer({ ...em });
         }} />}
       {ver && <VerFactura f={d.facturas.find(x => x.id === ver.id) || ver} d={d} E={E} busy={busy} isMobile={isMobile} flash={flash} onCerrar={() => setVer(null)}
+        onArchivar={async (f) => { if (await run(() => archivarPdf(f), "PDF guardado en el archivo")) cargar(); }}
+        onRecordar={(f) => setRecordar(f)}
+        onRepetir={d.hayRecurrentes ? (f) => { setVer(null); setRecurrente(nuevaRecurrente(f)); } : null}
         onPagada={async (f, v) => { if (await run(() => fdb.marcarPagada(f, v), v ? "Marcada como cobrada" : "Marcada como pendiente")) cargar(); }}
         onDuplicar={(f) => { setVer(null); nuevaFactura({ contacto_id: f.contacto_id, contacto: f.contacto, lineas: f.lineas.map(l => ({ ...l, id: nuevoId() })), irpf_pct: f.irpf_pct, forma_pago: f.forma_pago, notas: f.notas, plantilla: f.plantilla }); }}
         onRectificar={(f) => { setVer(null); nuevaFactura({ rectificativa: true, rectifica_id: f.id, contacto_id: f.contacto_id, contacto: f.contacto, lineas: f.lineas.map(l => ({ ...l, id: nuevoId(), cantidad: -num(l.cantidad) })), irpf_pct: f.irpf_pct, motivo: "", plantilla: f.plantilla }); }} />}
       {gasto && <FormGasto g={gasto} d={d} busy={busy} isMobile={isMobile} onCerrar={() => setGasto(null)}
-        onNuevoContacto={(nombre, alGuardar) => setContacto({ tipo: "proveedor", nombre, alGuardar })}
+        onNuevoContacto={(nombre, alGuardar, extra) => setContacto({ tipo: "proveedor", nombre, ...extra, alGuardar })}
         onGuardar={async (x, archivo) => {
           const r = await run(async () => { let g = await fdb.guardarFactura(x); if (archivo) { const ext = (archivo.name.split(".").pop() || "pdf").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5); const path = await fdb.subirArchivo(g, archivo, ext); g = await fdb.guardarFactura({ ...g, archivo_path: path }); } return g; }, x.id ? "Gasto actualizado" : "Gasto añadido");
           if (r) { setGasto(null); cargar(); } }}
@@ -94,12 +116,25 @@ export default function Facturacion({ flash }) {
       {contacto && <FormContacto c={contacto} busy={busy} onCerrar={() => setContacto(null)}
         onGuardar={async (x) => { const r = await run(() => fdb.guardarContacto(x), x.id ? "Contacto actualizado" : "Contacto guardado"); if (r) { contacto.alGuardar?.(r); setContacto(null); cargar(); } }}
         onBorrar={async (x) => { if (await run(() => fdb.borrarContacto(x.id), "Contacto borrado")) { setContacto(null); cargar(); } }} />}
+      {recordar && <Recordatorio f={recordar} d={d} E={E} onCerrar={() => setRecordar(null)}
+        onEnviado={async (f) => { setRecordar(null); try { await fdb.marcarRecordada(f.id); cargar(); } catch {} }} />}
+      {recurrente && <FormRecurrente r={recurrente} d={d} busy={busy} onCerrar={() => setRecurrente(null)}
+        onGuardar={async (x) => { const r = await run(() => fdb.guardarRecurrente(x), x.id ? "Factura que se repite actualizada" : "Listo: se preparará sola cada periodo como borrador"); if (r) { setRecurrente(null); const y = await cargar(); if (y && x.activa !== false) { try { const n = await fdb.generarRecurrentes(); if (n > 0) { flash(`${n === 1 ? "1 borrador preparado" : `${n} borradores preparados`} ya`); cargar(); } } catch {} } } }}
+        onBorrar={async (x) => { if (await run(() => fdb.borrarRecurrente(x.id), "Ya no se repite")) { setRecurrente(null); cargar(); } }} />}
     </div>
   );
 }
 
+// Plantilla recurrente a partir de una factura: el primer borrador, el día 1 del mes que viene (nunca en el pasado)
+function nuevaRecurrente(f) {
+  const [a, m] = hoyISO().split("-").map(Number), inicio = m === 12 ? `${a + 1}-01-01` : `${a}-${String(m + 1).padStart(2, "0")}-01`;
+  return { nombre: `${f.contacto?.nombre || "Cliente"} · mensual`, activa: true, cada_meses: 1, inicio,
+    contacto_id: f.contacto_id, contacto: f.contacto, lineas: (f.lineas || []).map(l => ({ concepto: l.concepto, cantidad: num(l.cantidad), precio: num(l.precio), descuento: num(l.descuento), iva: num(l.iva) })),
+    irpf_pct: f.irpf_pct, forma_pago: f.forma_pago, notas: f.notas, plantilla: f.plantilla };
+}
+
 /* ---------------- Resumen del trimestre ---------------- */
-function Resumen({ d, isMobile, busy, flash, run, onVer }) {
+function Resumen({ d, isMobile, busy, flash, run, onVer, onRecordar, onRecurrente }) {
   const hoy = hoyISO(), anioAct = +hoy.slice(0, 4);
   const [anio, setAnio] = useState(anioAct);
   const [tri, setTri] = useState(trimestre(hoy));
@@ -110,6 +145,7 @@ function Resumen({ d, isMobile, busy, flash, run, onVer }) {
   const s = (xs, k) => xs.reduce((t, f) => t + num(f[k]), 0);
   const ivaRep = s(ventas, "cuota_iva"), ivaSop = s(gastos, "cuota_iva");
   const porCobrar = d.facturas.filter(f => f.tipo === "emitida" && f.estado === "emitida");
+  const vencidas = porCobrar.filter(f => diasVencida(f, hoy) > 0).sort((a, b) => a.vencimiento.localeCompare(b.vencimiento));
   const borradores = d.facturas.filter(f => f.tipo === "emitida" && f.estado === "borrador");
   const anios = [...new Set([anioAct, ...d.facturas.map(f => +String(f.fecha).slice(0, 4))])].filter(Boolean).sort((a, b) => b - a);
   const kpis = [
@@ -151,6 +187,15 @@ function Resumen({ d, isMobile, busy, flash, run, onVer }) {
       {kpis.map(([l, v, sub, c]) => <div key={l} style={C.card}><div style={{ fontSize: 12.5, color: "var(--muted)", fontWeight: 700 }}>{l}</div><div style={{ fontSize: isMobile ? 19 : 24, fontWeight: 900, letterSpacing: -.4, color: c, marginTop: 4 }}>{v}</div><div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 3 }}>{sub}</div></div>)}
     </div>
     <div style={{ fontSize: 12, color: "var(--muted)", marginTop: -6 }}>Cálculo orientativo para tu gestoría (modelos 303, 130 y 111). El ZIP lleva las facturas ordenadas por mes en «ingresos» y «gastos» y los libros de registro en CSV.</div>
+    {vencidas.length > 0 && <section style={{ ...C.panel, borderColor: "color-mix(in srgb, var(--red) 45%, var(--line))" }}>
+      <div style={{ fontWeight: 900, marginBottom: 2, display: "flex", alignItems: "center", gap: 8 }}><Icon n="alert" s={18} c="var(--red)" />Vencidas sin cobrar <span style={{ color: "var(--muted)", fontWeight: 700 }}>· {vencidas.length} · {eur(s(vencidas, "total"))}</span></div>
+      <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 6 }}>Manda un recordatorio por correo o WhatsApp con un toque.</div>
+      {vencidas.slice(0, 10).map(f => { const dv = diasVencida(f, hoy); return (
+        <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid var(--line)" }}>
+          <div style={{ flex: 1, minWidth: 0 }}><FilaFactura f={f} onClick={() => onVer(f)} extra={`hace ${dv} ${dv === 1 ? "día" : "días"}${f.recordada_en ? ` · avisado el ${fechaES(f.recordada_en.slice(0, 10))}` : ""}`} sinBorde /></div>
+          <button onClick={() => onRecordar(f)} style={{ ...C.btnSm, flexShrink: 0 }}><Icon n="mail" s={15} />{isMobile ? "" : "Recordar"}</button>
+        </div>); })}
+    </section>}
     <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14 }}>
       <section style={C.panel}>
         <div style={{ fontWeight: 900, marginBottom: 8 }}>Pendiente de cobro <span style={{ color: "var(--muted)", fontWeight: 700 }}>· {eur(s(porCobrar, "total"))}</span></div>
@@ -161,16 +206,32 @@ function Resumen({ d, isMobile, busy, flash, run, onVer }) {
         {borradores.length ? borradores.slice(0, 8).map(f => <FilaFactura key={f.id} f={f} onClick={() => onVer(f)} />) : <div style={C.empty}>Sin borradores.</div>}
       </section>
     </div>
+    {d.hayRecurrentes && <section style={C.panel}>
+      <div style={{ fontWeight: 900, marginBottom: 2, display: "flex", alignItems: "center", gap: 8 }}><Icon n="refresh" s={17} />Facturas que se repiten <span style={{ color: "var(--muted)", fontWeight: 700 }}>· {d.recurrentes.filter(r => r.activa).length}</span></div>
+      <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 6 }}>Cuotas, alquileres, igualas… Cada periodo se prepara un borrador para que lo revises y lo emitas. Se crean desde una factura emitida con «Repetir».</div>
+      {d.recurrentes.length ? d.recurrentes.map(r => { const t = calcular(r.lineas || [], r.irpf_pct); return (
+        <button key={r.id} onClick={() => onRecurrente(r)} style={{ ...C.listBtn, padding: "11px 4px", opacity: r.activa ? 1 : .55 }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontWeight: 800, fontSize: 14.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.nombre}</span>
+            <span style={{ display: "block", fontSize: 12.5, color: "var(--muted)" }}>{r.contacto?.nombre} · {CADA[r.cada_meses] || `cada ${r.cada_meses} meses`} · {r.activa ? `próxima ${fechaES(proximaDe(r))}` : "en pausa"}</span>
+          </span>
+          <b style={{ fontVariantNumeric: "tabular-nums" }}>{eur(t.total)}</b>
+        </button>); }) : <div style={C.empty}>Ninguna todavía.</div>}
+    </section>}
   </>);
 }
 
-function FilaFactura({ f, onClick }) {
+const CADA = { 1: "cada mes", 2: "cada 2 meses", 3: "cada trimestre", 6: "cada semestre", 12: "cada año" };
+// Misma regla que fac_generar_recurrentes: inicio + n × meses (si el día no existe, el último del mes)
+const proximaDe = (r) => { const [a, m, dd] = r.inicio.split("-").map(Number); const k = m - 1 + (r.generadas || 0) * (r.cada_meses || 1); const y = a + Math.floor(k / 12), mm = k % 12; const dim = new Date(Date.UTC(y, mm + 1, 0)).getUTCDate(); return `${y}-${String(mm + 1).padStart(2, "0")}-${String(Math.min(dd, dim)).padStart(2, "0")}`; };
+
+function FilaFactura({ f, onClick, extra, sinBorde }) {
   const [t, c] = estadoDe(f);
   return (
-    <button onClick={onClick} style={{ ...C.listBtn, padding: "11px 4px" }}>
+    <button onClick={onClick} style={{ ...C.listBtn, padding: "11px 4px", ...(sinBorde ? { borderTop: "none" } : null) }}>
       <span style={{ flex: 1, minWidth: 0 }}>
         <span style={{ display: "block", fontWeight: 800, fontSize: 14.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.contacto?.nombre || <span style={{ color: "var(--muted)" }}>Sin {f.tipo === "recibida" ? "proveedor" : "cliente"}</span>}</span>
-        <span style={{ display: "block", fontSize: 12.5, color: "var(--muted)" }}>{f.tipo === "recibida" ? `${f.num_proveedor || "Sin nº"} · ${f.categoria || ""}` : f.codigo || "Borrador"}{f.rectificativa ? " · rectificativa" : ""} · {fechaES(f.fecha)}</span>
+        <span style={{ display: "block", fontSize: 12.5, color: "var(--muted)" }}>{f.tipo === "recibida" ? `${f.num_proveedor || "Sin nº"} · ${f.categoria || ""}` : f.codigo || "Borrador"}{f.rectificativa ? " · rectificativa" : ""} · {fechaES(f.fecha)}{extra ? ` · ${extra}` : ""}</span>
       </span>
       <span style={{ textAlign: "right", flexShrink: 0 }}>
         <b style={{ display: "block", fontSize: 15, fontVariantNumeric: "tabular-nums" }}>{eur(f.total)}</b>
@@ -218,6 +279,7 @@ function Lista({ d, tipo, isMobile, onNueva, onAbrir }) {
 function ElegirContacto({ d, tipo, valor, onElegir, onNuevo }) {
   const [q, setQ] = useState("");
   const [abierto, setAbierto] = useState(!valor?.nombre);
+  useEffect(() => { if (valor?.nombre) setAbierto(false); }, [valor?.nombre]);   // p. ej. al rellenarlo leyendo un PDF
   const lista = d.contactos.filter(c => (tipo === "cliente" ? c.tipo !== "proveedor" : c.tipo !== "cliente")).filter(c => !q.trim() || [c.nombre, c.nif, c.email].some(v => String(v || "").toLowerCase().includes(q.trim().toLowerCase()))).slice(0, 8);
   if (valor?.nombre && !abierto) return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 12, background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: 12 }}>
@@ -391,7 +453,7 @@ function MiniPlantilla({ k, color = "#ff5a3c" }) {
 }
 
 /* ---------------- Ver una factura emitida ---------------- */
-function VerFactura({ f, d, E, busy, isMobile, flash, onCerrar, onPagada, onDuplicar, onRectificar }) {
+function VerFactura({ f, d, E, busy, isMobile, flash, onCerrar, onPagada, onDuplicar, onRectificar, onArchivar, onRecordar, onRepetir }) {
   const [pdf, setPdf] = useState(false);
   const rect = d.facturas.find(x => x.id === f.rectifica_id);
   const rectificadaPor = d.facturas.filter(x => x.rectifica_id === f.id && x.estado !== "borrador");
@@ -422,6 +484,12 @@ function VerFactura({ f, d, E, busy, isMobile, flash, onCerrar, onPagada, onDupl
       <div style={{ fontSize: 13, color: "var(--muted)" }}>Base {eur(f.base)} · IVA {eur(f.cuota_iva)}{num(f.cuota_irpf) ? ` · IRPF −${eur(f.cuota_irpf)}` : ""}</div>
       {rect && <div style={{ ...C.tag, marginTop: 10 }}>Rectifica a {rect.codigo}{f.motivo ? ` · ${f.motivo}` : ""}</div>}
       {rectificadaPor.length > 0 && <div style={{ ...C.tag, marginTop: 10, color: "var(--amber)" }}>Rectificada por {rectificadaPor.map(x => x.codigo).join(", ")}</div>}
+      {!f.archivo_path && <div style={{ ...C.card, marginTop: 12, padding: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", borderColor: "color-mix(in srgb, var(--amber) 50%, var(--line))" }}>
+        <Icon n="alert" s={18} c="var(--amber)" />
+        <span style={{ flex: "1 1 200px", fontSize: 13.5 }}><b>El PDF no está en tu archivo.</b> <span style={{ color: "var(--muted)" }}>Guárdalo para que vaya en el ZIP de la gestoría tal y como se emitió.</span></span>
+        <button onClick={() => onArchivar(f)} disabled={busy} style={C.btnSm}><Icon n="upload" s={15} />Guardar PDF</button>
+      </div>}
+      {f.estado === "emitida" && f.recordada_en && <div style={{ ...C.tag, marginTop: 10 }}>Recordatorio enviado el {fechaES(f.recordada_en.slice(0, 10))}</div>}
       <div style={{ marginTop: 14 }}>
         {(f.lineas || []).map((l, i) => <div key={i} style={{ ...C.row, fontSize: 14 }}><span style={{ flex: 1, minWidth: 0 }}>{l.concepto || "—"}<span style={{ color: "var(--muted)" }}> · {String(l.cantidad).replace(".", ",")} × {eur(l.precio)}{num(l.descuento) ? ` −${l.descuento} %` : ""} · IVA {l.iva} %</span></span><b>{eur(baseLinea(l))}</b></div>)}
       </div>
@@ -429,6 +497,8 @@ function VerFactura({ f, d, E, busy, isMobile, flash, onCerrar, onPagada, onDupl
         <button onClick={() => onPagada(f, f.estado !== "pagada")} disabled={busy} style={C.btnSm}><Icon n={f.estado === "pagada" ? "x" : "check"} s={15} />{f.estado === "pagada" ? "Marcar como pendiente" : "Marcar como cobrada"}</button>
         <button onClick={() => onDuplicar(f)} style={C.btnSm}><Icon n="copy" s={15} />Duplicar</button>
         {!f.rectificativa && <button onClick={() => onRectificar(f)} style={C.btnSm}><Icon n="edit" s={15} />Rectificar</button>}
+        {f.estado === "emitida" && <button onClick={() => onRecordar(f)} style={C.btnSm}><Icon n="mail" s={15} />Recordar pago</button>}
+        {!f.rectificativa && onRepetir && <button onClick={() => onRepetir(f)} style={C.btnSm}><Icon n="refresh" s={15} />Repetir</button>}
       </div>
       <details style={{ marginTop: 16, fontSize: 12, color: "var(--muted)" }}>
         <summary style={{ cursor: "pointer", fontWeight: 700 }}>Registro y huella (VERI*FACTU)</summary>
@@ -438,12 +508,79 @@ function VerFactura({ f, d, E, busy, isMobile, flash, onCerrar, onPagada, onDupl
   );
 }
 
+/* ---------------- Recordatorio de cobro ---------------- */
+const telWa = (t) => { let x = String(t || "").replace(/[^\d+]/g, ""); if (x.startsWith("+")) return x.slice(1); if (x.startsWith("00")) return x.slice(2); return x.length === 9 ? `34${x}` : x; };
+function Recordatorio({ f, d, E, onCerrar, onEnviado }) {
+  const ct = d.contactos.find(c => c.id === f.contacto_id) || {};
+  const email = f.contacto?.email || ct.email || "", tel = ct.telefono || "";
+  const inicial = textoRecordatorio(f, E || f.emisor || {}, hoyISO());
+  const [asunto, setAsunto] = useState(inicial.asunto);
+  const [cuerpo, setCuerpo] = useState(inicial.cuerpo);
+  const abrir = (url) => { window.open(url, "_blank"); onEnviado(f); };
+  return (
+    <Sheet title="Recordar el pago" onClose={onCerrar} footer={<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <button onClick={() => abrir(`mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`)} style={{ ...C.btnPrimary, flex: "1 1 140px" }}><Icon n="mail" s={17} />Correo</button>
+      <button onClick={() => abrir(`https://wa.me/${telWa(tel)}?text=${encodeURIComponent(cuerpo)}`)} disabled={!tel} title={tel ? "" : "Este contacto no tiene teléfono"} style={{ ...C.btnGhost, flex: "1 1 140px", opacity: tel ? 1 : .45 }}><Icon n="whatsapp" s={17} />WhatsApp</button>
+    </div>}>
+      <div style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 12 }}>{f.codigo} · {f.contacto?.nombre} · <b style={{ color: "var(--text)" }}>{eur(f.total)}</b>{email ? ` · ${email}` : " · sin correo (podrás escribirlo en tu programa de correo)"}</div>
+      <Field l="Asunto"><input value={asunto} onChange={e => setAsunto(e.target.value)} style={C.input} /></Field>
+      <Field l="Mensaje" mb={0}><textarea value={cuerpo} onChange={e => setCuerpo(e.target.value)} rows={9} style={{ ...C.input, resize: "vertical", fontFamily: "inherit" }} /></Field>
+      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>Se abre tu correo o WhatsApp con el mensaje listo. Para adjuntar el PDF, descárgalo desde la factura.</div>
+    </Sheet>);
+}
+
+/* ---------------- Factura que se repite ---------------- */
+function FormRecurrente({ r: inicial, d, busy, onCerrar, onGuardar, onBorrar }) {
+  const [r, setR] = useState(() => ({ ...inicial, lineas: (inicial.lineas || []).map(l => ({ ...l, precio: String(l.precio ?? "").replace(".", ",") })) }));
+  const set = (k, v) => setR(o => ({ ...o, [k]: v }));
+  const limpio = () => ({ ...r, lineas: r.lineas.map(l => ({ ...l, precio: num(l.precio), cantidad: num(l.cantidad) || 1 })).filter(l => String(l.concepto || "").trim() || l.precio) });
+  const T = calcular(limpio().lineas, r.irpf_pct);
+  const listo = String(r.nombre || "").trim() && r.inicio && limpio().lineas.length;
+  return (
+    <Sheet title={r.id ? "Factura que se repite" : "Repetir esta factura"} onClose={onCerrar} footer={<div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      {r.id && <button onClick={() => onBorrar(r)} aria-label="Dejar de repetir" style={{ ...C.btnGhost, color: "var(--red)", padding: "11px 13px" }}><Icon n="trash" s={17} /></button>}
+      <div style={{ flex: 1, fontWeight: 900, fontSize: 18 }}>{eur(T.total)}</div>
+      <button onClick={() => onGuardar(limpio())} disabled={busy || !listo} style={{ ...C.btnPrimary, opacity: listo ? 1 : .45 }}>{r.id ? "Guardar" : "Repetir"}</button>
+    </div>}>
+      <div style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 12 }}>Para <b style={{ color: "var(--text)" }}>{r.contacto?.nombre}</b>. Cada periodo se prepara un <b>borrador</b> con fecha del día: lo revisas y lo emites tú.</div>
+      <Field l="Nombre (solo para ti)"><input value={r.nombre || ""} maxLength={120} onChange={e => set("nombre", e.target.value)} style={C.input} /></Field>
+      <Field l="Cada cuánto"><Seg full size="sm" valor={r.cada_meses} onChange={(v) => set("cada_meses", v)} opciones={[{ k: 1, t: "Mes" }, { k: 3, t: "Trimestre" }, { k: 6, t: "Semestre" }, { k: 12, t: "Año" }]} /></Field>
+      <Field l={r.id ? "Empezó el" : "Primer borrador el"}><input type="date" value={r.inicio || ""} onChange={e => set("inicio", e.target.value)} disabled={!!r.id && r.generadas > 0} style={C.input} /></Field>
+      <Field l="Conceptos">
+        {r.lineas.map((l, i) => <div key={i} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 110px", gap: 6, marginBottom: 6 }}>
+          <input value={l.concepto || ""} onChange={e => setR(o => ({ ...o, lineas: o.lineas.map((x, j) => j === i ? { ...x, concepto: e.target.value } : x) }))} aria-label={`Concepto ${i + 1}`} style={C.input} />
+          <input value={l.precio} inputMode="decimal" onChange={e => setR(o => ({ ...o, lineas: o.lineas.map((x, j) => j === i ? { ...x, precio: e.target.value } : x) }))} aria-label={`Precio ${i + 1}`} style={{ ...C.input, textAlign: "right", fontWeight: 800 }} />
+        </div>)}
+        <div style={{ fontSize: 12, color: "var(--muted)" }}>Escribe <b>{"{mes}"}</b> o <b>{"{año}"}</b> y se cambiará por el del periodo. Ej.: «Cuota de {"{mes}"} {"{año}"}».</div>
+      </Field>
+      {r.id && <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}><input type="checkbox" checked={r.activa !== false} onChange={e => set("activa", e.target.checked)} />Activa (desmárcala para pausarla)</label>}
+    </Sheet>);
+}
+
 /* ---------------- Factura de gasto (recibida) ---------------- */
 function FormGasto({ g: inicial, d, busy, isMobile, onCerrar, onGuardar, onBorrar, onNuevoContacto }) {
   const [g, setG] = useState(() => ({ ...inicial, lineas: (inicial.lineas || []).map(l => ({ id: l.id || nuevoId(), ...l, precio: l.precio === "" ? "" : String(l.precio ?? "").replace(".", ",") })) }));
   const [archivo, setArchivo] = useState(null);
   const [desdeTotal, setDesdeTotal] = useState("");
+  const [leido, setLeido] = useState(null);   // { campos: [...], nifNuevo } tras leer el PDF
   const set = (k, v) => setG(o => ({ ...o, [k]: v }));
+  // Al elegir un PDF se leen sus datos (en el navegador) y se rellenan solo los campos vacíos
+  const elegirArchivo = async (file) => {
+    setArchivo(file); setLeido(null);
+    if (!file || !/pdf$/i.test(file.type || file.name)) return;
+    try {
+      const [{ leerPdf }, { interpretarGasto, textoDePaginas }, pdfjs] = await Promise.all([import("../facturaPdf"), import("./leerGasto"), cargarPdfjs()]);
+      const x = interpretarGasto(textoDePaginas(await leerPdf(await file.arrayBuffer(), pdfjs)), d.emisor?.nif);
+      const campos = [], cambios = {};
+      const ct = x.nif && d.contactos.find(c => (c.nif || "").toUpperCase() === x.nif);
+      if (ct && !g.contacto?.nombre) { cambios.contacto_id = ct.id; cambios.contacto = fdb.fotoContacto(ct); campos.push("proveedor"); }
+      if (x.numero && !g.num_proveedor) { cambios.num_proveedor = x.numero; campos.push("número"); }
+      if (x.fecha && (!g.id && g.fecha === hoyISO())) { cambios.fecha = x.fecha; campos.push("fecha"); }
+      if (x.base != null && x.base > 0 && !g.lineas.some(l => num(l.precio))) { cambios.lineas = [{ ...g.lineas[0], precio: String(x.base).replace(".", ","), iva: x.iva ?? g.lineas[0]?.iva ?? 21 }, ...g.lineas.slice(1)]; campos.push("importe"); }
+      setG(o => ({ ...o, ...cambios }));
+      setLeido({ campos, nifNuevo: x.nif && !ct && !g.contacto?.nombre ? x.nif : null, total: x.total });
+    } catch { setLeido({ campos: [], error: true }); }
+  };
   const setL = (id, k, v) => setG(o => ({ ...o, lineas: o.lineas.map(l => l.id === id ? { ...l, [k]: v } : l) }));
   const limpio = () => ({ ...g, lineas: g.lineas.filter(l => num(l.precio)).map(l => ({ id: l.id, concepto: g.categoria || "Gasto", cantidad: 1, precio: num(l.precio), iva: num(l.iva) })) });
   const T = calcular(limpio().lineas, g.irpf_pct);
@@ -458,9 +595,13 @@ function FormGasto({ g: inicial, d, busy, isMobile, onCerrar, onGuardar, onBorra
       <Field l="Factura (PDF o foto)">
         <label style={{ display: "flex", alignItems: "center", gap: 12, border: "2px dashed var(--line)", borderRadius: 14, padding: 14, cursor: "pointer", background: "var(--surface2)" }}>
           <Tile n="upload" s={38} />
-          <span style={{ flex: 1, minWidth: 0, fontSize: 13.5 }}><b style={{ display: "block" }}>{archivo ? archivo.name : g.archivo_path ? "Factura adjunta" : "Subir o hacer foto"}</b><span style={{ color: "var(--muted)" }}>{archivo ? `${Math.round(archivo.size / 1024)} KB` : "Se guarda en tu archivo, en su mes y en «gastos»"}</span></span>
-          <input type="file" accept="application/pdf,image/*" onChange={e => setArchivo(e.target.files?.[0] || null)} style={{ display: "none" }} />
+          <span style={{ flex: 1, minWidth: 0, fontSize: 13.5 }}><b style={{ display: "block" }}>{archivo ? archivo.name : g.archivo_path ? "Factura adjunta" : "Subir o hacer foto"}</b><span style={{ color: "var(--muted)" }}>{archivo ? `${Math.round(archivo.size / 1024)} KB` : "Si es un PDF, leemos sus datos. Se guarda en su mes y en «gastos»"}</span></span>
+          <input type="file" accept="application/pdf,image/*" onChange={e => elegirArchivo(e.target.files?.[0] || null)} style={{ display: "none" }} />
         </label>
+        {leido && <div style={{ fontSize: 12.5, marginTop: 8, color: leido.campos.length ? "var(--green)" : "var(--muted)" }}>
+          {leido.campos.length ? <>Leído del PDF: {leido.campos.join(", ")}{leido.total ? ` · total ${eur(leido.total)}` : ""}. <b>Revísalo antes de guardar.</b></> : leido.error ? "No se ha podido leer el PDF: rellena los datos a mano." : "No se han reconocido datos en el PDF: rellénalos a mano."}
+          {leido.nifNuevo && <div style={{ marginTop: 6, color: "var(--text)" }}>El NIF {leido.nifNuevo} no está en tus proveedores. <button onClick={() => onNuevoContacto("", (c) => setG(o => ({ ...o, contacto_id: c.id, contacto: fdb.fotoContacto(c) })), { nif: leido.nifNuevo })} style={{ ...C.btnSm, marginLeft: 4 }}><Icon n="plus" s={14} w={2.4} />Crear proveedor</button></div>}
+        </div>}
         {g.archivo_path && !archivo && <button onClick={verArchivo} style={{ ...C.btnSm, marginTop: 8 }}><Icon n="eye" s={15} />Ver factura adjunta</button>}
       </Field>
       <Field l="Proveedor"><ElegirContacto d={d} tipo="proveedor" valor={g.contacto} onElegir={(c) => setG(o => ({ ...o, contacto_id: c.id, contacto: fdb.fotoContacto(c) }))} onNuevo={onNuevoContacto} /></Field>
@@ -532,7 +673,7 @@ function FormContacto({ c: inicial, busy, onCerrar, onGuardar, onBorrar }) {
 
 /* ---------------- Datos fiscales ---------------- */
 function DatosFiscales({ E, busy, isMobile, flash, onGuardar }) {
-  const [x, setX] = useState(() => ({ tipo: "sociedad", pais: "España", serie: "F", iva_def: 21, irpf_def: 0, vencimiento_dias: 30, plantilla: "clasica", color: "#ff5a3c", qr: true, ...(E || {}) }));
+  const [x, setX] = useState(() => ({ tipo: "sociedad", pais: "España", serie: "F", iva_def: 21, irpf_def: 0, vencimiento_dias: 30, plantilla: "clasica", color: "#ff5a3c", qr: false, ...(E || {}) }));
   const [subiendo, setSubiendo] = useState(false);
   const set = (k, v) => setX(o => ({ ...o, [k]: v }));
   const nifOk = /^[A-Z0-9]{8,12}$/.test(String(x.nif || "").toUpperCase().replace(/[^A-Z0-9]/g, ""));
@@ -580,7 +721,7 @@ function DatosFiscales({ E, busy, isMobile, flash, onGuardar }) {
             <Field l="Vencimiento (días)"><input value={x.vencimiento_dias} inputMode="numeric" onChange={e => set("vencimiento_dias", Math.min(365, parseInt(e.target.value.replace(/\D/g, "") || "0", 10)))} style={C.input} /></Field>
             <Field l="Serie"><input value={x.serie} maxLength={4} onChange={e => set("serie", e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))} style={C.input} disabled={!!E} title={E ? "La serie no se cambia una vez empezada la numeración" : ""} /></Field>
           </div>
-          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13.5, cursor: "pointer" }}><input type="checkbox" checked={!!x.qr} onChange={e => set("qr", e.target.checked)} style={{ marginTop: 3 }} /><span><b>QR tributario en el PDF</b><br /><span style={{ color: "var(--muted)" }}>Lo exigirá VERI*FACTU. Cada factura lleva además su huella encadenada a la anterior.</span></span></label>
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13.5, cursor: "pointer" }}><input type="checkbox" checked={!!x.qr} onChange={e => set("qr", e.target.checked)} style={{ marginTop: 3 }} /><span><b>QR tributario en el PDF</b><br /><span style={{ color: "var(--muted)" }}>Déjalo desactivado de momento: el QR lleva a la web de la AEAT para comprobar la factura, pero esta app todavía no envía las facturas a Hacienda, así que no la encontraría. Consúltalo con tu gestoría. Cada factura lleva igualmente su huella encadenada a la anterior.</span></span></label>
         </section>
         <button onClick={() => onGuardar({ ...x, nif: String(x.nif || "").toUpperCase().replace(/[^A-Z0-9]/g, "") })} disabled={busy || !listo} style={{ ...C.btnPrimary, padding: "14px 18px", fontSize: 16, opacity: listo ? 1 : .45 }}>{E ? "Guardar cambios" : "Guardar y empezar a facturar"}</button>
       </div>
