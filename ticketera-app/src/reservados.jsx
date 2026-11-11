@@ -319,7 +319,7 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
     if (!libre) { flash(res.reservados.length ? "No queda ningún reservado libre" : "Crea primero los reservados en Configuración", "warn"); return; }
     setFicha({ id: libre.id, nueva: true });
   };
-  const DATOS = ["estado", "cliente", "telefono", "nota", "tarifaId", "senal", "senalMetodo", "promotorId", "llegadaEn", "pedido"];
+  const DATOS = ["estado", "cliente", "telefono", "nota", "tarifaId", "senal", "senalMetodo", "senalSocio", "promotorId", "llegadaEn", "pedido"];
   const [borr, setBorr] = useState(() => leerBorrador(ev.id));
   useEffect(() => { if (!ficha) setBorr(leerBorrador(ev.id)); }, [ficha, ev.id]);
   const guardarFicha = (r, x, destino) => {
@@ -329,7 +329,7 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
     if (!d || d.estado !== "libre") { flash("Ese reservado ya no está libre", "warn"); return; }
     const reserva = Object.fromEntries(DATOS.map(k => [k, x[k]]));
     res.guardar({ ...d, ...reserva });
-    if (r.estado !== "libre") res.guardar({ ...r, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: 0, senalMetodo: "", promotorId: "", llegadaEn: null, pedido: null });
+    if (r.estado !== "libre") res.guardar({ ...r, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: 0, senalMetodo: "", senalSocio: "", promotorId: "", llegadaEn: null, pedido: null });
     flash(r.estado === "libre" ? `Reserva guardada en ${d.nombre}` : `Reserva movida de ${r.nombre} a ${d.nombre}`); setFicha(null);
   };
   return (
@@ -386,7 +386,7 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
               {(r.cliente || !isMobile) && <div style={{ fontWeight: 800, fontSize: 14.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minHeight: 20 }}>{r.cliente || <span style={{ color: "var(--muted)", fontWeight: 600 }}>Sin cliente</span>}</div>}
               <div style={{ fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{P.desc || (t ? t.nombre : r.estado === "libre" ? "" : "Sin botellas apuntadas")}</div>
               {r.estado !== "libre" && P.total != null && <div style={{ fontSize: 12.5, fontWeight: 800 }}>Reserva {money(P.total)}</div>}
-              {r.estado !== "libre" && r.senal > 0 && <div style={{ fontSize: 12, fontWeight: 700, color: "var(--amber)" }}>Señal {money(r.senal)}</div>}
+              {r.estado !== "libre" && r.senal > 0 && <div style={{ fontSize: 12, fontWeight: 700, color: "var(--amber)" }}>Señal {money(r.senal)}{r.senalSocio ? ` · ${r.senalSocio}` : ""}</div>}
               <div style={{ marginTop: "auto", display: "flex", justifyContent: "space-between", alignItems: "baseline", paddingTop: 6, borderTop: "1px solid var(--line)" }}>
                 <span style={{ fontSize: 13, fontWeight: 800 }}>🍾 {s.botellas}{P.n && s.botellas !== P.n && r.estado !== "libre" ? <span style={{ color: "var(--muted)", fontWeight: 700 }}> / {P.n}</span> : null}</span>
                 <span style={{ fontSize: 15, fontWeight: 900, color: s.total > 0 ? "var(--green)" : "var(--muted)" }}>{money(s.total)}</span>
@@ -456,7 +456,7 @@ function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puede
   const moviendo = destino !== r.id;
   const cambiado = moviendo || JSON.stringify(L) !== JSON.stringify({ ...r, senal: r2(r.senal || 0), llegadaEn: r.llegadaEn, pedido: pedidoDe(r) ? pedidoLimpio(pedidoForm(pedidoDe(r))) : null });
   useEffect(() => { if (cambiado) guardarBorrador(ev.id, { rid: r.id, nueva: !!nueva, x, destino, cliente: String(x.cliente || "").trim(), sitio: dest.nombre }); else if (!recuperado) { const b = leerBorrador(ev.id); if (b && b.rid === r.id && !!b.nueva === !!nueva) borrarBorrador(ev.id); } }, [x, destino]);
-  const liberar = () => setX(o => ({ ...o, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: "", senalMetodo: "", promotorId: "", llegadaEn: null, pedido: pedidoForm(null) }));
+  const liberar = () => setX(o => ({ ...o, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: "", senalMetodo: "", senalSocio: "", promotorId: "", llegadaEn: null, pedido: pedidoForm(null) }));
   const promotor = cfg.promotores.find(p => p.id === x.promotorId);
   const dest = reservados.find(z => z.id === destino) || r;
   const sugeridas = (k, base) => [...new Set([...reservados.flatMap(z => (pedidoDe(z)?.botellas || []).map(b => b[k]).filter(Boolean)), ...base])];
@@ -529,12 +529,22 @@ function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puede
       </div>
 
       <div style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 14, padding: "12px 12px 2px", marginBottom: 12 }}>
-        <div style={{ fontWeight: 800, marginBottom: 8 }}>Señal pagada al promotor</div>
+        <div style={{ fontWeight: 800, marginBottom: 8 }}>Señal</div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <Field label="Importe (€)" style={{ flex: "1 1 100px" }}><input value={x.senal} inputMode="decimal" onChange={e => set("senal", e.target.value.replace(/[^\d.,]/g, "").slice(0, 8))} placeholder="0,00" style={{ ...R.input, fontWeight: 800 }} /></Field>
           <Field label="Cómo la pagó" style={{ flex: "1 1 120px" }}><select value={x.senalMetodo || ""} onChange={e => set("senalMetodo", e.target.value)} style={R.input}><option value="">—</option>{Object.entries(METODOS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
           <Field label="Promotor" style={{ flex: "1 1 140px" }}><select value={x.promotorId || ""} onChange={e => set("promotorId", e.target.value)} style={R.input}><option value="">—</option>{cfg.promotores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select></Field>
         </div>
+        {/* Quién tiene el dinero de la señal: si es un socio, queda como deuda suya hasta que lo reponga en la caja */}
+        <Field label="¿Tiene el dinero un socio?">
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button onClick={() => set("senalSocio", "")} aria-pressed={!x.senalSocio} style={{ ...R.chip, borderColor: !x.senalSocio ? "var(--accent)" : "var(--line)", background: !x.senalSocio ? "rgba(255,90,60,.14)" : "transparent", color: "var(--text)" }}>No</button>
+            {[...new Set([...cfg.socios.map(p => String(p.nombre || "").trim()).filter(Boolean), ...(x.senalSocio && !cfg.socios.some(p => p.nombre === x.senalSocio) ? [x.senalSocio] : [])])].map(n => (
+              <button key={n} onClick={() => set("senalSocio", n)} aria-pressed={x.senalSocio === n} style={{ ...R.chip, borderColor: x.senalSocio === n ? "var(--amber)" : "var(--line)", background: x.senalSocio === n ? "rgba(255,180,0,.16)" : "transparent", color: x.senalSocio === n ? "var(--amber)" : "var(--text)", fontWeight: 800 }}>{n}</button>))}
+          </div>
+          {!cfg.socios.length && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Añade los socios en Configuración (6 · Socios) para elegirlos aquí.</div>}
+          {x.senalSocio && senal > 0 && <div style={{ fontSize: 12.5, color: "var(--amber)", fontWeight: 700, marginTop: 6 }}>{x.senalSocio} debe {money(senal)} a la caja hasta que lo reponga. Saldrá en los informes del TPV y en el CRM.</div>}
+        </Field>
         {C.total != null && senal > 0 && stats?.tarifaCobrada && <div style={{ fontSize: 13, marginBottom: 10, color: "var(--green)", fontWeight: 700 }}>✓ Cobrado en taquilla con la señal ya descontada.</div>}
         {C.total != null && !stats?.tarifaCobrada && <div style={{ fontSize: 13, marginBottom: 10 }}>En taquilla pagará <b style={{ color: "var(--accent)" }}>{money(enTaquilla)}</b>{senal > 0 ? ` (${money(C.total)} − ${money(senal)} de señal)` : ""}{promotor?.telefono ? <> · <a href={`tel:${promotor.telefono.replace(/[^\d+]/g, "")}`} style={{ color: "var(--muted)" }}>llamar a {promotor.nombre}</a></> : null}</div>}
       </div>
@@ -573,7 +583,7 @@ function ConfigReservados({ ev, cfg, res, isMobile, flash, onGuardarCfg }) {
   };
   // Reservados (mesas): se guardan al momento
   const ventasDe = (id) => res.ventas.some(v => v.reservadoId === id);
-  const nuevoRes = () => { const n = res.reservados.length + 1; res.guardar({ id: uid(), nombre: `R${n}`, tamano: "pequeno", personas: null, orden: n, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: 0, senalMetodo: "", promotorId: "", llegadaEn: null }); };
+  const nuevoRes = () => { const n = res.reservados.length + 1; res.guardar({ id: uid(), nombre: `R${n}`, tamano: "pequeno", personas: null, orden: n, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: 0, senalMetodo: "", senalSocio: "", promotorId: "", llegadaEn: null }); };
   const quitarUltimo = () => {
     const ult = res.reservados[res.reservados.length - 1]; if (!ult) return;
     if (ult.estado !== "libre" || ventasDe(ult.id)) { flash(`${ult.nombre} tiene cliente o ventas: no se quita`, "warn"); return; }
@@ -647,7 +657,7 @@ function ConfigReservados({ ev, cfg, res, isMobile, flash, onGuardarCfg }) {
           <button onClick={() => set("promotores", [...d.promotores, { id: uid(), nombre: "", telefono: "" }])} style={R.ghost}>+ Añadir promotor</button>
         </>)}
 
-      {bloque("6 · Socios", "Quienes pueden vender reservados y botellas desde su móvil, en cualquier punto de la sala (sin ticket, con el PIN de administrador). Si cobran en efectivo, el cierre Z de la caja elegida les recuerda que deben entregarlo.",
+      {bloque("6 · Socios", "Quienes pueden vender reservados y botellas desde su móvil, en cualquier punto de la sala (sin ticket, con el PIN de administrador). También se eligen en la ficha del reservado cuando un socio se queda con la señal. Todo lo que tienen sale en Informes y en el CRM hasta que se confirma que lo han devuelto.",
         <>
           {d.socios.map(p => (
             <div key={p.id} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
@@ -774,18 +784,13 @@ export function InformeReservados({ ev, res, sales, isMobile }) {
         <div style={{ fontWeight: 800 }}>⭐ Reservados VIP</div>
         <button onClick={csv} style={R.small}>⬇️ CSV de reservados</button>
       </div>
-      <div style={{ ...R.sub, marginBottom: 12 }}>Lo cobrado en el TPV ya está dentro de la facturación. Las señales las tienen los promotores y no entran en las cajas de las barras.</div>
+      <div style={{ ...R.sub, marginBottom: 12 }}>Lo cobrado en el TPV ya está dentro de la facturación. Las señales no entran en las cajas de las barras: las tiene quien las cobró (si es un socio, sale abajo en «Dinero que tienen los socios»).</div>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,minmax(0,1fr))" : "repeat(4,minmax(0,1fr))", gap: 10, marginBottom: 12 }}>
         <Kpi l="Botellas" v={tot.bot} />
         <Kpi l="Cobrado en TPV" v={money(tot.cob)} c="var(--green)" />
-        <Kpi l="Señales (promotores)" v={money(tot.sen)} c="var(--amber)" />
+        <Kpi l="Señales cobradas" v={money(tot.sen)} c="var(--amber)" />
         <Kpi l="Total reservados" v={money(r2(tot.cob + tot.sen))} />
       </div>
-      {(() => { const es = efectivoSocios(sales); return es.length ? (
-        <div style={{ background: "rgba(255,180,0,.08)", border: "1px solid rgba(255,180,0,.35)", borderRadius: 12, padding: "10px 12px", marginBottom: 12, fontSize: 13.5 }}>
-          <b style={{ color: "var(--amber)" }}>💶 Efectivo que tienen los socios</b> <span style={{ color: "var(--muted)" }}>(vendido sin ticket; deben entregarlo en su caja)</span>
-          {es.map(x => <div key={x.nombre} style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}><span>{x.nombre}</span><b>{money(x.importe)}</b></div>)}
-        </div>) : null; })()}
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead><tr style={{ color: "var(--muted)", textAlign: "right" }}>
@@ -811,7 +816,7 @@ export function InformeReservados({ ev, res, sales, isMobile }) {
 export async function copiarReservados(desdeId, haciaId) {
   try {
     const { reservados } = await db.loadReservados(desdeId);
-    for (const r of reservados) await db.guardarReservado({ ...r, id: uid(), eventId: haciaId, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: 0, senalMetodo: "", promotorId: "", llegadaEn: null });
+    for (const r of reservados) await db.guardarReservado({ ...r, id: uid(), eventId: haciaId, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: 0, senalMetodo: "", senalSocio: "", promotorId: "", llegadaEn: null });
     return reservados.length;
   } catch { return 0; }
 }

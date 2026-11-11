@@ -16,6 +16,7 @@ import { Prevision } from "./Prevision";
 import { Entradas } from "./Entradas";
 import { Stock } from "./Stock";
 import { useReservados, resCfg } from "../reservados";
+import { DineroSocios } from "./DineroSocios";
 const Facturacion = lazy(() => import("./fac/Facturacion"));   // módulo aparte: no toca los números de los eventos
 
 const COLORES = ["#ff5a3c", "#a855f7", "#3b82f6", "#22d3a6", "#ffb400", "#ec4899", "#14b8a6", "#f97316"];
@@ -258,7 +259,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
               onImportar={() => setImportar(true)} />
           )}
           {data && tab === "socios" && (
-            <Socios ev={ev} data={data} T={T} G={G} isMobile={isMobile} busy={busy}
+            <Socios ev={ev} data={data} T={T} G={G} isMobile={isMobile} busy={busy} flash={flash}
               onGuardarSocio={(s) => run(() => crm.saveSocio(s), s.id ? "Socio actualizado" : "Socio añadido")}
               onActivo={(s, a) => run(() => crm.setSocioActivo(s.id, a), a ? "Socio reactivado" : "Socio quitado")}
               onReparto={(lista) => run(() => crm.saveParticipacion(ev.id, lista), "Reparto guardado")} />
@@ -302,7 +303,8 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
 }
 
 /* ===================== SOCIOS ===================== */
-function Socios({ ev, data, T, G, isMobile, busy, onGuardarSocio, onActivo, onReparto }) {
+function Socios({ ev, data, T, G, isMobile, busy, flash, onGuardarSocio, onActivo, onReparto }) {
+  const [tpv, setTpv] = useState({});   // lo que debe cada socio del TPV (por nombre), para verlo en su fila
   const activos = data.socios.filter(s => s.activo);
   const inactivos = data.socios.filter(s => !s.activo);
   const inicial = () => Object.fromEntries(data.participacion.map(p => [p.socioId, String(p.porcentaje).replace(".", ",")]));
@@ -322,6 +324,7 @@ function Socios({ ev, data, T, G, isMobile, busy, onGuardarSocio, onActivo, onRe
 
   return (
     <div>
+      <DineroSocios ev={ev} socios={data.socios} flash={flash} onTotales={(d) => { const m = {}; d.forEach(x => { const k = x.socio.trim().toLowerCase(); m[k] = r2((m[k] || 0) + x.pendiente); }); setTpv(m); }} />
       {/* Reparto del evento */}
       <div style={{ ...C.panel, marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
@@ -337,6 +340,7 @@ function Socios({ ev, data, T, G, isMobile, busy, onGuardarSocio, onActivo, onRe
               <span style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800 }}><Avatar nombre={s.nombre} c={s.color} s={26} />{s.nombre}</span>
               {tiene > 0 && <span style={{ display: "block", fontSize: 12, color: "var(--amber)", fontWeight: 700, marginTop: 2 }}>Tiene {money(tiene)} del evento</span>}
               {pago > 0 && <span style={{ display: "block", fontSize: 12, color: "var(--blue)", fontWeight: 700, marginTop: 2 }}>Ha adelantado {money(pago)} de su bolsillo</span>}
+              {tpv[s.nombre.trim().toLowerCase()] > 0 && <span style={{ display: "block", fontSize: 12, color: "var(--amber)", fontWeight: 700, marginTop: 2 }}>Debe {money(tpv[s.nombre.trim().toLowerCase()])} del TPV (señales y ventas sin ticket)</span>}
             </span>
             {on && <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
               <input inputMode="decimal" value={rep[s.id]} onChange={e => setRep(r => ({ ...r, [s.id]: e.target.value.replace(/[^\d.,]/g, "").slice(0, 7) }))} style={{ ...C.input, width: 82, textAlign: "right", fontWeight: 900, fontSize: 16, padding: "8px 10px" }} aria-label={`Porcentaje de ${s.nombre}`} />

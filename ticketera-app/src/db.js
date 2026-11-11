@@ -15,7 +15,7 @@ const evFromDb = (e) => ({
   puntos: (e.ticket_puntos || []).map(puntoFromDb),
 });
 const saleFromDb = (s) => ({ id: s.id, clientUuid: s.client_uuid, code: s.codigo, num: s.numero, eventId: s.evento_id, puntoId: s.punto_id, productId: s.producto_id, name: s.nombre, price: Number(s.precio), ts: new Date(s.creado_en).getTime(), voided: s.anulada, closureId: s.closure_id, operario: s.operario, pago: s.metodo_pago, invite: /^invitacion/.test(s.metodo_pago || ""), inviteValue: /^invitacion/.test(s.metodo_pago || "") ? (Number(String(s.metodo_pago).split(":")[1]) || 0) : 0, entregado: s.entregado != null ? Number(s.entregado) : null, cambio: s.cambio != null ? Number(s.cambio) : null, synced: true });
-const gastoFromDb = (g) => ({ tipo: g.tipo === "entrada" ? "entrada" : "gasto", id: g.id, eventId: g.evento_id, puntoId: g.punto_id, importe: Number(g.importe), concepto: g.concepto || "", por: g.registrado_por || "", ts: new Date(g.creado_en).getTime(), voided: !!g.anulado, closureId: g.closure_id, synced: true });
+const gastoFromDb = (g) => ({ tipo: g.tipo === "entrada" ? "entrada" : "gasto", id: g.id, eventId: g.evento_id, puntoId: g.punto_id, importe: Number(g.importe), concepto: g.concepto || "", categoria: g.categoria || "", por: g.registrado_por || "", ts: new Date(g.creado_en).getTime(), voided: !!g.anulado, closureId: g.closure_id, synced: true });
 const closureFromDb = (c) => ({ id: c.id, eventId: c.evento_id, puntoId: c.punto_id, count: c.tickets, revenue: Number(c.facturacion), voids: c.anulaciones, lines: c.detalle || [], efectivo: Number(c.efectivo || 0), tarjeta: Number(c.tarjeta || 0), fondo: Number(c.fondo || 0), contado: c.contado != null ? Number(c.contado) : null, gastos: Number(c.gastos || 0), entradas: Number(c.entradas || 0), esperado: c.esperado != null ? Number(c.esperado) : null, ts: new Date(c.creado_en).getTime() });
 
 const evToDb = (e) => ({ id: e.id, nombre: e.name, fecha: e.date, recinto: e.venue, plantilla: e.template, papel: e.paper, pie: e.footer, logo_url: e.logo, mostrar_evento: e.showEventName, mostrar_fecha: e.showDate, mostrar_hora: e.showTime, mostrar_precio: e.showPrice, anular_pin: e.anularPin, cerrada: !!e.closed, inicio: e.startsAt || null, fin: e.endsAt || null, venta_avanzada: !!e.advanced, ayuda_cambio: e.changeHelp !== false, pedir_fondo: e.pedirFondo !== false, ticket_style: e.style || {}, qr_activo: !!e.qrActivo, pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor, pin_admin_huella: e.pin_admin_huella || null, pin_supervisor_huella: e.pin_supervisor_huella || null });
@@ -157,7 +157,7 @@ export const pendingCount = () => loadQ().length;
 // Identificadores de ventas y anulaciones aún sin subir (para no "perderlas" de la pantalla)
 export function pendingSaleUuids() { const s = new Set(); loadQ().forEach(it => { if (it.op === "vender") (it.args?.p_client_uuids || []).forEach(u => s.add(u)); }); return s; }
 // Gastos de caja aún sin subir (registrados en este equipo) y anulaciones de gasto pendientes
-export function pendingGastos() { return loadQ().filter(it => it.op === "gasto").map(it => ({ tipo: it.tipo === "entrada" ? "entrada" : "gasto", id: it.id, eventId: it.evento, puntoId: it.punto, importe: Number(it.importe), concepto: it.concepto || "", por: it.por || "", ts: new Date(it.fecha).getTime(), voided: false, closureId: null, synced: false })); }
+export function pendingGastos() { return loadQ().filter(it => it.op === "gasto").map(it => ({ tipo: it.tipo === "entrada" ? "entrada" : "gasto", id: it.id, eventId: it.evento, puntoId: it.punto, importe: Number(it.importe), concepto: it.concepto || "", categoria: it.categoria || "", por: it.por || "", ts: new Date(it.fecha).getTime(), voided: false, closureId: null, synced: false })); }
 export function pendingGastoVoids() { const s = new Set(); loadQ().forEach(it => { if (it.op === "anularGasto") s.add(it.id); }); return s; }
 // Ventas aún sin subir reconstruidas desde la cola (si se recarga la página sin internet, siguen contando en pantalla)
 export function pendingSales() {
@@ -189,7 +189,7 @@ async function runItem(it) {
     try { localStorage.setItem(scopedKey("ticketera_last_backup"), it.tomado_en); } catch {}
   }
   else if (it.op === "gasto") {
-    const { error } = await supabase.from("ticket_gastos").insert({ id: it.id, tipo: it.tipo === "entrada" ? "entrada" : "gasto", evento_id: it.evento, punto_id: it.punto, importe: it.importe, concepto: it.concepto || "", registrado_por: it.por || null, creado_en: it.fecha });
+    const { error } = await supabase.from("ticket_gastos").insert({ id: it.id, tipo: it.tipo === "entrada" ? "entrada" : "gasto", evento_id: it.evento, punto_id: it.punto, importe: it.importe, concepto: it.concepto || "", ...(it.categoria ? { categoria: String(it.categoria).slice(0, 40) } : {}), registrado_por: it.por || null, creado_en: it.fecha });
     if (error && !isDuplicate(error)) throw error;          // ya subido = correcto
   }
   else if (it.op === "anularGasto") {
@@ -286,8 +286,8 @@ export function anularVenta(clientUuid, por) { return doOrQueue({ op: "anularVen
 
 // Gasto / retirada de caja: dinero que SALE del cajón. No cambia la facturación; se descuenta en el arqueo.
 // Offline-safe: se guarda primero en el equipo y sube solo (el id lo pone la app: nunca se duplica).
-export function registrarGasto({ id, tipo = "gasto", eventoId, puntoId, importe, concepto, por }) {
-  return doOrQueue({ op: "gasto", id, tipo: tipo === "entrada" ? "entrada" : "gasto", evento: eventoId, punto: puntoId, importe, concepto, por, fecha: new Date().toISOString() });
+export function registrarGasto({ id, tipo = "gasto", eventoId, puntoId, importe, concepto, categoria, por }) {
+  return doOrQueue({ op: "gasto", id, tipo: tipo === "entrada" ? "entrada" : "gasto", evento: eventoId, punto: puntoId, importe, concepto, categoria: categoria || "", por, fecha: new Date().toISOString() });
 }
 export function anularGasto(id, eventoId, por) { return doOrQueue({ op: "anularGasto", id, evento: eventoId, por }); }
 
@@ -424,7 +424,7 @@ export function subscribeEvento(eventoId, onChange) {
 /* ===================== RESERVADOS VIP =====================
    Cada reservado (estado, cliente, señal…) y el enlace venta → reservado.
    Todo pasa por la misma cola que las ventas: sin internet se guarda en el equipo y sube solo. */
-const resFromDb = (r) => ({ id: r.id, eventId: r.evento_id, nombre: r.nombre, tamano: r.tamano, personas: r.personas, orden: r.orden ?? 0, estado: r.estado, cliente: r.cliente || "", telefono: r.telefono || "", nota: r.nota || "", tarifaId: r.tarifa_id || "", senal: Number(r.senal || 0), senalMetodo: r.senal_metodo || "", promotorId: r.promotor_id || "", llegadaEn: r.llegada_en, actualizadoEn: r.actualizado_en, pedido: r.pedido && typeof r.pedido === "object" ? r.pedido : null });
+const resFromDb = (r) => ({ id: r.id, eventId: r.evento_id, nombre: r.nombre, tamano: r.tamano, personas: r.personas, orden: r.orden ?? 0, estado: r.estado, cliente: r.cliente || "", telefono: r.telefono || "", nota: r.nota || "", tarifaId: r.tarifa_id || "", senal: Number(r.senal || 0), senalMetodo: r.senal_metodo || "", promotorId: r.promotor_id || "", senalSocio: r.senal_socio || "", llegadaEn: r.llegada_en, actualizadoEn: r.actualizado_en, pedido: r.pedido && typeof r.pedido === "object" ? r.pedido : null });
 // Detalle de la reserva, limpio y acotado (lo que cabe en la columna «pedido»)
 const pedidoToDb = (p) => {
   if (!p || typeof p !== "object") return null;
@@ -435,7 +435,7 @@ const pedidoToDb = (p) => {
   if (!botellas.length && personas == null && precioModo === "auto") return null;
   return { personas, botellas, precioModo, total: n2(p.total) };
 };
-const resToDb = (r) => ({ pedido: pedidoToDb(r.pedido), id: r.id, evento_id: r.eventId, nombre: String(r.nombre || "").trim().slice(0, 40) || "R", tamano: r.tamano === "grande" ? "grande" : "pequeno", personas: r.personas === "" || r.personas == null ? null : Math.max(0, Math.min(500, parseInt(r.personas, 10) || 0)), orden: r.orden ?? 0, estado: ["libre", "reservado", "llegado", "novino"].includes(r.estado) ? r.estado : "libre", cliente: String(r.cliente || "").trim().slice(0, 120) || null, telefono: String(r.telefono || "").trim().slice(0, 40) || null, nota: String(r.nota || "").trim().slice(0, 500) || null, tarifa_id: r.tarifaId || null, senal: Math.max(0, Math.round((Number(r.senal) || 0) * 100) / 100), senal_metodo: ["efectivo", "bizum", "transferencia", "tarjeta"].includes(r.senalMetodo) ? r.senalMetodo : null, promotor_id: r.promotorId || null, llegada_en: r.llegadaEn || null, actualizado_en: new Date().toISOString() });
+const resToDb = (r) => ({ pedido: pedidoToDb(r.pedido), id: r.id, evento_id: r.eventId, nombre: String(r.nombre || "").trim().slice(0, 40) || "R", tamano: r.tamano === "grande" ? "grande" : "pequeno", personas: r.personas === "" || r.personas == null ? null : Math.max(0, Math.min(500, parseInt(r.personas, 10) || 0)), orden: r.orden ?? 0, estado: ["libre", "reservado", "llegado", "novino"].includes(r.estado) ? r.estado : "libre", cliente: String(r.cliente || "").trim().slice(0, 120) || null, telefono: String(r.telefono || "").trim().slice(0, 40) || null, nota: String(r.nota || "").trim().slice(0, 500) || null, tarifa_id: r.tarifaId || null, senal: Math.max(0, Math.round((Number(r.senal) || 0) * 100) / 100), senal_metodo: ["efectivo", "bizum", "transferencia", "tarjeta"].includes(r.senalMetodo) ? r.senalMetodo : null, promotor_id: r.promotorId || null, senal_socio: String(r.senalSocio || "").trim().slice(0, 60) || null, llegada_en: r.llegadaEn || null, actualizado_en: new Date().toISOString() });
 const resVentaFromDb = (v) => ({ clientUuid: v.client_uuid, eventId: v.evento_id, reservadoId: v.reservado_id, tipo: v.tipo, itemId: v.item_id || "", nombre: v.nombre || "", botellas: v.botellas || 0, total: Number(v.total || 0), senal: Number(v.senal || 0), ts: new Date(v.creado_en).getTime() });
 
 export async function loadReservados(eventoId) {

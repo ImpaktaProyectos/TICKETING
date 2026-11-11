@@ -4,6 +4,8 @@ import { uid } from "./supabase";
 import { logout } from "./auth";
 import * as db from "./db";
 import { secretoDe, estadoDe, comprobar as comprobarPin, crearHuella, problema as problemaPin, fuerza as fuerzaPin, disponible as cifradoDisponible } from "./pin";
+import { CierreNoche } from "./CierreNoche";
+import { CATS_GASTO, categoriaDe } from "./cierreNocheCalc";
 import { useReservados, LineaReservados, CobrarReservado, ReservadosVista, InformeReservados, copiarReservados, resCfg, VentaSocio, efectivoSocios, calcPedido } from "./reservados";
 import { nextFolios, prefijoDePunto, peekFolio, getDeviceTag, resetFolios, seedFolio } from "./folio";
 import QrCodigo from "./qr/QrCodigo";
@@ -43,7 +45,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.11g";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.11h";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -733,17 +735,17 @@ export default function App() {
   // de lo que debe haber (efectivo + datáfono) para que las cuentas cuadren.
   const [showGasto, setShowGasto] = useState(false);
   const [askGastoVoid, setAskGastoVoid] = useState(null);
-  const registrarGasto = async (importe, concepto, tipo = "gasto") => {
+  const registrarGasto = async (importe, concepto, tipo = "gasto", categoria = "") => {
     if (!ev.id || !punto?.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return false; }
     const imp = round2(Number(importe) || 0);
     if (!(imp > 0) || imp >= 1000000) { flash("Escribe el importe del gasto", "warn"); return false; }
     const id = uid();
     const por = role === "cajero" ? punto.name : role === "admin" ? "Admin" : "Supervisor";
-    const g = { id, tipo: tipo === "entrada" ? "entrada" : "gasto", eventId: ev.id, puntoId: punto.id, importe: imp, concepto: String(concepto || "").trim().slice(0, 120), por, ts: Date.now(), voided: false, closureId: null, synced: false };
+    const g = { id, tipo: tipo === "entrada" ? "entrada" : "gasto", eventId: ev.id, puntoId: punto.id, importe: imp, concepto: String(concepto || "").trim().slice(0, 120), categoria: tipo === "entrada" ? "" : String(categoria || ""), por, ts: Date.now(), voided: false, closureId: null, synced: false };
     baseDispatch({ type: "ADD_GASTO", gasto: g });
-    flash(`${g.tipo === "entrada" ? "➕ Cambio añadido" : "💸 Gasto registrado"} · ${money(imp)}${g.concepto ? " · " + g.concepto : ""}`);
+    flash(`${g.tipo === "entrada" ? "➕ Cambio añadido" : "💸 Gasto registrado"} · ${money(imp)}${g.tipo !== "entrada" ? " · " + categoriaDe(g).t : ""}${g.concepto && g.concepto !== categoriaDe(g).t ? " · " + g.concepto : ""}`);
     if (navigator.vibrate) navigator.vibrate(30);
-    const r = await db.registrarGasto({ id, tipo: g.tipo, eventoId: ev.id, puntoId: punto.id, importe: imp, concepto: g.concepto, por });
+    const r = await db.registrarGasto({ id, tipo: g.tipo, eventoId: ev.id, puntoId: punto.id, importe: imp, concepto: g.concepto, categoria: g.categoria, por });
     if (r.offline) setPending(db.pendingCount());
     return true;
   };
@@ -1006,6 +1008,7 @@ export default function App() {
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
             {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
             {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
+            {safeView === "reports" && <CierreNoche ev={ev} evSales={evSales} evGastos={evGastos} res={res} role={role} flash={flash} />}
             {safeView === "reports" && <InformeReservados ev={ev} res={res} sales={evSales} isMobile={isMobile} />}
             {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
           </div>
@@ -1054,6 +1057,7 @@ export default function App() {
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
               {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
               {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
+            {safeView === "reports" && <CierreNoche ev={ev} evSales={evSales} evGastos={evGastos} res={res} role={role} flash={flash} />}
             {safeView === "reports" && <InformeReservados ev={ev} res={res} sales={evSales} isMobile={isMobile} />}
             {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
             </div>
@@ -1730,7 +1734,6 @@ function FondoGate({ puntoName, previsto = null, ultimo = null, onSave, onBack, 
    Movimientos de dinero del cajón durante la noche. NO cambian la facturación:
    el cierre Z los usa para saber cuánto debe haber. */
 const MOV_CONCEPTOS = {
-  gasto: ["Proveedor", "Hielo", "Compras", "Personal", "Retirada de efectivo"],
   entrada: ["Más cambio", "Monedas", "Billetes pequeños"],
 };
 function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose }) {
@@ -1738,6 +1741,7 @@ function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose }) {
   const [tipo, setTipo] = useState("gasto");
   const [val, setVal] = useState("");
   const [concepto, setConcepto] = useState("");
+  const [categoria, setCategoria] = useState("");   // los gastos se clasifican siempre (para el cierre de la noche)
   const [confirmId, setConfirmId] = useState(null);
   const imp = parseFloat((val || "0").replace(",", ".")) || 0;
   const tG = sumMov(movs, "gasto"), tE = sumMov(movs, "entrada");
@@ -1749,8 +1753,9 @@ function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose }) {
     if (/\.\d{3}$/.test(nv) || nv.replace(".", "").length > 7) return v;
     return nv;
   });
-  const switchTipo = (t) => { setTipo(t); setConcepto(""); };
-  const save = async () => { if (!(imp > 0)) return; const ok = await onSave(imp, concepto, tipo); if (ok) { setVal(""); setConcepto(""); } };
+  const switchTipo = (t) => { setTipo(t); setConcepto(""); setCategoria(""); };
+  const falta = isG && !categoria;
+  const save = async () => { if (!(imp > 0) || falta) return; const cat = CATS_GASTO.find(c => c.k === categoria); const ok = await onSave(imp, concepto.trim() || (isG ? cat?.t : ""), tipo, isG ? categoria : ""); if (ok) { setVal(""); setConcepto(""); setCategoria(""); } };
   const hora = (ts) => new Date(ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
   const seg = (t, ico, label, c) => (
     <button onClick={() => switchTipo(t)} style={{ flex: 1, padding: "12px 6px", borderRadius: 12, fontWeight: 900, fontSize: 15, cursor: "pointer", border: `2px solid ${tipo === t ? c : "var(--line)"}`, background: tipo === t ? c : "var(--surface2)", color: tipo === t ? "#1a1205" : "var(--text)" }}>{ico} {label}</button>
@@ -1785,18 +1790,23 @@ function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose }) {
           {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0"].map(d => <button key={d} onClick={() => press(d)} style={{ ...S.pinBtn, padding: "12px 0" }}>{d === "." ? "," : d}</button>)}
           <button onClick={() => setVal(v => v.slice(0, -1))} style={{ ...S.pinBtn, padding: "12px 0", fontSize: 18 }} aria-label="Borrar">⌫</button>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+        {isG && <div style={{ ...S.miniLabel, marginBottom: 6 }}>¿En qué se gasta?</div>}
+        {isG && <div role="radiogroup" aria-label="Categoría del gasto" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {CATS_GASTO.map(c => { const on = categoria === c.k; return <button key={c.k} role="radio" aria-checked={on} onClick={() => setCategoria(on ? "" : c.k)} style={{ ...S.qtyChip, padding: "9px 12px", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, ...(on ? { background: c.c, color: "#0b0c10", borderColor: c.c } : {}) }}><span style={{ width: 9, height: 9, borderRadius: 3, background: on ? "#0b0c10" : c.c, opacity: on ? .5 : 1 }} />{c.t}</button>; })}
+        </div>}
+        {!isG && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
           {MOV_CONCEPTOS[tipo].map(c => <button key={c} onClick={() => setConcepto(concepto === c ? "" : c)} style={{ ...S.qtyChip, padding: "8px 12px", fontSize: 13, ...(concepto === c ? { background: col, color: "#1a1205", borderColor: col } : {}) }}>{c}</button>)}
-        </div>
-        <input value={concepto} maxLength={120} onChange={e => setConcepto(e.target.value)} placeholder="Concepto (opcional)" style={{ ...S.input, marginBottom: 12 }} />
-        <button onClick={save} disabled={!(imp > 0)} style={{ ...S.btnPrimary, width: "100%", padding: "16px", fontSize: 16, background: imp > 0 ? col : "var(--line)", color: imp > 0 ? "#1a1205" : "var(--muted)" }}>{imp > 0 ? (isG ? `💸 Sacar ${money(imp)} de la caja` : `➕ Meter ${money(imp)} de cambio`) : "Escribe el importe"}</button>
+        </div>}
+        <input value={concepto} maxLength={120} onChange={e => setConcepto(e.target.value)} placeholder={isG ? "Detalle (opcional): proveedor, persona…" : "Concepto (opcional)"} aria-label="Concepto" style={{ ...S.input, marginBottom: 12 }} />
+        {isG && imp > 0 && falta && <div style={{ fontSize: 12.5, color: "var(--amber)", fontWeight: 700, marginBottom: 8 }}>Elige en qué se gasta para que salga bien clasificado en el cierre.</div>}
+        <button onClick={save} disabled={!(imp > 0) || falta} style={{ ...S.btnPrimary, width: "100%", padding: "16px", fontSize: 16, background: imp > 0 && !falta ? col : "var(--line)", color: imp > 0 && !falta ? "#1a1205" : "var(--muted)" }}>{imp > 0 ? (isG ? `💸 Sacar ${money(imp)} de la caja` : `➕ Meter ${money(imp)} de cambio`) : "Escribe el importe"}</button>
 
         {movs.length > 0 && <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
           <b style={{ fontSize: 14 }}>Movimientos de este turno</b>
           {movs.slice().reverse().map(g => (
             <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
               <span style={{ color: "var(--muted)", flexShrink: 0 }}>{hora(g.ts)}</span>
-              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isEntrada(g) ? "➕" : "💸"} {g.concepto || (isEntrada(g) ? "Cambio" : "Gasto")}{!g.synced && <span style={{ color: "var(--amber)" }}> · ⏳</span>}</span>
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isEntrada(g) ? "➕" : "💸"} {g.concepto || (isEntrada(g) ? "Cambio" : "Gasto")}{!isEntrada(g) && categoriaDe(g).t !== g.concepto ? <span style={{ color: "var(--muted)" }}> · {categoriaDe(g).t}</span> : null}{!g.synced && <span style={{ color: "var(--amber)" }}> · ⏳</span>}</span>
               <b style={{ flexShrink: 0, color: isEntrada(g) ? "var(--green)" : "var(--amber)" }}>{isEntrada(g) ? "+" : "-"}{money(g.importe)}</b>
               {confirmId === g.id
                 ? <span style={{ display: "flex", gap: 4, flexShrink: 0 }}><button onClick={() => { setConfirmId(null); onVoid(g); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Anular</button><button onClick={() => setConfirmId(null)} style={S.smallBtn}>✗</button></span>
@@ -3098,7 +3108,7 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
             return (
               <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5, opacity: g.voided ? .45 : 1 }}>
                 <span style={{ color: "var(--muted)", flexShrink: 0 }}>{new Date(g.ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</span>
-                <span style={{ flex: 1, minWidth: 0 }}><b>{isEntrada(g) ? "" : ""}{g.concepto || (isEntrada(g) ? "Cambio añadido" : "Gasto")}</b> <span style={{ color: "var(--muted)" }}>· 📍 {pn}{g.por && g.por !== pn ? ` · ${g.por}` : ""}{g.closureId ? " · cerrado en Z" : ""}{!g.synced ? " · ⏳" : ""}</span></span>
+                <span style={{ flex: 1, minWidth: 0 }}><b>{g.concepto || (isEntrada(g) ? "Cambio añadido" : "Gasto")}</b> <span style={{ color: "var(--muted)" }}>{!isEntrada(g) && categoriaDe(g).t !== g.concepto ? `· ${categoriaDe(g).t} ` : ""}· 📍 {pn}{g.por && g.por !== pn ? ` · ${g.por}` : ""}{g.closureId ? " · cerrado en Z" : ""}{!g.synced ? " · ⏳" : ""}</span></span>
                 <b style={{ flexShrink: 0, textDecoration: g.voided ? "line-through" : "none", color: g.voided ? "var(--muted)" : isEntrada(g) ? "var(--green)" : "var(--amber)" }}>{isEntrada(g) ? "+" : "-"}{money(g.importe)}</b>
                 {g.voided ? <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0 }}>Anulado</span>
                   : (role === "admin" || role === "supervisor") && !g.closureId && onVoidGasto ? (confirmGasto === g.id
