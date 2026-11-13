@@ -7,6 +7,7 @@ import { secretoDe, estadoDe, comprobar as comprobarPin, crearHuella, problema a
 import { CierreNoche } from "./CierreNoche";
 import { CATS_GASTO, categoriaDe } from "./cierreNocheCalc";
 import { previstosParaCaja } from "./gastosPrevistos";
+import * as sd from "./socioDeudas";
 import { useReservados, LineaReservados, CobrarReservado, ReservadosVista, InformeReservados, copiarReservados, resCfg, VentaSocio, efectivoSocios, calcPedido } from "./reservados";
 import { nextFolios, prefijoDePunto, peekFolio, getDeviceTag, resetFolios, seedFolio } from "./folio";
 import QrCodigo from "./qr/QrCodigo";
@@ -46,7 +47,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.13c";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.14a";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -737,14 +738,34 @@ export default function App() {
   const [showGasto, setShowGasto] = useState(false);
   const [previstosCRM, setPrevistosCRM] = useState([]);   // pagos previstos en el CRM (para liquidarlos desde la caja)
   useEffect(() => { if (showGasto && ev.id) db.loadPrevistosCRM(ev.id).then(setPrevistosCRM).catch(() => {}); }, [showGasto, ev.id]);
+  // Cambio que ponen los socios (null = la base de datos aún no tiene la tabla: no se muestra)
+  const [aportaciones, setAportaciones] = useState(null);
+  const cargarAportaciones = () => sd.loadAportaciones(ev.id).then(setAportaciones).catch(() => {});
+  useEffect(() => { if (showGasto && ev.id) cargarAportaciones(); }, [showGasto, ev.id]);
   const [askGastoVoid, setAskGastoVoid] = useState(null);
-  const registrarGasto = async (importe, concepto, tipo = "gasto", categoria = "", crmGastoId = null) => {
+  const registrarGasto = async (importe, concepto, tipo = "gasto", categoria = "", crmGastoId = null, extra = {}) => {
     if (!ev.id || !punto?.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return false; }
     const imp = round2(Number(importe) || 0);
     if (!(imp > 0) || imp >= 1000000) { flash("Escribe el importe del gasto", "warn"); return false; }
     const id = uid();
     const por = role === "cajero" ? punto.name : role === "admin" ? "Admin" : "Supervisor";
     const g = { id, tipo: tipo === "entrada" ? "entrada" : "gasto", eventId: ev.id, puntoId: punto.id, importe: imp, concepto: String(concepto || "").trim().slice(0, 120), categoria: tipo === "entrada" ? "" : String(categoria || ""), crmGastoId: tipo === "entrada" ? null : crmGastoId || null, por, ts: Date.now(), voided: false, closureId: null, synced: false };
+    // Cambio de un socio: primero se apunta su aportación o su devolución (necesita conexión); si falla, no se mueve nada
+    if (extra.aportSocio || extra.devolverAport) {
+      try {
+        if (extra.aportSocio) await sd.crearAportacion({ eventoId: ev.id, socio: extra.aportSocio, importe: imp, concepto: g.concepto || "Cambio para la caja", puntoId: punto.id, gastoEntradaId: id, por });
+        else {
+          const a = extra.devolverAport;
+          if (imp > a.importe + 0.001) { flash(`${a.socio} puso ${money(a.importe)}: no se le puede devolver más`, "warn"); return false; }
+          if (imp < a.importe - 0.001) {   // devolución parcial: se salda esta parte y el resto queda pendiente
+            await sd.editarAportacion(a.id, { socio: a.socio, importe: imp, concepto: a.concepto });
+            await sd.crearAportacion({ eventoId: a.eventId, socio: a.socio, importe: round2(a.importe - imp), concepto: a.concepto ? `${a.concepto} (resto)` : "Resto del cambio", puntoId: a.puntoId, por });
+          }
+          await sd.devolverAportacion(a.id, { desde: "caja", gastoDevolucionId: id, por });
+        }
+      } catch (e) { flash(e?.mostrar ? e.message : "No se ha podido apuntar el cambio del socio", "warn"); return false; }
+      cargarAportaciones();
+    }
     baseDispatch({ type: "ADD_GASTO", gasto: g });
     flash(`${g.tipo === "entrada" ? "➕ Cambio añadido" : "💸 Gasto registrado"} · ${money(imp)}${g.tipo !== "entrada" ? " · " + categoriaDe(g).t : ""}${g.concepto && g.concepto !== categoriaDe(g).t ? " · " + g.concepto : ""}`);
     if (navigator.vibrate) navigator.vibrate(30);
@@ -758,6 +779,13 @@ export default function App() {
     const por = role === "cajero" ? punto.name : role === "admin" ? "Admin" : "Supervisor";
     const r = await db.anularGasto(g.id, ev.id, por);
     if (r.offline) setPending(db.pendingCount());
+    // Si ese movimiento era el cambio de un socio o su devolución, se deshace también la aportación
+    const lista = aportaciones || (await sd.loadAportaciones(ev.id).catch(() => null)) || [];
+    const ligada = lista.find(a => a.gastoEntradaId === g.id || a.gastoDevolucionId === g.id);
+    if (ligada) {
+      try { if (ligada.gastoEntradaId === g.id) await sd.borrarAportacion(ligada.id); else await sd.deshacerDevolucionAportacion(ligada.id); cargarAportaciones(); }
+      catch { flash(`Revisa en el CRM el cambio de ${ligada.socio}: no se ha podido actualizar`, "warn"); }
+    }
   };
 
   const cierreZ = async (puntoObj, contado = null) => {
@@ -1127,6 +1155,8 @@ export default function App() {
       {/* ===== Gasto de caja ===== */}
       {showGasto && <CajaModal puntoName={punto.name} movs={turnoMovs} fondo={punto.fondo} onSave={registrarGasto} onClose={() => setShowGasto(false)}
         previstos={previstosParaCaja(previstosCRM, evGastos, ev.id)}
+        socios={aportaciones ? resCfg(ev).socios.map(x => String(x.nombre || "").trim()).filter(Boolean) : null}
+        aportPendientes={(aportaciones || []).filter(a => !a.devueltoEn)}
         onVoid={(g) => { if (role === "cajero") setAskGastoVoid(g); else anularGasto(g); }} />}
       {askGastoVoid && <PinModal secreto={secretoDe(ev, "supervisor")} onClose={() => setAskGastoVoid(null)} onOk={() => { const g = askGastoVoid; setAskGastoVoid(null); anularGasto(g); }} label="PIN de supervisor para anular el movimiento" />}
 
@@ -1750,7 +1780,7 @@ function FondoGate({ puntoName, previsto = null, ultimo = null, onSave, onBack, 
 const MOV_CONCEPTOS = {
   entrada: ["Más cambio", "Monedas", "Billetes pequeños"],
 };
-export function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose, previstos = [] }) {
+export function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose, previstos = [], socios = null, aportPendientes = [] }) {
   const isMobile = useIsMobile();
   const [tipo, setTipo] = useState("gasto");
   const [val, setVal] = useState("");
@@ -1758,6 +1788,9 @@ export function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose, pre
   const [categoria, setCategoria] = useState("");   // los gastos se clasifican siempre (para el cierre de la noche)
   const [liq, setLiq] = useState(null);             // pago previsto del CRM que se liquida con este gasto
   const [verPrevistos, setVerPrevistos] = useState(false);
+  const [aportSocio, setAportSocio] = useState("");     // «Meter cambio»: lo pone este socio (hay que devolvérselo)
+  const [devolver, setDevolver] = useState(null);       // «Sacar dinero»: devolución del cambio de un socio
+  const [verDevol, setVerDevol] = useState(false);
   const [confirmId, setConfirmId] = useState(null);
   const imp = parseFloat((val || "0").replace(",", ".")) || 0;
   const tG = sumMov(movs, "gasto"), tE = sumMov(movs, "entrada");
@@ -1769,13 +1802,17 @@ export function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose, pre
     if (/\.\d{3}$/.test(nv) || nv.replace(".", "").length > 7) return v;
     return nv;
   });
-  const switchTipo = (t) => { setTipo(t); setConcepto(""); setCategoria(""); setLiq(null); };
+  const switchTipo = (t) => { setTipo(t); setConcepto(""); setCategoria(""); setLiq(null); setAportSocio(""); setDevolver(null); };
   const falta = isG && !categoria;
   const elegirPrevisto = (p) => {
     if (liq?.id === p.id) { setLiq(null); setVal(""); setConcepto(""); setCategoria(""); return; }
-    setLiq(p); setVal(p.previsto ? String(p.previsto) : ""); setConcepto(p.nombre.slice(0, 120)); setCategoria(p.cat); setVerPrevistos(false);
+    setLiq(p); setDevolver(null); setVal(p.previsto ? String(p.previsto) : ""); setConcepto(p.nombre.slice(0, 120)); setCategoria(p.cat); setVerPrevistos(false);
   };
-  const save = async () => { if (!(imp > 0) || falta) return; const cat = CATS_GASTO.find(c => c.k === categoria); const ok = await onSave(imp, concepto.trim() || (isG ? cat?.t : ""), tipo, isG ? categoria : "", isG && liq ? liq.id : null); if (ok) { setVal(""); setConcepto(""); setCategoria(""); setLiq(null); } };
+  const elegirDevolucion = (a) => {
+    if (devolver?.id === a.id) { setDevolver(null); setVal(""); setConcepto(""); setCategoria(""); return; }
+    setDevolver(a); setLiq(null); setVal(String(a.importe)); setConcepto(`Devolución de cambio a ${a.socio}`.slice(0, 120)); setCategoria("retirada"); setVerDevol(false);
+  };
+  const save = async () => { if (!(imp > 0) || falta) return; const cat = CATS_GASTO.find(c => c.k === categoria); const ok = await onSave(imp, concepto.trim() || (isG ? cat?.t : !isG && aportSocio ? `Cambio de ${aportSocio}` : ""), tipo, isG ? categoria : "", isG && liq ? liq.id : null, isG ? (devolver ? { devolverAport: devolver } : {}) : (aportSocio ? { aportSocio } : {})); if (ok) { setVal(""); setConcepto(""); setCategoria(""); setLiq(null); setDevolver(null); setAportSocio(""); } };
   const pendientes = previstos.filter(p => p.estado === "pendiente");
   const difLiq = liq && liq.previsto != null && imp > 0 ? round2(imp - liq.previsto) : 0;
   const hora = (ts) => new Date(ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
@@ -1804,6 +1841,35 @@ export function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose, pre
           {seg("entrada", "➕", "Meter cambio", "var(--green)")}
         </div>
 
+        {/* Cambio de los socios: al meterlo se apunta quién lo pone; al sacarlo se le puede devolver */}
+        {!isG && socios && socios.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ ...S.miniLabel, marginBottom: 6 }}>¿Lo pone un socio? (hay que devolvérselo)</div>
+            <div role="radiogroup" aria-label="Socio que pone el cambio" style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {["", ...socios].map(n => { const on = aportSocio === n; return <button key={n || "__no"} role="radio" aria-checked={on} onClick={() => setAportSocio(n)} style={{ ...S.qtyChip, padding: "9px 12px", fontSize: 13, ...(on ? { background: "var(--green)", color: "#04231a", border: "1px solid var(--green)" } : {}) }}>{n || "No"}</button>; })}
+            </div>
+            {aportSocio && <div style={{ fontSize: 12.5, color: "var(--green)", fontWeight: 700, marginTop: 6 }}>Quedará apuntado que a {aportSocio} hay que devolverle {imp > 0 ? money(imp) : "este dinero"}. No cuenta como ingreso ni como gasto.</div>}
+          </div>)}
+        {isG && aportPendientes.length > 0 && (
+          <div style={{ border: "1px solid var(--line)", borderRadius: 14, marginBottom: 12, overflow: "hidden" }}>
+            <button onClick={() => setVerDevol(v => !v)} aria-expanded={verDevol} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "11px 12px", background: "var(--surface2)", border: "none", color: "var(--text)", cursor: "pointer", font: "inherit", textAlign: "left" }}>
+              <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block", fontSize: 14.5 }}>↩️ Devolver cambio a un socio</b><span style={{ fontSize: 12.5, color: "var(--muted)" }}>{aportPendientes.length} pendiente{aportPendientes.length === 1 ? "" : "s"} · {money(round2(aportPendientes.reduce((t, a) => t + a.importe, 0)))} · sale como retirada, no como gasto</span></span>
+              <span style={{ color: "var(--muted)", transform: verDevol ? "rotate(180deg)" : "none", display: "flex" }}><Ic n="down" s={18} /></span>
+            </button>
+            {verDevol && <div style={{ maxHeight: 220, overflow: "auto" }}>{aportPendientes.map(a => { const on = devolver?.id === a.id; return (
+              <button key={a.id} onClick={() => elegirDevolucion(a)} aria-pressed={on} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", border: "none", borderTop: "1px solid var(--line)", background: on ? "rgba(34,211,166,.12)" : "transparent", color: "var(--text)", cursor: "pointer", font: "inherit", textAlign: "left" }}>
+                <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block", fontSize: 14 }}>{a.socio}</b><span style={{ display: "block", fontSize: 12, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.concepto || "Cambio"}</span></span>
+                <b style={{ flexShrink: 0, fontSize: 14 }}>{money(a.importe)}</b>
+              </button>); })}</div>}
+          </div>)}
+        {isG && devolver && (
+          <div style={{ background: "rgba(34,211,166,.10)", border: "1px solid rgba(34,211,166,.45)", borderRadius: 12, padding: "10px 12px", marginBottom: 10, fontSize: 13.5 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ flex: 1, minWidth: 0 }}>Devuelves a <b>{devolver.socio}</b> su cambio de <b>{money(devolver.importe)}</b></span>
+              <button onClick={() => elegirDevolucion(devolver)} style={{ ...S.smallBtn, flexShrink: 0 }}>Quitar</button>
+            </div>
+            <div style={{ fontSize: 12.5, marginTop: 4, color: imp > devolver.importe + 0.001 ? "var(--red)" : "var(--muted)", fontWeight: 600 }}>{imp > devolver.importe + 0.001 ? `No puedes devolverle más de ${money(devolver.importe)}.` : imp > 0 && imp < devolver.importe - 0.001 ? `Devuelves una parte: quedarán pendientes ${money(round2(devolver.importe - imp))}.` : "Sale del cajón como retirada de efectivo: no es un gasto del evento."}</div>
+          </div>)}
         {/* Pagos previstos en el CRM: se tachan al pagarlos desde la caja (el importe se puede cambiar) */}
         {isG && previstos.length > 0 && (
           <div style={{ border: "1px solid var(--line)", borderRadius: 14, marginBottom: 12, overflow: "hidden" }}>
@@ -1847,7 +1913,7 @@ export function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose, pre
         </div>}
         <input value={concepto} maxLength={120} onChange={e => setConcepto(e.target.value)} placeholder={isG ? "Detalle (opcional): proveedor, persona…" : "Concepto (opcional)"} aria-label="Concepto" style={{ ...S.input, marginBottom: 12 }} />
         {isG && imp > 0 && falta && <div style={{ fontSize: 12.5, color: "var(--amber)", fontWeight: 700, marginBottom: 8 }}>Elige en qué se gasta para que salga bien clasificado en el cierre.</div>}
-        <button onClick={save} disabled={!(imp > 0) || falta} style={{ ...S.btnPrimary, width: "100%", padding: "16px", fontSize: 16, background: imp > 0 && !falta ? col : "var(--line)", color: imp > 0 && !falta ? "#1a1205" : "var(--muted)" }}>{imp > 0 ? (isG ? (liq ? `💸 Pagar ${money(imp)} a ${liq.nombre.slice(0, 24)}` : `💸 Sacar ${money(imp)} de la caja`) : `➕ Meter ${money(imp)} de cambio`) : "Escribe el importe"}</button>
+        <button onClick={save} disabled={!(imp > 0) || falta} style={{ ...S.btnPrimary, width: "100%", padding: "16px", fontSize: 16, background: imp > 0 && !falta ? col : "var(--line)", color: imp > 0 && !falta ? "#1a1205" : "var(--muted)" }}>{imp > 0 ? (isG ? (devolver ? `↩️ Devolver ${money(imp)} a ${devolver.socio.slice(0, 24)}` : liq ? `💸 Pagar ${money(imp)} a ${liq.nombre.slice(0, 24)}` : `💸 Sacar ${money(imp)} de la caja`) : aportSocio ? `➕ Meter ${money(imp)} de ${aportSocio.slice(0, 20)}` : `➕ Meter ${money(imp)} de cambio`) : "Escribe el importe"}</button>
 
         {movs.length > 0 && <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
           <b style={{ fontSize: 14 }}>Movimientos de este turno</b>

@@ -17,6 +17,7 @@ import { Entradas } from "./Entradas";
 import { Stock } from "./Stock";
 import { useReservados, resCfg } from "../reservados";
 import { DineroSocios } from "./DineroSocios";
+import { CambioSocios } from "./CambioSocios";
 import { aplicarCaja } from "../gastosPrevistos";
 const Facturacion = lazy(() => import("./fac/Facturacion"));   // módulo aparte: no toca los números de los eventos
 
@@ -308,6 +309,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
 /* ===================== SOCIOS ===================== */
 function Socios({ ev, data, T, G, isMobile, busy, flash, onGuardarSocio, onActivo, onReparto }) {
   const [tpv, setTpv] = useState({});   // lo que debe cada socio del TPV (por nombre), para verlo en su fila
+  const [cambio, setCambio] = useState({}); // lo que hay que devolver a cada socio del cambio que puso (por nombre)
   const activos = data.socios.filter(s => s.activo);
   const inactivos = data.socios.filter(s => !s.activo);
   const inicial = () => Object.fromEntries(data.participacion.map(p => [p.socioId, String(p.porcentaje).replace(".", ",")]));
@@ -328,6 +330,7 @@ function Socios({ ev, data, T, G, isMobile, busy, flash, onGuardarSocio, onActiv
   return (
     <div>
       <DineroSocios ev={ev} socios={data.socios} flash={flash} onTotales={(d) => { const m = {}; d.forEach(x => { const k = x.socio.trim().toLowerCase(); m[k] = r2((m[k] || 0) + x.pendiente); }); setTpv(m); }} />
+      <CambioSocios ev={ev} socios={data.socios} flash={flash} onTotales={(d) => { const m = {}; d.filter(a => !a.devueltoEn).forEach(a => { const k = a.socio.trim().toLowerCase(); m[k] = r2((m[k] || 0) + a.importe); }); setCambio(m); }} />
       {/* Reparto del evento */}
       <div style={{ ...C.panel, marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
@@ -343,6 +346,7 @@ function Socios({ ev, data, T, G, isMobile, busy, flash, onGuardarSocio, onActiv
               <span style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800 }}><Avatar nombre={s.nombre} c={s.color} s={26} />{s.nombre}</span>
               {tiene > 0 && <span style={{ display: "block", fontSize: 12, color: "var(--amber)", fontWeight: 700, marginTop: 2 }}>Tiene {money(tiene)} del evento</span>}
               {pago > 0 && <span style={{ display: "block", fontSize: 12, color: "var(--blue)", fontWeight: 700, marginTop: 2 }}>Ha adelantado {money(pago)} de su bolsillo</span>}
+              {cambio[s.nombre.trim().toLowerCase()] > 0 && <span style={{ display: "block", fontSize: 12, color: "#3b82f6", fontWeight: 700, marginTop: 2 }}>Hay que devolverle {money(cambio[s.nombre.trim().toLowerCase()])} de cambio</span>}
               {tpv[s.nombre.trim().toLowerCase()] > 0 && <span style={{ display: "block", fontSize: 12, color: "var(--amber)", fontWeight: 700, marginTop: 2 }}>Debe {money(tpv[s.nombre.trim().toLowerCase()])} del TPV (señales y ventas sin ticket)</span>}
             </span>
             {on && <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>

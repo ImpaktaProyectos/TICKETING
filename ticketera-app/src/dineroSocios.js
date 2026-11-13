@@ -37,3 +37,17 @@ export function porSocio(items) {
   return [...m.values()].sort((a, b) => b.pendiente - a.pendiente || a.socio.localeCompare(b.socio, "es"));
 }
 
+
+// ---------- Cambio que ponen los socios (la empresa se lo debe a ellos) ----------
+// Agrupa por socio: { socio, total, pendiente, devuelto, items } (pendiente = lo que aún hay que devolverle)
+export function aportacionesPorSocio(aportaciones = []) {
+  const m = new Map();
+  aportaciones.forEach(a => {
+    const nombre = norm(a.socio) || "Socio", k = nombre.toLowerCase();
+    const g = m.get(k) || { socio: nombre, total: 0, pendiente: 0, devuelto: 0, items: [] };
+    g.total = r2(g.total + a.importe);
+    if (a.devueltoEn) g.devuelto = r2(g.devuelto + a.importe); else g.pendiente = r2(g.pendiente + a.importe);
+    g.items.push(a); m.set(k, g);
+  });
+  return [...m.values()].sort((a, b) => b.pendiente - a.pendiente || a.socio.localeCompare(b.socio, "es"));
+}

@@ -1,7 +1,7 @@
 // ===================== CIERRE DE LA NOCHE · cálculo =====================
 // Todo lo que ha entrado (ventas del TPV) y salido (gastos de caja) en un evento, clasificado.
 // Solo lee: no cambia ventas, gastos ni cierres. Lo usan la pantalla de Informes y el PDF.
-import { deudasEvento, porSocio } from "./dineroSocios.js";
+import { deudasEvento, porSocio, aportacionesPorSocio } from "./dineroSocios.js";
 
 const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
 const sin = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
@@ -31,7 +31,7 @@ const esInvitacion = (s) => !!s.invite || /^invitacion/.test(s.pago || "");
 const esEntrada = (g) => g.tipo === "entrada";
 
 // ev: { puntos: [{ id, name }] } · sales y gastos del evento · reservados y devoluciones (opcionales)
-export function resumenNoche({ ev, sales = [], gastos = [], reservados = [], devoluciones = [] }) {
+export function resumenNoche({ ev, sales = [], gastos = [], reservados = [], devoluciones = [], aportaciones = [] }) {
   const nombreBarra = (id) => ev?.puntos?.find(p => p.id === id)?.name || "Sin barra";
   const vivas = sales.filter(s => !s.voided);
   const ventas = vivas.filter(s => !esInvitacion(s));
@@ -84,10 +84,13 @@ export function resumenNoche({ ev, sales = [], gastos = [], reservados = [], dev
   };
   const deudas = deudasEvento({ reservados, sales, devoluciones });
   const socios = porSocio(deudas);
+  // Cambio que han puesto los socios: no es ingreso ni gasto, es lo que hay que devolverles
+  const cambioSocios = aportacionesPorSocio(aportaciones || []);
 
   return {
     ingresos, gastos: g, senales, socios,
     sociosPendiente: r2(socios.reduce((t, s) => t + s.pendiente, 0)),
+    cambioSocios, cambioPendiente: r2(cambioSocios.reduce((t, s) => t + s.pendiente, 0)),
     resultado: r2(total - g.total),                                  // lo que deja la noche en el TPV (sin fondo ni señales)
     // Efectivo que debería quedar en los cajones (sin el fondo): el de las ventas sin ticket de los socios no está en el cajón
     efectivoNeto: r2(efectivo - ingresos.sociosEfectivo - g.total - g.retiradas + g.cambio),

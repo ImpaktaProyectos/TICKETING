@@ -136,6 +136,14 @@ export function pdfCierreNoche(R, ev, op = {}) {
       s.items.map(it => ({ celdas: [it.concepto, it.pendiente > 0 ? (it.devuelto ? `Devuelto ${eur(it.devuelto)} · falta ${eur(it.pendiente)}` : "Pendiente de reponer") : `Devuelto ${fechaHora(it.devueltoEn)}`, eur(it.importe)], color: it.pendiente > 0 ? ambar : verde })));
   });
 
+  // ---------- Cambio que han puesto los socios ----------
+  if ((R.cambioSocios || []).length) {
+    seccion("Cambio que han puesto los socios", R.cambioPendiente > 0 ? `hay que devolver ${eur(R.cambioPendiente)}` : "todo devuelto");
+    txt("No cuenta como ingreso ni como gasto del evento: es dinero de los socios que hay que devolverles.", M, y, { s: 8.5, c: gris, w: AN }); y += 6;
+    tabla([{ t: "Socio", w: 40 }, { t: "Concepto", w: AN - 40 - 55 - 30 }, { t: "Estado", w: 55 }, { t: "Importe", w: 30, a: "right" }],
+      R.cambioSocios.flatMap(s => s.items.map(a => ({ celdas: [s.socio, a.concepto || "Cambio", a.devueltoEn ? `Devuelto ${fechaHora(a.devueltoEn)}${a.devueltoDesde === "caja" ? " (caja)" : ""}` : "Pendiente de devolver", eur(a.importe)], color: a.devueltoEn ? verde : [37, 99, 235] }))));
+  }
+
   // ---------- Pie con páginas ----------
   const n = doc.getNumberOfPages();
   for (let i = 1; i <= n; i++) { doc.setPage(i); txt(`${ev?.name || ""} · Cierre de la noche`, M, H - 8, { s: 7.5, c: gris }); txt(`Página ${i} de ${n}`, W - M, H - 8, { s: 7.5, c: gris, a: "right" }); }

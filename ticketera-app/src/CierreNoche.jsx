@@ -29,10 +29,14 @@ export function CierreNoche({ ev, evSales, evGastos, res, role, flash }) {
   const puedeConfirmar = role === "admin" || role === "supervisor";
   const quien = role === "admin" ? "Admin" : role === "supervisor" ? "Supervisor" : "Caja";
 
-  const cargarDevs = async () => { try { setDevs(await sd.loadDevoluciones(ev.id)); setDevError(false); } catch { setDevError(true); } };
-  useEffect(() => { setDevs([]); cargarDevs(); const t = setInterval(cargarDevs, 60000); return () => clearInterval(t); }, [ev.id]);
+  const [aports, setAports] = useState(null);       // cambio que han puesto los socios (null = sin tabla aún)
+  const cargarDevs = async () => {
+    try { setDevs(await sd.loadDevoluciones(ev.id)); setDevError(false); } catch { setDevError(true); }
+    sd.loadAportaciones(ev.id).then(setAports).catch(() => {});
+  };
+  useEffect(() => { setDevs([]); setAports(null); cargarDevs(); const t = setInterval(cargarDevs, 60000); return () => clearInterval(t); }, [ev.id]);
 
-  const R = useMemo(() => resumenNoche({ ev, sales: evSales, gastos: evGastos, reservados: res?.reservados || [], devoluciones: devs }), [ev, evSales, evGastos, res?.reservados, devs]);
+  const R = useMemo(() => resumenNoche({ ev, sales: evSales, gastos: evGastos, reservados: res?.reservados || [], devoluciones: devs, aportaciones: aports || [] }), [ev, evSales, evGastos, res?.reservados, devs, aports]);
   const I = R.ingresos, G = R.gastos;
   const maxBarra = Math.max(1, ...I.porBarra.map(b => b.total));
   const maxCat = Math.max(1, ...G.porCategoria.map(c => c.total));
@@ -158,6 +162,24 @@ export function CierreNoche({ ev, evSales, evGastos, res, role, flash }) {
             </div>); })}</div>}
         {!puedeConfirmar && R.sociosPendiente > 0 && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>Las devoluciones las confirma un administrador o supervisor.</div>}
       </div>
+
+      {/* ---------- Cambio que han puesto los socios (hay que devolvérselo) ---------- */}
+      {aports && R.cambioSocios.length > 0 && (
+        <div style={{ ...K.tile, marginTop: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+            <b style={{ fontSize: 15.5 }}>Cambio que han puesto los socios</b>
+            <b style={{ color: R.cambioPendiente > 0 ? "#60a5fa" : "var(--green)", fontSize: 16 }}>{R.cambioPendiente > 0 ? `Hay que devolver ${money(R.cambioPendiente)}` : "Todo devuelto"}</b>
+          </div>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>No cuenta como ingreso ni como gasto. Se devuelve desde 💰 Caja → Sacar dinero → «Devolver cambio a un socio», o se marca en el CRM (Socios).</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 240px), 1fr))", gap: 10 }}>
+            {R.cambioSocios.map(s => (
+              <div key={s.socio} style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 12, padding: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><b>{s.socio}</b><b style={{ color: s.pendiente > 0 ? "#60a5fa" : "var(--green)" }}>{s.pendiente > 0 ? money(s.pendiente) : "✓"}</b></div>
+                {s.items.map(a => <div key={a.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12.5, color: a.devueltoEn ? "var(--muted)" : "var(--text)", padding: "4px 0", borderTop: "1px solid var(--line)", marginTop: 4 }}>
+                  <span style={{ minWidth: 0 }}>{a.concepto || "Cambio"}{a.devueltoEn ? ` · devuelto${a.devueltoDesde === "caja" ? " desde caja" : ""}` : ""}</span><span style={{ textDecoration: a.devueltoEn ? "line-through" : "none", flexShrink: 0 }}>{money(a.importe)}</span></div>)}
+              </div>))}
+          </div>
+        </div>)}
 
       {confirmar && (
         <div role="dialog" aria-modal="true" aria-label="Confirmar devolución" onClick={() => !busy && setConfirmar(null)} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,.6)", display: "grid", placeItems: "center", padding: 16 }}>

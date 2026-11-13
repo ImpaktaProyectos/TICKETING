@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { resumenNoche, categoriaDe, CATS_GASTO } from "./cierreNocheCalc.js";
-import { deudasEvento, porSocio, claveSenal } from "./dineroSocios.js";
+import { deudasEvento, porSocio, claveSenal, aportacionesPorSocio } from "./dineroSocios.js";
 let n = 0; const ok = (name, f) => { f(); n++; console.log("✓", name); };
 
 const ev = { puntos: [{ id: "b1", name: "Barra 1" }, { id: "b2", name: "Barra 2" }] };
@@ -71,4 +71,16 @@ ok("socio con mayúsculas distintas cuenta como el mismo", () => {
   assert.equal(g.length, 1); assert.equal(g[0].total, 70);
 });
 ok("sin datos no falla", () => { const z = resumenNoche({ ev: {}, sales: [], gastos: [] }); assert.equal(z.resultado, 0); assert.deepEqual(z.socios, []); });
+ok("cambio de los socios: pendiente y devuelto por socio; no toca ingresos, gastos ni resultado", () => {
+  const ap = [
+    { id: "a1", socio: "ROBBY", importe: 500, concepto: "Cambio TAQUILLA" },
+    { id: "a2", socio: "robby ", importe: 200, concepto: "Cambio TICKETS", devueltoEn: "2026-11-14T03:00:00Z", devueltoDesde: "caja" },
+    { id: "a3", socio: "DANNY", importe: 300 },
+  ];
+  const g = aportacionesPorSocio(ap);
+  assert.deepEqual(g.map(x => [x.socio, x.total, x.pendiente, x.devuelto]), [["ROBBY", 700, 500, 200], ["DANNY", 300, 300, 0]]);
+  const R2 = resumenNoche({ ev, sales, gastos, reservados, aportaciones: ap });
+  assert.equal(R2.cambioPendiente, 800);
+  assert.equal(R2.ingresos.total, R.ingresos.total); assert.equal(R2.gastos.total, R.gastos.total); assert.equal(R2.resultado, R.resultado);
+});
 console.log(`\n${n} pruebas del cierre de la noche correctas`);
