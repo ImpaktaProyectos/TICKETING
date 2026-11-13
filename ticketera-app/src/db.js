@@ -292,6 +292,15 @@ export function registrarGasto({ id, tipo = "gasto", eventoId, puntoId, importe,
   return doOrQueue({ op: "gasto", id, tipo: tipo === "entrada" ? "entrada" : "gasto", evento: eventoId, punto: puntoId, importe, concepto, categoria: categoria || "", ...(crmGastoId && tipo !== "entrada" ? { crmGastoId } : {}), por, fecha: new Date().toISOString() });
 }
 // Pagos previstos en el CRM para este evento (para liquidarlos desde la caja). Se guardan en el equipo para verlos sin conexión.
+// Vincular (o desvincular con null) un gasto de caja ya registrado a un gasto del CRM, p. ej. después del evento
+export async function vincularGastoCRM(gastoId, crmGastoId) {
+  if (!navigator.onLine) throw Object.assign(new Error("Sin conexión: para vincular un gasto hace falta internet"), { mostrar: true });
+  if (loadQ().some(it => it.op === "gasto" && it.id === gastoId)) throw Object.assign(new Error("Ese gasto aún no se ha subido: espera un momento y vuelve a intentarlo"), { mostrar: true });
+  const { data, error } = await supabase.from("ticket_gastos").update({ crm_gasto_id: crmGastoId || null }).eq("id", gastoId).select("crm_gasto_id").single();
+  if (error) throw Object.assign(new Error(/crm_gasto_id/i.test(error.message || "") ? "Falta activar la unión entre caja y CRM en la base de datos" : "No se ha podido vincular"), { mostrar: true });
+  if (crmGastoId && !data?.crm_gasto_id) throw Object.assign(new Error("Ese gasto del CRM no es de este evento"), { mostrar: true });
+  return data?.crm_gasto_id || null;
+}
 export async function loadPrevistosCRM(eventoId) {
   const key = scopedKey("tixfast_previstos_" + eventoId);
   try {

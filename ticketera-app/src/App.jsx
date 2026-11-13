@@ -47,7 +47,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.14a";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.14b";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -91,6 +91,7 @@ function reducer(state, a) {
     case "CLOSE_PUNTO_SALES": return { ...state, sales: state.sales.map(s => (s.eventId === a.eventId && s.puntoId === a.puntoId && !s.closureId) ? { ...s, closureId: a.closureId } : s), gastos: (state.gastos || []).map(g => (g.eventId === a.eventId && g.puntoId === a.puntoId && !g.closureId) ? { ...g, closureId: a.closureId } : g) };
     case "ADD_GASTO": return { ...state, gastos: [...(state.gastos || []), a.gasto] };
     case "VOID_GASTO": return { ...state, gastos: (state.gastos || []).map(g => g.id === a.id ? { ...g, voided: true } : g) };
+    case "LINK_GASTO": return { ...state, gastos: (state.gastos || []).map(g => g.id === a.id ? { ...g, crmGastoId: a.crmGastoId || null } : g) };
     case "HYDRATE_GASTOS": return { ...state, gastos: a.gastos };
     case "SET_PUNTO": return { ...state, currentPuntoId: a.id };
     case "ADD_PRODUCT": return { ...state, events: mapEv(e => mapPunto(e, p => ({ ...p, products: [...p.products, a.product] }))) };
@@ -819,6 +820,14 @@ export default function App() {
     else await hydrate().catch(() => {});
   };
 
+  // Vincular un gasto de caja ya hecho a un gasto previsto del CRM (o quitar el vínculo)
+  const vincularGasto = async (g, crmId, nombre) => {
+    try { const r = await db.vincularGastoCRM(g.id, crmId); baseDispatch({ type: "LINK_GASTO", id: g.id, crmGastoId: r }); }
+    catch (e) { flash(e?.mostrar ? e.message : "No se ha podido vincular", "warn"); return false; }
+    flash(crmId ? `🔗 Vinculado a ${nombre || "su gasto del CRM"}: allí queda pagado con ${money(g.importe)}` : "Vínculo quitado: el gasto del CRM vuelve a como estaba");
+    return true;
+  };
+
   // Revertir la última Z de una barra (PIN de administrador): vuelve a estar abierta con sus ventas, gastos y fondo
   const revertirZ = async (c) => {
     const nombre = ev.puntos.find(p => p.id === c.puntoId)?.name || "la barra";
@@ -1051,7 +1060,7 @@ export default function App() {
             {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
             {safeView === "reports" && <CierreNoche ev={ev} evSales={evSales} evGastos={evGastos} res={res} role={role} flash={flash} />}
             {safeView === "reports" && <InformeReservados ev={ev} res={res} sales={evSales} isMobile={isMobile} />}
-            {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} cierres={state.closures.filter(c => c.eventId === ev.id)} onRevertirZ={revertirZ} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
+            {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} cierres={state.closures.filter(c => c.eventId === ev.id)} onRevertirZ={revertirZ} onVincular={vincularGasto} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
           </div>
           {/* La barra de abajo está siempre (también en Reservados): se navega igual desde cualquier pantalla */}
           <nav style={S.bottomNav}>
@@ -1100,7 +1109,7 @@ export default function App() {
               {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
             {safeView === "reports" && <CierreNoche ev={ev} evSales={evSales} evGastos={evGastos} res={res} role={role} flash={flash} />}
             {safeView === "reports" && <InformeReservados ev={ev} res={res} sales={evSales} isMobile={isMobile} />}
-            {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} cierres={state.closures.filter(c => c.eventId === ev.id)} onRevertirZ={revertirZ} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
+            {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} cierres={state.closures.filter(c => c.eventId === ev.id)} onRevertirZ={revertirZ} onVincular={vincularGasto} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
             </div>
           </main>
         </div>
@@ -3002,6 +3011,42 @@ function Historico({ state, onOpenEvent, flash }) {
   );
 }
 
+/* ---------------------- Vincular un gasto de caja a un gasto previsto del CRM (después del evento) ---------------------- */
+export function VincularGasto({ g, lista, onClose, onElegir }) {
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const k = q.trim().toLowerCase();
+  const filas = lista.filter(p => !k || `${p.nombre} ${p.detalle}`.toLowerCase().includes(k));
+  const elegir = async (p) => { setBusy(true); await onElegir(p); setBusy(false); };
+  return (
+    <div style={S.payWrap} onClick={() => !busy && onClose()}>
+      <div role="dialog" aria-modal="true" aria-label="Vincular gasto" style={{ ...S.payCard, maxWidth: 480, maxHeight: "90dvh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 900, fontSize: 18 }}>🔗 Vincular gasto</div>
+            <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}><b style={{ color: "var(--text)" }}>{g.concepto || "Gasto"}</b> · {money(g.importe)} · {new Date(g.ts).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</div>
+          </div>
+          <button onClick={onClose} style={{ ...S.smallBtn, flexShrink: 0 }} aria-label="Cerrar"><Ic n="close" s={16} /></button>
+        </div>
+        <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>Elige a qué gasto previsto del CRM corresponde. Allí quedará <b style={{ color: "var(--text)" }}>pagado con {money(g.importe)}</b> y dejará de sumarse aparte como gasto de caja.</div>
+        {lista.length > 6 && <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar: camarero, Javi, DJ…" aria-label="Buscar gasto del CRM" style={{ ...S.input, marginBottom: 8 }} />}
+        <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 12 }}>
+          {filas.length === 0 && <div style={{ padding: 14, fontSize: 13.5, color: "var(--muted)" }}>{lista.length ? "Nada coincide con la búsqueda." : "No hay gastos previstos en el CRM para este evento."}</div>}
+          {filas.map(p => { const ocupado = p.estado === "pagado_caja"; const dif = p.previsto != null ? round2(g.importe - p.previsto) : null; return (
+            <button key={p.id} disabled={ocupado || busy} onClick={() => elegir(p)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "11px 12px", border: "none", borderTop: "1px solid var(--line)", background: "transparent", color: "var(--text)", cursor: ocupado ? "default" : "pointer", font: "inherit", textAlign: "left", opacity: ocupado ? .5 : 1 }}>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <b style={{ display: "block", fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nombre}</b>
+                <span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>{ocupado ? `Ya pagado desde caja (${money(p.pagado)})` : p.estado === "pagado_crm" ? `${p.detalle} · marcado como pagado en el CRM` : p.detalle}</span>
+                {!ocupado && dif != null && Math.abs(dif) >= 0.01 && <span style={{ display: "block", fontSize: 12, color: "var(--amber)", fontWeight: 700 }}>{dif > 0 ? `+${money(dif)} más` : `${money(-dif)} menos`} que lo previsto</span>}
+              </span>
+              <b style={{ flexShrink: 0, fontSize: 14 }}>{p.previsto != null ? money(p.previsto) : "—"}</b>
+            </button>); })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------------- Cierres Z del evento (con opción de revertir la última de cada barra) ---------------------- */
 export function CierresZ({ ev, cierres, role, onRevertir }) {
   const [confirmar, setConfirmar] = useState(null);   // cierre a revertir (paso 1: explicación)
@@ -3048,7 +3093,7 @@ export function CierresZ({ ev, cierres, role, onRevertir }) {
   );
 }
 
-function Reports({ ev, evSales, evGastos = [], cierres = [], onRevertirZ, onVoidGasto, onPasarPrueba, role, onVoid, onCierreZ, flash, onBackup, lastBackup, onImported }) {
+function Reports({ ev, evSales, evGastos = [], cierres = [], onRevertirZ, onVincular, onVoidGasto, onPasarPrueba, role, onVoid, onCierreZ, flash, onBackup, lastBackup, onImported }) {
   const [backups, setBackups] = useState(null);
   const [showBackups, setShowBackups] = useState(false);
   const [showBkPanel, setShowBkPanel] = useState(false);
@@ -3097,6 +3142,13 @@ function Reports({ ev, evSales, evGastos = [], cierres = [], onRevertirZ, onVoid
   const gTurnoDe = (pid) => sumMov(evGastos.filter(g => g.puntoId === pid && !g.closureId), "gasto");
   const eTurnoDe = (pid) => sumMov(evGastos.filter(g => g.puntoId === pid && !g.closureId), "entrada");
   const [confirmGasto, setConfirmGasto] = useState(null);
+  // Gastos previstos del CRM para vincular los de caja (null = la base de datos aún no los enlaza)
+  const [previstos, setPrevistos] = useState(null);
+  const [vinculando, setVinculando] = useState(null);
+  const cargarPrevistos = () => db.loadPrevistosCRM(ev.id).then(l => setPrevistos(l && l.length ? l : null)).catch(() => {});
+  useEffect(() => { setPrevistos(null); cargarPrevistos(); }, [ev.id]);
+  const puedeVincular = (role === "admin" || role === "supervisor") && !!onVincular;
+  const nombrePrevisto = (id) => { const p = (previstos || []).find(x => x.id === id); return p ? (p.proveedor || p.concepto || p.categoria || "Gasto del CRM") : "Gasto del CRM"; };
   const [confirmPrueba, setConfirmPrueba] = useState(null);
   const hhmm = (t) => t ? new Date(t).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }) : "";
   const EstadoChip = ({ p }) => {
@@ -3248,6 +3300,8 @@ function Reports({ ev, evSales, evGastos = [], cierres = [], onRevertirZ, onVoid
       </div>
 
       <CierresZ ev={ev} cierres={cierres} role={role} onRevertir={onRevertirZ} />
+      {vinculando && previstos && <VincularGasto g={vinculando} lista={previstosParaCaja(previstos, evGastos, ev.id)} onClose={() => setVinculando(null)}
+        onElegir={async (p) => { const ok = await onVincular(vinculando, p.id, p.nombre); if (ok) { setVinculando(null); cargarPrevistos(); } }} />}
 
       {ev.qrActivo && <InformeQR ev={ev} evSales={evSales} />}
 
@@ -3268,10 +3322,14 @@ function Reports({ ev, evSales, evGastos = [], cierres = [], onRevertirZ, onVoid
           {evGastos.slice().reverse().map(g => {
             const pn = ev.puntos.find(p => p.id === g.puntoId)?.name || "—";
             return (
-              <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5, opacity: g.voided ? .45 : 1 }}>
+              <div key={g.id} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5, opacity: g.voided ? .45 : 1 }}>
                 <span style={{ color: "var(--muted)", flexShrink: 0 }}>{new Date(g.ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</span>
                 <span style={{ flex: 1, minWidth: 0 }}><b>{g.concepto || (isEntrada(g) ? "Cambio añadido" : "Gasto")}</b> <span style={{ color: "var(--muted)" }}>{!isEntrada(g) && categoriaDe(g).t !== g.concepto ? `· ${categoriaDe(g).t} ` : ""}· 📍 {pn}{g.por && g.por !== pn ? ` · ${g.por}` : ""}{g.closureId ? " · cerrado en Z" : ""}{!g.synced ? " · ⏳" : ""}</span></span>
                 <b style={{ flexShrink: 0, textDecoration: g.voided ? "line-through" : "none", color: g.voided ? "var(--muted)" : isEntrada(g) ? "var(--green)" : "var(--amber)" }}>{isEntrada(g) ? "+" : "-"}{money(g.importe)}</b>
+                {/* Vínculo con un gasto previsto del CRM (también después del evento) */}
+                {!g.voided && !isEntrada(g) && previstos && (g.crmGastoId
+                  ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0, fontSize: 12.5, color: "var(--green)", fontWeight: 700 }}>🔗 {nombrePrevisto(g.crmGastoId)}{puedeVincular && <button onClick={() => onVincular(g, null)} style={{ ...S.smallBtn, color: "var(--muted)" }} title="Quitar el vínculo con el CRM">Desvincular</button>}</span>
+                  : puedeVincular && <button onClick={() => setVinculando(g)} style={{ ...S.smallBtn, flexShrink: 0, color: "var(--accent)", borderColor: "var(--accent)" }}>🔗 Vincular gasto</button>)}
                 {g.voided ? <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0 }}>Anulado</span>
                   : (role === "admin" || role === "supervisor") && !g.closureId && onVoidGasto ? (confirmGasto === g.id
                     ? <span style={{ display: "flex", gap: 6, flexShrink: 0 }}><button onClick={() => { onVoidGasto(g); setConfirmGasto(null); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Sí</button><button onClick={() => setConfirmGasto(null)} style={S.smallBtn}>✗</button></span>
