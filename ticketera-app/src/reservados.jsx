@@ -4,6 +4,7 @@
 // Las ventas son ventas normales del TPV (misma facturación, mismo cierre Z, mismo ticket);
 // aquí solo se apunta a qué reservado va cada una.
 import { secretoDe, comprobar as comprobarPin, leerBloqueo, acierto, fallo } from "./pin";
+import { enlacePedirBebidas, waNumero } from "./mensajesReservados";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as db from "./db";
 import { uid } from "./supabase";
@@ -320,6 +321,19 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
     setFicha({ id: libre.id, nueva: true });
   };
   const DATOS = ["estado", "cliente", "telefono", "nota", "tarifaId", "senal", "senalMetodo", "senalSocio", "promotorId", "llegadaEn", "pedido"];
+  // Hoja para imprimir (equipo de reservados): una ficha por reservado con todo lo necesario
+  const [exportando, setExportando] = useState(false);
+  const exportar = async () => {
+    setExportando(true);
+    try {
+      const { pdfReservados } = await import("./reservadosPdf");
+      const filas = res.reservados.map(r => ({ r, C: calcPedido(r, cfg), s: stats[r.id], promotor: cfg.promotores.find(p => p.id === r.promotorId) }));
+      const doc = pdfReservados(filas, ev);
+      const u = URL.createObjectURL(doc.output("blob"));
+      const a = document.createElement("a"); a.href = u; a.download = `Reservados_${String(ev.name || "evento").replace(/[^\p{L}\p{N}]+/gu, "_")}.pdf`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000);
+      flash("🖨️ Hoja de reservados descargada: ábrela e imprímela");
+    } catch { flash("No se ha podido preparar la hoja", "warn"); } finally { setExportando(false); }
+  };
   const [borr, setBorr] = useState(() => leerBorrador(ev.id));
   useEffect(() => { if (!ficha) setBorr(leerBorrador(ev.id)); }, [ficha, ev.id]);
   const guardarFicha = (r, x, destino) => {
@@ -345,6 +359,7 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
           {role === "admin" && <div style={{ display: "inline-flex", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: 3 }}>
             {[["mapa", "Mapa"], ["config", "Configuración"]].map(([k, t]) => <button key={k} onClick={() => setTab(k)} style={{ border: "none", borderRadius: 9, padding: "8px 14px", fontWeight: 800, fontSize: 13.5, cursor: "pointer", background: tab === k ? "var(--accent)" : "transparent", color: tab === k ? "#fff" : "var(--text)" }}>{t}</button>)}
           </div>}
+          {tab === "mapa" && res.reservados.length > 0 && <button onClick={exportar} disabled={exportando} style={{ ...R.small, padding: "9px 13px", opacity: exportando ? .6 : 1 }} title="Hoja para imprimir con todos los reservados">🖨️ {exportando ? "Preparando…" : "Exportar reservados"}</button>}
           {onCerrar && <button onClick={onCerrar} style={R.small}>← Volver al TPV</button>}
         </div>
       </div>
@@ -549,7 +564,10 @@ function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puede
         {C.total != null && !stats?.tarifaCobrada && <div style={{ fontSize: 13, marginBottom: 10 }}>En taquilla pagará <b style={{ color: "var(--accent)" }}>{money(enTaquilla)}</b>{senal > 0 ? ` (${money(C.total)} − ${money(senal)} de señal)` : ""}{promotor?.telefono ? <> · <a href={`tel:${promotor.telefono.replace(/[^\d+]/g, "")}`} style={{ color: "var(--muted)" }}>llamar a {promotor.nombre}</a></> : null}</div>}
       </div>
       <Field label="Nota"><input value={x.nota} maxLength={500} onChange={e => set("nota", e.target.value)} placeholder="Cumpleaños, bengalas a las 2:00…" style={R.input} /></Field>
-      {x.telefono && <div style={{ marginBottom: 12 }}><a href={`https://wa.me/${x.telefono.replace(/[^\d]/g, "").replace(/^(?=[67]\d{8}$)/, "34")}?text=${encodeURIComponent(`Hola ${x.cliente || ""}, te escribimos de ${ev.name} sobre tu reservado ${dest.nombre}.`)}`} target="_blank" rel="noopener noreferrer" style={{ ...R.small, textDecoration: "none", color: "#22d3a6" }}>💬 WhatsApp a {x.cliente || "el cliente"}</a></div>}
+      {x.telefono && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        {waNumero(x.telefono) && <a href={enlacePedirBebidas({ ...L, nombre: dest.nombre }, ev, C)} target="_blank" rel="noopener noreferrer" style={{ ...R.small, textDecoration: "none", background: "#22d3a6", color: "#04231a", border: "none", padding: "10px 14px", fontWeight: 900 }} title="Abre WhatsApp con un mensaje para que te digan botellas y refrescos">🍾 Pedir bebidas por WhatsApp</a>}
+        <a href={`https://wa.me/${x.telefono.replace(/[^\d]/g, "").replace(/^(?=[67]\d{8}$)/, "34")}?text=${encodeURIComponent(`Hola ${x.cliente || ""}, te escribimos de ${ev.name} sobre tu reservado ${dest.nombre}.`)}`} target="_blank" rel="noopener noreferrer" style={{ ...R.small, textDecoration: "none", color: "#22d3a6" }}>💬 WhatsApp a {x.cliente || "el cliente"}</a>
+      </div>}
 
       {!nueva && <>
         <div style={{ fontWeight: 800, margin: "6px 0 4px" }}>Esta noche · 🍾 {stats?.botellas || 0} botellas · {money(stats?.total || 0)}</div>

@@ -295,6 +295,9 @@ export function registrarGasto({ id, tipo = "gasto", eventoId, puntoId, importe,
 export async function loadPrevistosCRM(eventoId) {
   const key = scopedKey("tixfast_previstos_" + eventoId);
   try {
+    // Sin la migración que enlaza caja y CRM, la lista no se muestra (así nunca se paga dos veces lo mismo)
+    const probe = await supabase.from("ticket_gastos").select("crm_gasto_id").limit(1);
+    if (probe.error) { if (/crm_gasto_id/i.test(probe.error.message || "")) { try { localStorage.removeItem(key); } catch {} return []; } throw probe.error; }
     const { data, error } = await supabase.from("ticket_crm_gastos").select("id, padre_id, tipo, categoria, concepto, proveedor, previsto, real, estado, personas, horas, precio_hora").eq("evento_id", eventoId).order("creado_en", { ascending: true });
     if (error) throw error;
     const filas = (data || []).map(g => ({ id: g.id, padreId: g.padre_id || null, tipo: g.tipo, categoria: g.categoria || "", concepto: g.concepto || "", proveedor: g.proveedor || "", previsto: g.previsto != null ? Number(g.previsto) : null, real: g.real != null ? Number(g.real) : null, estado: g.estado || "previsto" }));
