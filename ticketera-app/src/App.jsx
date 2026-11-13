@@ -791,6 +791,16 @@ export default function App() {
     else await hydrate().catch(() => {});
   };
 
+  // Revertir la última Z de una barra (PIN de administrador): vuelve a estar abierta con sus ventas, gastos y fondo
+  const revertirZ = async (c) => {
+    const nombre = ev.puntos.find(p => p.id === c.puntoId)?.name || "la barra";
+    try { await db.revertirZ(c.id, "Admin"); }
+    catch (e) { flash(e?.mostrar ? e.message : "No se ha podido revertir la Z", "warn"); return false; }
+    await hydrate().catch(() => {});
+    flash(`↺ Z de ${nombre} revertida: la barra vuelve a estar abierta para seguir trabajando`);
+    return true;
+  };
+
   useEffect(() => {
     if (!printJob || printer !== "live") return;
     // Define la PÁGINA al ancho real del rollo y alto automático (ticket corto, sin A4)
@@ -860,7 +870,7 @@ export default function App() {
   // Fondo de caja: se confirma al abrir cada barra (y tras cada cierre Z). Se puede desactivar en el evento.
   const [opening, setOpening] = useState(false);          // pantalla "Iniciar venta" (fondo del cajón)
   useEffect(() => { setOpening(false); }, [punto?.id]);
-  const ultimoFondo = useMemo(() => { const c = state.closures.filter(x => x.puntoId === punto?.id && x.fondo != null).sort((a, b) => (a.ts || 0) - (b.ts || 0)); return c.length ? Number(c[c.length - 1].fondo) : null; }, [state.closures, punto?.id]);
+  const ultimoFondo = useMemo(() => { const c = state.closures.filter(x => x.puntoId === punto?.id && x.fondo != null && !x.revertidoEn).sort((a, b) => (a.ts || 0) - (b.ts || 0)); return c.length ? Number(c[c.length - 1].fondo) : null; }, [state.closures, punto?.id]);
   const quien = () => role === "cajero" ? punto.name : role === "admin" ? "Admin" : "Supervisor";
   // Iniciar la venta (una vez por barra): deja el modo prueba y guarda el fondo. Optimista y sin conexión.
   const iniciarVenta = async (amount = null) => {
@@ -1013,7 +1023,7 @@ export default function App() {
             {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
             {safeView === "reports" && <CierreNoche ev={ev} evSales={evSales} evGastos={evGastos} res={res} role={role} flash={flash} />}
             {safeView === "reports" && <InformeReservados ev={ev} res={res} sales={evSales} isMobile={isMobile} />}
-            {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
+            {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} cierres={state.closures.filter(c => c.eventId === ev.id)} onRevertirZ={revertirZ} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
           </div>
           {/* La barra de abajo está siempre (también en Reservados): se navega igual desde cualquier pantalla */}
           <nav style={S.bottomNav}>
@@ -1062,7 +1072,7 @@ export default function App() {
               {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
             {safeView === "reports" && <CierreNoche ev={ev} evSales={evSales} evGastos={evGastos} res={res} role={role} flash={flash} />}
             {safeView === "reports" && <InformeReservados ev={ev} res={res} sales={evSales} isMobile={isMobile} />}
-            {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
+            {safeView === "reports" && <Reports ev={ev} evSales={evSales} evGastos={evGastos} cierres={state.closures.filter(c => c.eventId === ev.id)} onRevertirZ={revertirZ} onVoidGasto={anularGasto} onPasarPrueba={pasarPrueba} role={role} onVoid={(sale) => voidOne(sale, role)} onCierreZ={cierreZ} flash={flash} onBackup={() => makeBackup(true)} lastBackup={lastBackup} onImported={async () => { setPending(db.pendingCount()); if (navigator.onLine) { await db.syncPending(); setPending(db.pendingCount()); await hydrate().catch(() => {}); } }} />}
             </div>
           </main>
         </div>
@@ -2777,7 +2787,7 @@ function resumenEvento(ev, allSales, closures, allGastos = []) {
   const horas = {}; ventas.forEach(s => { const h = new Date(s.ts).getHours(); horas[h] = (horas[h] || 0) + 1; });
   const hk = Object.keys(horas).map(Number); const pico = hk.length ? hk.reduce((a, b) => horas[b] > horas[a] ? b : a) : null;
   const barras = ev.puntos.map(p => { const v = ventas.filter(s => s.puntoId === p.id); return { id: p.id, name: p.name, tickets: v.length, revenue: round2(v.reduce((t, s) => t + s.price, 0)) }; }).filter(b => b.tickets > 0);
-  const cz = (closures || []).filter(c => c.eventId === ev.id);
+  const cz = (closures || []).filter(c => c.eventId === ev.id && !c.revertidoEn);
   const desc = cz.filter(c => c.contado != null).map(c => round2(c.contado - (c.esperado != null ? Number(c.esperado) : (Number(c.fondo || 0) + Number(c.efectivo || 0) - Number(c.gastos || 0)))));
   const gastos = sumMov((allGastos || []).filter(g => g.eventId === ev.id), "gasto");
   return {
@@ -2926,7 +2936,53 @@ function Historico({ state, onOpenEvent, flash }) {
   );
 }
 
-function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role, onVoid, onCierreZ, flash, onBackup, lastBackup, onImported }) {
+/* ---------------------- Cierres Z del evento (con opción de revertir la última de cada barra) ---------------------- */
+export function CierresZ({ ev, cierres, role, onRevertir }) {
+  const [confirmar, setConfirmar] = useState(null);   // cierre a revertir (paso 1: explicación)
+  const [pedirPin, setPedirPin] = useState(null);     // paso 2: PIN de administrador
+  const [busy, setBusy] = useState(false);
+  if (!cierres.length) return null;
+  const lista = cierres.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const ultimaDe = {}; lista.forEach(c => { if (!c.revertidoEn && !ultimaDe[c.puntoId]) ultimaDe[c.puntoId] = c.id; });
+  const nombre = (c) => ev.puntos.find(p => p.id === c.puntoId)?.name || c.puntoName || "Barra";
+  const fh = (t) => t ? new Date(t).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+  const desc = (c) => c.contado != null && c.esperado != null ? round2(c.contado - c.esperado) : null;
+  const sincro = (c) => c.por !== undefined;   // solo las Z que ya están en el servidor (las recién hechas sin subir aún no)
+  return (
+    <div style={{ ...S.panel, marginBottom: 16 }}>
+      <div style={{ fontWeight: 800, marginBottom: 4 }}><Ic n="history" s={15} style={II} />Cierres Z</div>
+      <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>Lo que debía haber, lo contado y si sobró o faltó. {role === "admin" ? "La última Z de cada barra se puede revertir con el PIN de administrador para seguir trabajando y sacar otra." : ""}</div>
+      {lista.map(c => { const d = desc(c); const rev = !!c.revertidoEn; const puede = role === "admin" && onRevertir && ultimaDe[c.puntoId] === c.id && sincro(c); return (
+        <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 0", borderTop: "1px solid var(--line)", opacity: rev ? .5 : 1 }}>
+          <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+            <div style={{ fontWeight: 800 }}><Ic n="store" s={14} style={II} />{nombre(c)} <span style={{ color: "var(--muted)", fontWeight: 600, fontSize: 13 }}>· {fh(c.ts)}</span></div>
+            <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>{c.count ?? "—"} tickets · {money(c.revenue || 0)}{c.gastos ? ` · gastos ${money(c.gastos)}` : ""}{c.esperado != null ? ` · debía haber ${money(c.esperado)}` : ""}{c.contado != null ? ` · contado ${money(c.contado)}` : ""}</div>
+            {rev && <div style={{ fontSize: 12.5, color: "var(--amber)", fontWeight: 700, marginTop: 2 }}>↺ Revertida el {fh(c.revertidoEn)}{c.revertidoPor ? ` · ${c.revertidoPor}` : ""}: no cuenta</div>}
+          </div>
+          {d != null && !rev && <b style={{ fontSize: 15, color: d === 0 ? "var(--green)" : d > 0 ? "#60a5fa" : "var(--red)" }}>{d === 0 ? "Cuadra ✓" : d > 0 ? `Sobra ${money(d)}` : `Falta ${money(-d)}`}</b>}
+          {puede && <button onClick={() => setConfirmar(c)} disabled={busy} style={{ ...S.smallBtn, padding: "8px 12px", color: "var(--amber)", borderColor: "var(--amber)" }}>↺ Revertir Z</button>}
+        </div>); })}
+      {confirmar && (
+        <div style={S.payWrap} onClick={() => !busy && setConfirmar(null)}>
+          <div role="dialog" aria-modal="true" aria-label="Revertir cierre Z" style={{ ...S.payCard, maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontWeight: 900, fontSize: 19, marginBottom: 8 }}>↺ ¿Revertir la Z de {nombre(confirmar)}?</div>
+            <div style={{ fontSize: 14, lineHeight: 1.5, color: "var(--muted)" }}>
+              <p style={{ margin: "0 0 8px" }}>Esta Z ({fh(confirmar.ts)} · {money(confirmar.revenue || 0)}) dejará de contar. Sus <b style={{ color: "var(--text)" }}>{confirmar.count ?? 0} ventas y sus gastos vuelven al turno abierto</b> y la barra queda <b style={{ color: "var(--text)" }}>abierta</b> con el fondo de {money(confirmar.fondo || 0)}.</p>
+              <p style={{ margin: 0 }}>Podrás añadir gastos o lo que falte y sacar otra Z. No se borra ninguna venta: la Z queda guardada como revertida.</p>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button onClick={() => setConfirmar(null)} style={{ ...S.btnGhost, flex: 1 }}>Cancelar</button>
+              <button onClick={() => { setPedirPin(confirmar); setConfirmar(null); }} style={{ ...S.btnPrimary, flex: 1.4, background: "var(--amber)", color: "#1a1205" }}>Continuar con el PIN</button>
+            </div>
+          </div>
+        </div>)}
+      {pedirPin && <PinModal secreto={secretoDe(ev, "admin")} label="PIN de administrador para revertir la Z" onClose={() => setPedirPin(null)}
+        onOk={async () => { const c = pedirPin; setPedirPin(null); setBusy(true); await onRevertir(c); setBusy(false); }} />}
+    </div>
+  );
+}
+
+function Reports({ ev, evSales, evGastos = [], cierres = [], onRevertirZ, onVoidGasto, onPasarPrueba, role, onVoid, onCierreZ, flash, onBackup, lastBackup, onImported }) {
   const [backups, setBackups] = useState(null);
   const [showBackups, setShowBackups] = useState(false);
   const [showBkPanel, setShowBkPanel] = useState(false);
@@ -3124,6 +3180,8 @@ function Reports({ ev, evSales, evGastos = [], onVoidGasto, onPasarPrueba, role,
           ))}
         </div>
       </div>
+
+      <CierresZ ev={ev} cierres={cierres} role={role} onRevertir={onRevertirZ} />
 
       {ev.qrActivo && <InformeQR ev={ev} evSales={evSales} />}
 

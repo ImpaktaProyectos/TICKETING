@@ -16,7 +16,7 @@ const evFromDb = (e) => ({
 });
 const saleFromDb = (s) => ({ id: s.id, clientUuid: s.client_uuid, code: s.codigo, num: s.numero, eventId: s.evento_id, puntoId: s.punto_id, productId: s.producto_id, name: s.nombre, price: Number(s.precio), ts: new Date(s.creado_en).getTime(), voided: s.anulada, closureId: s.closure_id, operario: s.operario, pago: s.metodo_pago, invite: /^invitacion/.test(s.metodo_pago || ""), inviteValue: /^invitacion/.test(s.metodo_pago || "") ? (Number(String(s.metodo_pago).split(":")[1]) || 0) : 0, entregado: s.entregado != null ? Number(s.entregado) : null, cambio: s.cambio != null ? Number(s.cambio) : null, synced: true });
 const gastoFromDb = (g) => ({ tipo: g.tipo === "entrada" ? "entrada" : "gasto", id: g.id, eventId: g.evento_id, puntoId: g.punto_id, importe: Number(g.importe), concepto: g.concepto || "", categoria: g.categoria || "", crmGastoId: g.crm_gasto_id || null, por: g.registrado_por || "", ts: new Date(g.creado_en).getTime(), voided: !!g.anulado, closureId: g.closure_id, synced: true });
-const closureFromDb = (c) => ({ id: c.id, eventId: c.evento_id, puntoId: c.punto_id, count: c.tickets, revenue: Number(c.facturacion), voids: c.anulaciones, lines: c.detalle || [], efectivo: Number(c.efectivo || 0), tarjeta: Number(c.tarjeta || 0), fondo: Number(c.fondo || 0), contado: c.contado != null ? Number(c.contado) : null, gastos: Number(c.gastos || 0), entradas: Number(c.entradas || 0), esperado: c.esperado != null ? Number(c.esperado) : null, ts: new Date(c.creado_en).getTime() });
+const closureFromDb = (c) => ({ id: c.id, eventId: c.evento_id, puntoId: c.punto_id, count: c.tickets, revenue: Number(c.facturacion), voids: c.anulaciones, lines: c.detalle || [], efectivo: Number(c.efectivo || 0), tarjeta: Number(c.tarjeta || 0), fondo: Number(c.fondo || 0), contado: c.contado != null ? Number(c.contado) : null, gastos: Number(c.gastos || 0), entradas: Number(c.entradas || 0), esperado: c.esperado != null ? Number(c.esperado) : null, ts: new Date(c.creado_en).getTime(), por: c.cerrado_por || "", revertidoEn: c.revertido_en || null, revertidoPor: c.revertido_por || "" });
 
 const evToDb = (e) => ({ id: e.id, nombre: e.name, fecha: e.date, recinto: e.venue, plantilla: e.template, papel: e.paper, pie: e.footer, logo_url: e.logo, mostrar_evento: e.showEventName, mostrar_fecha: e.showDate, mostrar_hora: e.showTime, mostrar_precio: e.showPrice, anular_pin: e.anularPin, cerrada: !!e.closed, inicio: e.startsAt || null, fin: e.endsAt || null, venta_avanzada: !!e.advanced, ayuda_cambio: e.changeHelp !== false, pedir_fondo: e.pedirFondo !== false, ticket_style: e.style || {}, qr_activo: !!e.qrActivo, pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor, pin_admin_huella: e.pin_admin_huella || null, pin_supervisor_huella: e.pin_supervisor_huella || null });
 const evPatchToDb = (patch) => {
@@ -307,6 +307,14 @@ export async function loadPrevistosCRM(eventoId) {
 }
 export function anularGasto(id, eventoId, por) { return doOrQueue({ op: "anularGasto", id, evento: eventoId, por }); }
 
+// Revertir la última Z de una barra (solo con conexión y con todo subido): sus ventas y gastos vuelven al turno abierto
+export async function revertirZ(cierreId, por) {
+  if (!navigator.onLine) throw Object.assign(new Error("Sin conexión: para revertir una Z hace falta internet"), { mostrar: true });
+  if (pendingCount() > 0) { await syncPending().catch(() => {}); if (pendingCount() > 0) throw Object.assign(new Error("Hay operaciones de este equipo sin subir: espera a que se suban y vuelve a intentarlo"), { mostrar: true }); }
+  const { data, error } = await supabase.rpc("ticket_revertir_z", { p_cierre: cierreId, p_por: por || "Admin" });
+  if (error) throw Object.assign(new Error(/function|schema cache/i.test(error.message || "") ? "Falta activar «revertir Z» en la base de datos" : (error.message || "No se ha podido revertir").replace(/^.*?ERROR:\s*/, "")), { mostrar: true });
+  return data;
+}
 export async function cerrarZ(eventoId, puntoId, por, contado = null) {
   if (navigator.onLine) {
     try { await flushFondoDePunto(puntoId); }
