@@ -3,6 +3,7 @@ import { r2, isInvite } from "./ui";
 import { totalesGastos } from "./Gastos";
 import { GRUPOS_VISTA, grupoVista, catInfo } from "./categorias";
 import { fiscalEvento } from "./fiscal";
+import { aplicarCaja } from "../gastosPrevistos";
 export { GRUPOS, GRUPOS_VISTA, grupoInfo, CATS_ING as CATS, catInfo, catsIngreso, fuenteAuto } from "./categorias";
 
 // Resumen de un evento con los datos de la cuenta (ventas del TPV + ingresos y gastos del CRM + comisiones e IVA)
@@ -17,8 +18,9 @@ export function resumenEvento(ev, sales, gastosCaja, ingresosEv, gastosEv, fuent
   Object.keys(porGrupo).forEach(k => { porGrupo[k] = r2(porGrupo[k]); });
   const manual = r2(ingresosEv.reduce((a, i) => a + i.importe, 0));
   const ingresos = r2(tpv + manual);
-  const F = fiscalEvento({ ev, sales, ingresos: ingresosEv, gastos: gastosEv, fuentes, ajustes, senales });
-  const G = totalesGastos(ev, gastosEv, gastosCaja, F.auto);
+  const gastosConCaja = aplicarCaja(gastosEv, gastosCaja, ev.id);   // lo pagado desde la caja del TPV ya dentro de cada gasto
+  const F = fiscalEvento({ ev, sales, ingresos: ingresosEv, gastos: gastosConCaja, fuentes, ajustes, senales });
+  const G = totalesGastos(ev, gastosConCaja, gastosCaja, F.auto);
   const beneficio = r2(ingresos - G.total);
   const horas = {};
   ss.forEach(s => { const h = new Date(s.ts).getHours(); horas[h] = (horas[h] || 0) + 1; });

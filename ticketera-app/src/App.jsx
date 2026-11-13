@@ -6,6 +6,7 @@ import * as db from "./db";
 import { secretoDe, estadoDe, comprobar as comprobarPin, crearHuella, problema as problemaPin, fuerza as fuerzaPin, disponible as cifradoDisponible } from "./pin";
 import { CierreNoche } from "./CierreNoche";
 import { CATS_GASTO, categoriaDe } from "./cierreNocheCalc";
+import { previstosParaCaja } from "./gastosPrevistos";
 import { useReservados, LineaReservados, CobrarReservado, ReservadosVista, InformeReservados, copiarReservados, resCfg, VentaSocio, efectivoSocios, calcPedido } from "./reservados";
 import { nextFolios, prefijoDePunto, peekFolio, getDeviceTag, resetFolios, seedFolio } from "./folio";
 import QrCodigo from "./qr/QrCodigo";
@@ -45,7 +46,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.11h";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.13a";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -734,18 +735,20 @@ export default function App() {
   // Dinero que sale del cajón durante la noche. La facturación NO cambia; el cierre lo descuenta
   // de lo que debe haber (efectivo + datáfono) para que las cuentas cuadren.
   const [showGasto, setShowGasto] = useState(false);
+  const [previstosCRM, setPrevistosCRM] = useState([]);   // pagos previstos en el CRM (para liquidarlos desde la caja)
+  useEffect(() => { if (showGasto && ev.id) db.loadPrevistosCRM(ev.id).then(setPrevistosCRM).catch(() => {}); }, [showGasto, ev.id]);
   const [askGastoVoid, setAskGastoVoid] = useState(null);
-  const registrarGasto = async (importe, concepto, tipo = "gasto", categoria = "") => {
+  const registrarGasto = async (importe, concepto, tipo = "gasto", categoria = "", crmGastoId = null) => {
     if (!ev.id || !punto?.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return false; }
     const imp = round2(Number(importe) || 0);
     if (!(imp > 0) || imp >= 1000000) { flash("Escribe el importe del gasto", "warn"); return false; }
     const id = uid();
     const por = role === "cajero" ? punto.name : role === "admin" ? "Admin" : "Supervisor";
-    const g = { id, tipo: tipo === "entrada" ? "entrada" : "gasto", eventId: ev.id, puntoId: punto.id, importe: imp, concepto: String(concepto || "").trim().slice(0, 120), categoria: tipo === "entrada" ? "" : String(categoria || ""), por, ts: Date.now(), voided: false, closureId: null, synced: false };
+    const g = { id, tipo: tipo === "entrada" ? "entrada" : "gasto", eventId: ev.id, puntoId: punto.id, importe: imp, concepto: String(concepto || "").trim().slice(0, 120), categoria: tipo === "entrada" ? "" : String(categoria || ""), crmGastoId: tipo === "entrada" ? null : crmGastoId || null, por, ts: Date.now(), voided: false, closureId: null, synced: false };
     baseDispatch({ type: "ADD_GASTO", gasto: g });
     flash(`${g.tipo === "entrada" ? "➕ Cambio añadido" : "💸 Gasto registrado"} · ${money(imp)}${g.tipo !== "entrada" ? " · " + categoriaDe(g).t : ""}${g.concepto && g.concepto !== categoriaDe(g).t ? " · " + g.concepto : ""}`);
     if (navigator.vibrate) navigator.vibrate(30);
-    const r = await db.registrarGasto({ id, tipo: g.tipo, eventoId: ev.id, puntoId: punto.id, importe: imp, concepto: g.concepto, categoria: g.categoria, por });
+    const r = await db.registrarGasto({ id, tipo: g.tipo, eventoId: ev.id, puntoId: punto.id, importe: imp, concepto: g.concepto, categoria: g.categoria, crmGastoId: g.crmGastoId, por });
     if (r.offline) setPending(db.pendingCount());
     return true;
   };
@@ -1113,6 +1116,7 @@ export default function App() {
 
       {/* ===== Gasto de caja ===== */}
       {showGasto && <CajaModal puntoName={punto.name} movs={turnoMovs} fondo={punto.fondo} onSave={registrarGasto} onClose={() => setShowGasto(false)}
+        previstos={previstosParaCaja(previstosCRM, evGastos, ev.id)}
         onVoid={(g) => { if (role === "cajero") setAskGastoVoid(g); else anularGasto(g); }} />}
       {askGastoVoid && <PinModal secreto={secretoDe(ev, "supervisor")} onClose={() => setAskGastoVoid(null)} onOk={() => { const g = askGastoVoid; setAskGastoVoid(null); anularGasto(g); }} label="PIN de supervisor para anular el movimiento" />}
 
@@ -1736,12 +1740,14 @@ function FondoGate({ puntoName, previsto = null, ultimo = null, onSave, onBack, 
 const MOV_CONCEPTOS = {
   entrada: ["Más cambio", "Monedas", "Billetes pequeños"],
 };
-function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose }) {
+export function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose, previstos = [] }) {
   const isMobile = useIsMobile();
   const [tipo, setTipo] = useState("gasto");
   const [val, setVal] = useState("");
   const [concepto, setConcepto] = useState("");
   const [categoria, setCategoria] = useState("");   // los gastos se clasifican siempre (para el cierre de la noche)
+  const [liq, setLiq] = useState(null);             // pago previsto del CRM que se liquida con este gasto
+  const [verPrevistos, setVerPrevistos] = useState(false);
   const [confirmId, setConfirmId] = useState(null);
   const imp = parseFloat((val || "0").replace(",", ".")) || 0;
   const tG = sumMov(movs, "gasto"), tE = sumMov(movs, "entrada");
@@ -1753,9 +1759,15 @@ function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose }) {
     if (/\.\d{3}$/.test(nv) || nv.replace(".", "").length > 7) return v;
     return nv;
   });
-  const switchTipo = (t) => { setTipo(t); setConcepto(""); setCategoria(""); };
+  const switchTipo = (t) => { setTipo(t); setConcepto(""); setCategoria(""); setLiq(null); };
   const falta = isG && !categoria;
-  const save = async () => { if (!(imp > 0) || falta) return; const cat = CATS_GASTO.find(c => c.k === categoria); const ok = await onSave(imp, concepto.trim() || (isG ? cat?.t : ""), tipo, isG ? categoria : ""); if (ok) { setVal(""); setConcepto(""); setCategoria(""); } };
+  const elegirPrevisto = (p) => {
+    if (liq?.id === p.id) { setLiq(null); setVal(""); setConcepto(""); setCategoria(""); return; }
+    setLiq(p); setVal(p.previsto ? String(p.previsto) : ""); setConcepto(p.nombre.slice(0, 120)); setCategoria(p.cat); setVerPrevistos(false);
+  };
+  const save = async () => { if (!(imp > 0) || falta) return; const cat = CATS_GASTO.find(c => c.k === categoria); const ok = await onSave(imp, concepto.trim() || (isG ? cat?.t : ""), tipo, isG ? categoria : "", isG && liq ? liq.id : null); if (ok) { setVal(""); setConcepto(""); setCategoria(""); setLiq(null); } };
+  const pendientes = previstos.filter(p => p.estado === "pendiente");
+  const difLiq = liq && liq.previsto != null && imp > 0 ? round2(imp - liq.previsto) : 0;
   const hora = (ts) => new Date(ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
   const seg = (t, ico, label, c) => (
     <button onClick={() => switchTipo(t)} style={{ flex: 1, padding: "12px 6px", borderRadius: 12, fontWeight: 900, fontSize: 15, cursor: "pointer", border: `2px solid ${tipo === t ? c : "var(--line)"}`, background: tipo === t ? c : "var(--surface2)", color: tipo === t ? "#1a1205" : "var(--text)" }}>{ico} {label}</button>
@@ -1782,6 +1794,32 @@ function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose }) {
           {seg("entrada", "➕", "Meter cambio", "var(--green)")}
         </div>
 
+        {/* Pagos previstos en el CRM: se tachan al pagarlos desde la caja (el importe se puede cambiar) */}
+        {isG && previstos.length > 0 && (
+          <div style={{ border: "1px solid var(--line)", borderRadius: 14, marginBottom: 12, overflow: "hidden" }}>
+            <button onClick={() => setVerPrevistos(v => !v)} aria-expanded={verPrevistos} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "11px 12px", background: "var(--surface2)", border: "none", color: "var(--text)", cursor: "pointer", font: "inherit", textAlign: "left" }}>
+              <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block", fontSize: 14.5 }}>📋 Pagos previstos (CRM)</b><span style={{ fontSize: 12.5, color: "var(--muted)" }}>{pendientes.length ? `${pendientes.length} por pagar · ${money(round2(pendientes.reduce((t, p) => t + (p.previsto || 0), 0)))}` : "Todo pagado ✓"} · toca uno para pagarlo</span></span>
+              <span style={{ color: "var(--muted)", transform: verPrevistos ? "rotate(180deg)" : "none", display: "flex" }}><Ic n="down" s={18} /></span>
+            </button>
+            {verPrevistos && <div style={{ maxHeight: 260, overflow: "auto" }}>{previstos.map(p => { const pagado = p.estado !== "pendiente"; const on = liq?.id === p.id; return (
+              <button key={p.id} disabled={pagado} onClick={() => elegirPrevisto(p)} aria-pressed={on} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", border: "none", borderTop: "1px solid var(--line)", background: on ? "rgba(255,180,0,.14)" : "transparent", color: "var(--text)", cursor: pagado ? "default" : "pointer", font: "inherit", textAlign: "left", opacity: pagado ? .6 : 1 }}>
+                <span style={{ width: 22, height: 22, borderRadius: 7, flexShrink: 0, display: "grid", placeItems: "center", border: `2px solid ${pagado ? "var(--green)" : on ? "var(--amber)" : "var(--line)"}`, background: pagado ? "var(--green)" : "transparent", color: "#04231a", fontWeight: 900, fontSize: 13 }}>{pagado ? "✓" : ""}</span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <b style={{ display: "block", fontSize: 14, textDecoration: pagado ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nombre}</b>
+                  <span style={{ display: "block", fontSize: 12, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pagado ? (p.estado === "pagado_caja" ? `Pagado ${money(p.pagado)} desde caja${p.diferencia ? ` (${p.diferencia > 0 ? "+" : "−"}${money(Math.abs(p.diferencia))})` : ""}` : "Marcado como pagado en el CRM") : p.detalle}</span>
+                </span>
+                <b style={{ flexShrink: 0, fontSize: 14, textDecoration: pagado ? "line-through" : "none", color: pagado ? "var(--muted)" : "var(--text)" }}>{p.previsto != null ? money(p.previsto) : "—"}</b>
+              </button>); })}</div>}
+          </div>)}
+        {isG && liq && (
+          <div style={{ background: "rgba(255,180,0,.10)", border: "1px solid rgba(255,180,0,.45)", borderRadius: 12, padding: "10px 12px", marginBottom: 10, fontSize: 13.5 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ flex: 1, minWidth: 0 }}>Pagas a <b>{liq.nombre}</b>{liq.previsto != null ? <> · previsto <b>{money(liq.previsto)}</b></> : null}</span>
+              <button onClick={() => elegirPrevisto(liq)} style={{ ...S.smallBtn, flexShrink: 0 }}>Quitar</button>
+            </div>
+            <div style={{ fontSize: 12.5, marginTop: 4, color: difLiq ? "var(--amber)" : "var(--muted)", fontWeight: difLiq ? 800 : 600 }}>{difLiq ? `Pagas ${money(Math.abs(difLiq))} ${difLiq > 0 ? "más" : "menos"} de lo previsto: el CRM se actualiza con ${money(imp)}.` : "¿Has pagado otra cantidad? Cámbiala en el importe de arriba y se actualiza en el CRM."}</div>
+          </div>)}
+
         <div style={{ background: "var(--surface2)", border: "2px solid " + (imp > 0 ? col : "var(--line)"), borderRadius: 16, padding: "10px 14px", textAlign: "center", marginBottom: 10 }}>
           <div style={S.miniLabel}>{isG ? "¿Cuánto sale del cajón?" : "¿Cuánto cambio metes?"}</div>
           <div style={{ fontSize: 38, fontWeight: 900, color: imp > 0 ? col : "var(--muted)", lineHeight: 1.15 }}>{imp > 0 ? (isG ? "-" : "+") + money(imp) : money(0)}</div>
@@ -1792,21 +1830,21 @@ function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose }) {
         </div>
         {isG && <div style={{ ...S.miniLabel, marginBottom: 6 }}>¿En qué se gasta?</div>}
         {isG && <div role="radiogroup" aria-label="Categoría del gasto" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-          {CATS_GASTO.map(c => { const on = categoria === c.k; return <button key={c.k} role="radio" aria-checked={on} onClick={() => setCategoria(on ? "" : c.k)} style={{ ...S.qtyChip, padding: "9px 12px", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, ...(on ? { background: c.c, color: "#0b0c10", borderColor: c.c } : {}) }}><span style={{ width: 9, height: 9, borderRadius: 3, background: on ? "#0b0c10" : c.c, opacity: on ? .5 : 1 }} />{c.t}</button>; })}
+          {CATS_GASTO.map(c => { const on = categoria === c.k; return <button key={c.k} role="radio" aria-checked={on} onClick={() => setCategoria(on ? "" : c.k)} style={{ ...S.qtyChip, padding: "9px 12px", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, ...(on ? { background: c.c, color: "#0b0c10", border: `1px solid ${c.c}` } : {}) }}><span style={{ width: 9, height: 9, borderRadius: 3, background: on ? "#0b0c10" : c.c, opacity: on ? .5 : 1 }} />{c.t}</button>; })}
         </div>}
         {!isG && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
           {MOV_CONCEPTOS[tipo].map(c => <button key={c} onClick={() => setConcepto(concepto === c ? "" : c)} style={{ ...S.qtyChip, padding: "8px 12px", fontSize: 13, ...(concepto === c ? { background: col, color: "#1a1205", borderColor: col } : {}) }}>{c}</button>)}
         </div>}
         <input value={concepto} maxLength={120} onChange={e => setConcepto(e.target.value)} placeholder={isG ? "Detalle (opcional): proveedor, persona…" : "Concepto (opcional)"} aria-label="Concepto" style={{ ...S.input, marginBottom: 12 }} />
         {isG && imp > 0 && falta && <div style={{ fontSize: 12.5, color: "var(--amber)", fontWeight: 700, marginBottom: 8 }}>Elige en qué se gasta para que salga bien clasificado en el cierre.</div>}
-        <button onClick={save} disabled={!(imp > 0) || falta} style={{ ...S.btnPrimary, width: "100%", padding: "16px", fontSize: 16, background: imp > 0 && !falta ? col : "var(--line)", color: imp > 0 && !falta ? "#1a1205" : "var(--muted)" }}>{imp > 0 ? (isG ? `💸 Sacar ${money(imp)} de la caja` : `➕ Meter ${money(imp)} de cambio`) : "Escribe el importe"}</button>
+        <button onClick={save} disabled={!(imp > 0) || falta} style={{ ...S.btnPrimary, width: "100%", padding: "16px", fontSize: 16, background: imp > 0 && !falta ? col : "var(--line)", color: imp > 0 && !falta ? "#1a1205" : "var(--muted)" }}>{imp > 0 ? (isG ? (liq ? `💸 Pagar ${money(imp)} a ${liq.nombre.slice(0, 24)}` : `💸 Sacar ${money(imp)} de la caja`) : `➕ Meter ${money(imp)} de cambio`) : "Escribe el importe"}</button>
 
         {movs.length > 0 && <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
           <b style={{ fontSize: 14 }}>Movimientos de este turno</b>
           {movs.slice().reverse().map(g => (
             <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
               <span style={{ color: "var(--muted)", flexShrink: 0 }}>{hora(g.ts)}</span>
-              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isEntrada(g) ? "➕" : "💸"} {g.concepto || (isEntrada(g) ? "Cambio" : "Gasto")}{!isEntrada(g) && categoriaDe(g).t !== g.concepto ? <span style={{ color: "var(--muted)" }}> · {categoriaDe(g).t}</span> : null}{!g.synced && <span style={{ color: "var(--amber)" }}> · ⏳</span>}</span>
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isEntrada(g) ? "➕" : "💸"} {g.concepto || (isEntrada(g) ? "Cambio" : "Gasto")}{!isEntrada(g) && categoriaDe(g).t !== g.concepto ? <span style={{ color: "var(--muted)" }}> · {categoriaDe(g).t}</span> : null}{g.crmGastoId ? <span style={{ color: "var(--green)" }}> · 📋 previsto</span> : null}{!g.synced && <span style={{ color: "var(--amber)" }}> · ⏳</span>}</span>
               <b style={{ flexShrink: 0, color: isEntrada(g) ? "var(--green)" : "var(--amber)" }}>{isEntrada(g) ? "+" : "-"}{money(g.importe)}</b>
               {confirmId === g.id
                 ? <span style={{ display: "flex", gap: 4, flexShrink: 0 }}><button onClick={() => { setConfirmId(null); onVoid(g); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Anular</button><button onClick={() => setConfirmId(null)} style={S.smallBtn}>✗</button></span>

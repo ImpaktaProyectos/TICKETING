@@ -15,7 +15,7 @@ const evFromDb = (e) => ({
   puntos: (e.ticket_puntos || []).map(puntoFromDb),
 });
 const saleFromDb = (s) => ({ id: s.id, clientUuid: s.client_uuid, code: s.codigo, num: s.numero, eventId: s.evento_id, puntoId: s.punto_id, productId: s.producto_id, name: s.nombre, price: Number(s.precio), ts: new Date(s.creado_en).getTime(), voided: s.anulada, closureId: s.closure_id, operario: s.operario, pago: s.metodo_pago, invite: /^invitacion/.test(s.metodo_pago || ""), inviteValue: /^invitacion/.test(s.metodo_pago || "") ? (Number(String(s.metodo_pago).split(":")[1]) || 0) : 0, entregado: s.entregado != null ? Number(s.entregado) : null, cambio: s.cambio != null ? Number(s.cambio) : null, synced: true });
-const gastoFromDb = (g) => ({ tipo: g.tipo === "entrada" ? "entrada" : "gasto", id: g.id, eventId: g.evento_id, puntoId: g.punto_id, importe: Number(g.importe), concepto: g.concepto || "", categoria: g.categoria || "", por: g.registrado_por || "", ts: new Date(g.creado_en).getTime(), voided: !!g.anulado, closureId: g.closure_id, synced: true });
+const gastoFromDb = (g) => ({ tipo: g.tipo === "entrada" ? "entrada" : "gasto", id: g.id, eventId: g.evento_id, puntoId: g.punto_id, importe: Number(g.importe), concepto: g.concepto || "", categoria: g.categoria || "", crmGastoId: g.crm_gasto_id || null, por: g.registrado_por || "", ts: new Date(g.creado_en).getTime(), voided: !!g.anulado, closureId: g.closure_id, synced: true });
 const closureFromDb = (c) => ({ id: c.id, eventId: c.evento_id, puntoId: c.punto_id, count: c.tickets, revenue: Number(c.facturacion), voids: c.anulaciones, lines: c.detalle || [], efectivo: Number(c.efectivo || 0), tarjeta: Number(c.tarjeta || 0), fondo: Number(c.fondo || 0), contado: c.contado != null ? Number(c.contado) : null, gastos: Number(c.gastos || 0), entradas: Number(c.entradas || 0), esperado: c.esperado != null ? Number(c.esperado) : null, ts: new Date(c.creado_en).getTime() });
 
 const evToDb = (e) => ({ id: e.id, nombre: e.name, fecha: e.date, recinto: e.venue, plantilla: e.template, papel: e.paper, pie: e.footer, logo_url: e.logo, mostrar_evento: e.showEventName, mostrar_fecha: e.showDate, mostrar_hora: e.showTime, mostrar_precio: e.showPrice, anular_pin: e.anularPin, cerrada: !!e.closed, inicio: e.startsAt || null, fin: e.endsAt || null, venta_avanzada: !!e.advanced, ayuda_cambio: e.changeHelp !== false, pedir_fondo: e.pedirFondo !== false, ticket_style: e.style || {}, qr_activo: !!e.qrActivo, pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor, pin_admin_huella: e.pin_admin_huella || null, pin_supervisor_huella: e.pin_supervisor_huella || null });
@@ -157,7 +157,7 @@ export const pendingCount = () => loadQ().length;
 // Identificadores de ventas y anulaciones aún sin subir (para no "perderlas" de la pantalla)
 export function pendingSaleUuids() { const s = new Set(); loadQ().forEach(it => { if (it.op === "vender") (it.args?.p_client_uuids || []).forEach(u => s.add(u)); }); return s; }
 // Gastos de caja aún sin subir (registrados en este equipo) y anulaciones de gasto pendientes
-export function pendingGastos() { return loadQ().filter(it => it.op === "gasto").map(it => ({ tipo: it.tipo === "entrada" ? "entrada" : "gasto", id: it.id, eventId: it.evento, puntoId: it.punto, importe: Number(it.importe), concepto: it.concepto || "", categoria: it.categoria || "", por: it.por || "", ts: new Date(it.fecha).getTime(), voided: false, closureId: null, synced: false })); }
+export function pendingGastos() { return loadQ().filter(it => it.op === "gasto").map(it => ({ tipo: it.tipo === "entrada" ? "entrada" : "gasto", id: it.id, eventId: it.evento, puntoId: it.punto, importe: Number(it.importe), concepto: it.concepto || "", categoria: it.categoria || "", crmGastoId: it.crmGastoId || null, por: it.por || "", ts: new Date(it.fecha).getTime(), voided: false, closureId: null, synced: false })); }
 export function pendingGastoVoids() { const s = new Set(); loadQ().forEach(it => { if (it.op === "anularGasto") s.add(it.id); }); return s; }
 // Ventas aún sin subir reconstruidas desde la cola (si se recarga la página sin internet, siguen contando en pantalla)
 export function pendingSales() {
@@ -189,7 +189,9 @@ async function runItem(it) {
     try { localStorage.setItem(scopedKey("ticketera_last_backup"), it.tomado_en); } catch {}
   }
   else if (it.op === "gasto") {
-    const { error } = await supabase.from("ticket_gastos").insert({ id: it.id, tipo: it.tipo === "entrada" ? "entrada" : "gasto", evento_id: it.evento, punto_id: it.punto, importe: it.importe, concepto: it.concepto || "", ...(it.categoria ? { categoria: String(it.categoria).slice(0, 40) } : {}), registrado_por: it.por || null, creado_en: it.fecha });
+    let { error } = await supabase.from("ticket_gastos").insert({ id: it.id, tipo: it.tipo === "entrada" ? "entrada" : "gasto", evento_id: it.evento, punto_id: it.punto, importe: it.importe, concepto: it.concepto || "", ...(it.categoria ? { categoria: String(it.categoria).slice(0, 40) } : {}), ...(it.crmGastoId ? { crm_gasto_id: it.crmGastoId } : {}), registrado_por: it.por || null, creado_en: it.fecha });
+    // Si la base de datos aún no conoce el enlace con el CRM, el gasto se guarda igual (nunca se pierde dinero del cierre)
+    if (error && it.crmGastoId && /crm_gasto_id/i.test(error.message || "")) ({ error } = await supabase.from("ticket_gastos").insert({ id: it.id, tipo: "gasto", evento_id: it.evento, punto_id: it.punto, importe: it.importe, concepto: it.concepto || "", ...(it.categoria ? { categoria: String(it.categoria).slice(0, 40) } : {}), registrado_por: it.por || null, creado_en: it.fecha }));
     if (error && !isDuplicate(error)) throw error;          // ya subido = correcto
   }
   else if (it.op === "anularGasto") {
@@ -286,8 +288,19 @@ export function anularVenta(clientUuid, por) { return doOrQueue({ op: "anularVen
 
 // Gasto / retirada de caja: dinero que SALE del cajón. No cambia la facturación; se descuenta en el arqueo.
 // Offline-safe: se guarda primero en el equipo y sube solo (el id lo pone la app: nunca se duplica).
-export function registrarGasto({ id, tipo = "gasto", eventoId, puntoId, importe, concepto, categoria, por }) {
-  return doOrQueue({ op: "gasto", id, tipo: tipo === "entrada" ? "entrada" : "gasto", evento: eventoId, punto: puntoId, importe, concepto, categoria: categoria || "", por, fecha: new Date().toISOString() });
+export function registrarGasto({ id, tipo = "gasto", eventoId, puntoId, importe, concepto, categoria, crmGastoId, por }) {
+  return doOrQueue({ op: "gasto", id, tipo: tipo === "entrada" ? "entrada" : "gasto", evento: eventoId, punto: puntoId, importe, concepto, categoria: categoria || "", ...(crmGastoId && tipo !== "entrada" ? { crmGastoId } : {}), por, fecha: new Date().toISOString() });
+}
+// Pagos previstos en el CRM para este evento (para liquidarlos desde la caja). Se guardan en el equipo para verlos sin conexión.
+export async function loadPrevistosCRM(eventoId) {
+  const key = scopedKey("tixfast_previstos_" + eventoId);
+  try {
+    const { data, error } = await supabase.from("ticket_crm_gastos").select("id, padre_id, tipo, categoria, concepto, proveedor, previsto, real, estado, personas, horas, precio_hora").eq("evento_id", eventoId).order("creado_en", { ascending: true });
+    if (error) throw error;
+    const filas = (data || []).map(g => ({ id: g.id, padreId: g.padre_id || null, tipo: g.tipo, categoria: g.categoria || "", concepto: g.concepto || "", proveedor: g.proveedor || "", previsto: g.previsto != null ? Number(g.previsto) : null, real: g.real != null ? Number(g.real) : null, estado: g.estado || "previsto" }));
+    try { localStorage.setItem(key, JSON.stringify(filas)); } catch {}
+    return filas;
+  } catch { try { return JSON.parse(localStorage.getItem(key) || "[]") || []; } catch { return []; } }
 }
 export function anularGasto(id, eventoId, por) { return doOrQueue({ op: "anularGasto", id, evento: eventoId, por }); }
 

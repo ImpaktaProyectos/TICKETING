@@ -17,6 +17,7 @@ import { Entradas } from "./Entradas";
 import { Stock } from "./Stock";
 import { useReservados, resCfg } from "../reservados";
 import { DineroSocios } from "./DineroSocios";
+import { aplicarCaja } from "../gastosPrevistos";
 const Facturacion = lazy(() => import("./fac/Facturacion"));   // módulo aparte: no toca los números de los eventos
 
 const COLORES = ["#ff5a3c", "#a855f7", "#3b82f6", "#22d3a6", "#ffb400", "#ec4899", "#14b8a6", "#f97316"];
@@ -127,9 +128,11 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
     return { porGrupo, tpv, ticketera, manual, pendiente, total: r2(tpv + ticketera + manual), enSocios };
   }, [barras, ingresos, data?.ajustes]);
   // Comisiones e IVA (según Ajustes) → entran como gastos automáticos
-  const fiscal = (ajustes) => fiscalEvento({ ev, sales, ingresos, gastos: data?.gastos || [], fuentes: data?.fuentes, ajustes, senales: barras.find(b => b.senal)?.total || 0 });
-  const F = useMemo(() => fiscal(data?.ajustes), [ev, sales, ingresos, data?.gastos, data?.fuentes, data?.ajustes]);
-  const G = useMemo(() => totalesGastos(ev, data?.gastos || [], gastosCaja, F.auto), [ev, data?.gastos, gastosCaja, F]);
+  // Gastos del CRM con lo ya pagado desde la caja del TPV (importe real y «pagado»)
+  const gastosEv = useMemo(() => aplicarCaja(data?.gastos || [], gastosCaja, ev.id), [data?.gastos, gastosCaja, ev.id]);
+  const fiscal = (ajustes) => fiscalEvento({ ev, sales, ingresos, gastos: gastosEv, fuentes: data?.fuentes, ajustes, senales: barras.find(b => b.senal)?.total || 0 });
+  const F = useMemo(() => fiscal(data?.ajustes), [ev, sales, ingresos, gastosEv, data?.fuentes, data?.ajustes]);
+  const G = useMemo(() => totalesGastos(ev, gastosEv, gastosCaja, F.auto), [ev, gastosEv, gastosCaja, F]);
   const senalesQuien = useMemo(() => barras.find(b => b.senal)?.quien || [], [barras]);
   const L = useMemo(() => calcularLiquidacion({ ev, tpv: T.tpv, ingresos, G, participacion: data?.participacion || [], socios, senales: senalesQuien }), [ev, T.tpv, ingresos, G, data?.participacion, socios, senalesQuien]);
 
@@ -214,7 +217,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
               onEntregar={(socioId) => run(() => crm.setEntregado(ingresos.filter(i => i.cobradoPor === socioId && !i.entregado && i.estado === "cobrado").map(i => i.id), true), "Marcado como entregado")} />
           )}
           {data && tab === "gastos" && (
-            <Gastos ev={ev} events={events} gastos={data.gastos} G={G} F={F} onAjustes={() => abrirAjustes("fiscal")} socios={socios} socioById={socioById} ingresosTotal={T.total} isMobile={isMobile} busy={busy}
+            <Gastos ev={ev} events={events} gastos={gastosEv} G={G} F={F} onAjustes={() => abrirAjustes("fiscal")} socios={socios} socioById={socioById} ingresosTotal={T.total} isMobile={isMobile} busy={busy}
               onSave={(x) => run(() => crm.saveGasto({ ...x, eventoId: ev.id }), x.id ? "Gasto actualizado" : "Gasto añadido")}
               onDelete={(x) => run(() => crm.deleteGasto(x.id), "Gasto borrado")}
               onCopiar={(desde) => run(async () => { const nn = await crm.copiarPresupuesto(desde.id, ev.id); if (!nn) throw new Error("vacío"); }, `Presupuesto de ${desde.name} copiado`)} />
@@ -223,7 +226,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
             <Entradas ev={ev} events={events} onSelectEvent={onSelectEvent} flash={flash} ingresos={ingresos} barras={barras} onVentaEntradas={(i) => setEditVenta(i)} onEditarIngreso={(i) => setEditIng(i)} />
           )}
           {data && tab === "prevision" && (
-            <Prevision ev={ev} events={events} ingresos={ingresos} gastos={data.gastos} G={G} F={F} ajustes={data.ajustes || {}}
+            <Prevision ev={ev} events={events} ingresos={ingresos} gastos={gastosEv} G={G} F={F} ajustes={data.ajustes || {}}
               vinculo={vinculo} conexion={data.conexion} sincronizando={sincronizando} flash={flash}
               onSync={() => sincronizar(ev.id)} onIrGastos={() => setTab("gastos")}
               onGuardarDefecto={async (pv) => { await crm.saveAjustes({ ...(data.ajustes || {}), prevision: pv }); await cargar(); }} />

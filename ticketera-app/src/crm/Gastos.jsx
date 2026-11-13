@@ -6,6 +6,7 @@ import { money, r2, fechaCorta, parseImporte, useIsMobile, C, Icon, Tile, Avatar
 import { Vacio, Pill } from "./Ingresos";
 import { GCATS, CAJA_CAT, COMIS_CAT, IVA_CAT, gcatInfo, catsGasto, esAuto } from "./categorias";
 import { importe, ivaGasto, ivaDe, TIPOS_IVA } from "./fiscal";
+import { aplicarCaja } from "../gastosPrevistos";
 
 export { GCATS, CAJA_CAT, gcatInfo } from "./categorias";
 export { importe } from "./fiscal";
@@ -17,8 +18,11 @@ const cleanNum = (t, max = 12) => t.replace(/[^\d.,]/g, "").slice(0, max);
 
 // Totales de gastos de un evento (lo usan Gastos y el resumen de socios)
 // auto = líneas automáticas (comisiones e IVA a Hacienda) calculadas en fiscal.js
-export function totalesGastos(ev, gastos, gastosCaja, auto = []) {
-  const caja = (gastosCaja || []).filter(g => g.eventId === ev.id && !g.voided && !isEntrada(g)).map(g => ({ ...g, categoria: CAJA_CAT }));
+// Los pagos de caja que liquidan un gasto previsto cuentan en ese gasto (importe real), no aparte en «Caja de las barras».
+export function totalesGastos(ev, gastosIn, gastosCaja, auto = []) {
+  const gastos = aplicarCaja(gastosIn, gastosCaja, ev.id);
+  const ids = new Set(gastos.map(g => g.id));
+  const caja = (gastosCaja || []).filter(g => g.eventId === ev.id && !g.voided && !isEntrada(g) && !(g.crmGastoId && ids.has(g.crmGastoId))).map(g => ({ ...g, categoria: CAJA_CAT }));
   const cajaTotal = r2(caja.reduce((t, g) => t + g.importe, 0));
   const previsto = r2(gastos.reduce((t, g) => t + (g.previsto || 0), 0));
   const real = r2(gastos.reduce((t, g) => t + (g.real || 0), 0) + cajaTotal);
@@ -222,6 +226,7 @@ function Fila({ g, socioById, onClick, ivaOn }) {
           {meta && <span>{meta}</span>}
           <FacturaBadge g={g} ivaOn={ivaOn} />
           {s && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--blue)", fontWeight: 800 }}><Avatar nombre={s.nombre} c={s.color} s={16} />pagó {s.nombre}</span>}
+          {g.cajaPagado != null && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--green)", fontWeight: 800 }}><Icon n="check" s={12} w={2.6} />pagado desde la caja del TPV</span>}
         </span>
       </span>
       <Importe g={g} />
@@ -293,6 +298,11 @@ function GastoForm({ tipo, gasto, padre, socios, usadas, hijos, busy, ivaOn, onC
           {otra && <input autoFocus value={otraCat} maxLength={60} onChange={e => setOtraCat(e.target.value)} placeholder="Nombre de la categoría nueva" style={{ ...C.input, marginTop: 8 }} />}
         </Field>
       )}
+      {gasto.cajaPagado != null && <div style={{ ...C.card, padding: 12, marginBottom: 12, borderColor: "color-mix(in srgb, var(--green) 45%, var(--line))", fontSize: 13.5, lineHeight: 1.45 }}>
+        <b style={{ color: "var(--green)" }}>Pagado desde la caja del TPV: {money(gasto.cajaPagado)}</b>
+        {gasto.previsto != null && Math.abs(gasto.cajaPagado - gasto.previsto) >= 0.01 && <span> · previsto {money(gasto.previsto)} ({gasto.cajaPagado > gasto.previsto ? "+" : "−"}{money(Math.abs(gasto.cajaPagado - gasto.previsto))})</span>}
+        <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 3 }}>{(gasto.cajaPagos || []).map(x => `${new Date(x.ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} · ${money(x.importe)}${x.por ? ` · ${x.por}` : ""}`).join(" | ")}. El importe pagado lo manda la caja: si hubo un error, anula ese pago en el TPV (Informes) y vuelve a como estaba.</div>
+      </div>}
       {tipo === "personal" && <Field l="Tipo"><Seg full valor={f.categoria} onChange={(k) => set({ categoria: k })} opciones={[{ k: "Personal", t: "Personal", i: "users" }, { k: "Técnicos", t: "Técnicos", i: "wrench" }]} /></Field>}
       {esHijo && <Field l="¿Qué es?"><IconGrid cols={isMobile ? 3 : 5} items={HIJOS} valor={f.concepto} onChange={(k) => set({ concepto: k })} /></Field>}
 
