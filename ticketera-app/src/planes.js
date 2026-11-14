@@ -1,6 +1,7 @@
 // ===================== PLANES: reglas puras (sin red), probadas en planes.test.mjs =====================
 // Regla de oro: si no se sabe el acceso (acc = null), no se bloquea nada.
 export const ESTADO_CUENTA = {
+  pendiente: { t: "Sin suscripción", c: "var(--muted)" },
   prueba: { t: "Prueba gratuita", c: "var(--amber)" },
   activa: { t: "Activa", c: "var(--green)" },
   impagada: { t: "Pago pendiente", c: "var(--amber)" },
@@ -8,15 +9,20 @@ export const ESTADO_CUENTA = {
   cancelada: { t: "Cancelada", c: "var(--red)" },
 };
 export const LIMITES_TXT = { eventos: ["evento a la vez", "eventos a la vez"], barras_por_evento: ["barra por evento", "barras por evento"] };
+// Funciones que van con la suscripción. La ticketera (entradas online, organizaciones, RRPP
+// y validación de entradas) es siempre gratuita: de ahí se cobran comisiones.
 export const FUNCIONES = {
-  facturacion: "Facturación",
-  stock: "Control de stock",
-  prevision: "Previsión",
-  entradas_online: "Venta de entradas online",
-  reservados: "Reservados VIP",
-  rrpp: "RRPP",
-  conexiones: "Conexión con ticketeras",
+  tpv: "El TPV",
+  crm: "El CRM",
+  facturacion: "La facturación",
+  stock: "El control de stock",
+  prevision: "La previsión",
+  reservados: "Los reservados VIP",
+  conexiones: "La conexión con ticketeras",
 };
+export const DIAS_PRUEBA = 7;
+// Sin suscripción (el TPV está bloqueado): solo queda la ticketera
+export const sinSuscripcion = (acc) => bloqueada(acc, "tpv");
 
 export const hoyLocal = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 // Mensajes para quien intenta pasar un límite (null = se puede)
@@ -32,7 +38,7 @@ export function avisoNuevaBarra(acc, ev, hoyIso = hoyLocal()) {
   return `Con el plan ${acc.plan_nombre || "Gratis"} puedes tener ${lim} barras por evento. Suscríbete para añadir más.`;
 }
 
-/* ---------- Funciones puras (probadas en cuenta.test.mjs) ---------- */
+/* ---------- Funciones puras ---------- */
 export const bloqueada = (acc, f) => !!(acc && Array.isArray(acc.limites?.bloquea) && acc.limites.bloquea.includes(f));
 export const limiteDe = (acc, k) => { const v = acc?.limites?.[k]; return Number.isFinite(Number(v)) && v !== null && v !== "" ? Number(v) : null; };
 export const diasRestantes = (acc, ahora = Date.now()) => acc?.fin_acceso ? Math.max(0, Math.ceil((new Date(acc.fin_acceso) - ahora) / 86400000)) : null;

@@ -8,6 +8,7 @@ import { supabase } from "./supabase";
 import { scopedKey } from "./db";
 
 export * from "./planes";
+import { sinSuscripcion } from "./planes";
 
 /* ---------- Estado compartido (se carga una vez y se refresca cada 10 min) ---------- */
 let ACC = null, cargando = null, ultima = 0, accKey = null;
@@ -51,7 +52,40 @@ export async function cargarCuenta() {
   const { data: u } = await supabase.auth.getUser();
   const email = u?.user?.email || "";
   const acc = await refrescarAcceso(true);
-  const { data } = await supabase.from("ticket_cuentas").select("plan_id, estado, prueba_hasta, periodo_fin").maybeSingle();
-  if (!acc) return { email, acc: { plan_id: "fundador", plan_nombre: "Fundador", estado: "activa", limites: {} }, ficha: null };
-  return { email, acc, ficha: data || null };
+  const { data: ficha } = await supabase.from("ticket_cuentas").select("plan_id, estado, prueba_hasta, prueba_usada, periodo_fin, cancela_al_final, cliente_pago_id").maybeSingle();
+  const { data: pro } = await supabase.from("ticket_planes").select("nombre, precio_mes").eq("id", "pro").maybeSingle();
+  if (!acc) return { email, acc: { plan_id: "fundador", plan_nombre: "Fundador", estado: "activa", limites: {} }, ficha: null, precio: null };
+  return { email, acc, ficha: ficha || null, precio: pro?.precio_mes != null ? Number(pro.precio_mes) : null };
+}
+
+// Ir a Stripe: «alta» (suscribirse, con prueba de 7 días la primera vez) o «portal» (tarjeta, facturas, cancelar)
+const MOTIVOS = {
+  sin_precio: "Las suscripciones abren muy pronto: aún no está fijado el precio.",
+  ya_suscrito: "Tu cuenta ya tiene la suscripción activa.",
+  fundador: "Tu cuenta es Fundador: no necesita suscripción.",
+  sin_cliente: "Aún no tienes ninguna suscripción que gestionar.",
+  sin_pasarela: "El cobro con tarjeta aún no está disponible.",
+  sesion: "Vuelve a entrar en tu cuenta e inténtalo de nuevo.",
+};
+export async function irAStripe(accion) {
+  if (!navigator.onLine) throw Object.assign(new Error("Sin conexión: para suscribirte hace falta internet."), { mostrar: true });
+  const { data, error } = await supabase.functions.invoke("suscripcion", { body: { accion, origen: window.location.origin } });
+  if (error || !data?.ok || !data.url) throw Object.assign(new Error(MOTIVOS[data?.motivo] || "No se ha podido abrir el pago. Inténtalo de nuevo en un momento."), { mostrar: true });
+  window.location.assign(data.url);
+}
+
+// Al volver de Stripe (?suscripcion=ok): el aviso de Stripe puede tardar unos segundos
+export async function esperarAltaTrasPago() {
+  const q = new URLSearchParams(window.location.search);
+  const v = q.get("suscripcion");
+  if (!v) return null;
+  q.delete("suscripcion");
+  try { window.history.replaceState(null, "", window.location.pathname + (q.toString() ? `?${q}` : "") + window.location.hash); } catch {}
+  if (v !== "ok" && v !== "portal") return v;
+  for (let i = 0; i < 12; i++) {
+    const a = await refrescarAcceso(true);
+    if (v === "portal" || (a && !sinSuscripcion(a))) break;
+    await new Promise(r => setTimeout(r, 2500));
+  }
+  return v;
 }

@@ -7,7 +7,9 @@ import { secretoDe, estadoDe, comprobar as comprobarPin, crearHuella, problema a
 import { CierreNoche } from "./CierreNoche";
 import { Atajos } from "./Atajos";
 import { NuevoEvento } from "./NuevoEvento";
-import { useAcceso, puede, avisoNuevoEvento, avisoNuevaBarra, hoyLocal, diasRestantes } from "./cuenta";
+import { useAcceso, puede, avisoNuevoEvento, avisoNuevaBarra, hoyLocal, diasRestantes, esperarAltaTrasPago } from "./cuenta";
+import { Suscripcion } from "./Suscripcion";
+import { Capa } from "./Capa";
 import { Bloqueado } from "./Bloqueado";
 import { eventoPorDefecto, estadoFecha, ordenarEventos } from "./eventos";
 import { CATS_GASTO, categoriaDe } from "./cierreNocheCalc";
@@ -59,7 +61,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.15b";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.15c";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -1051,6 +1053,14 @@ export default function App() {
         </div>
       ))}
 
+      {/* ===== SIN SUSCRIPCIÓN: el TPV no se abre (la ticketera sí, desde el CRM) ===== */}
+      {role && !inCRM && !puede(accApp, "tpv", ev, hoyLocal()) && (
+        <Capa><div style={{ position: "fixed", inset: 0, zIndex: 120, background: "var(--bg)", overflow: "auto", padding: "calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom))", boxSizing: "border-box" }}>
+          <button onClick={exitToLogin} style={{ minHeight: 44, padding: "0 14px", borderRadius: 12, border: "1px solid var(--line)", background: "var(--surface2)", color: "var(--text)", fontWeight: 800, marginBottom: 14, cursor: "pointer" }}>← Volver al inicio</button>
+          <Suscripcion flash={flash} onTicketera={() => { setRole("admin"); setAppMode("crm"); }} />
+        </div></Capa>
+      )}
+
       {/* ===== VALIDADOR DE TICKETS CON QR (un móvil por barra) ===== */}
       {role === "validador" && (
         <Suspense fallback={<div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: "var(--muted)" }}>Abriendo el validador…</div>}>
@@ -1061,7 +1071,7 @@ export default function App() {
       {/* ===== CRM (solo admin) ===== */}
       {inCRM && (
         <Suspense fallback={<div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: "var(--muted)" }}>Abriendo el CRM…</div>}>
-          <CRM onEventoCreado={eventoCreado} events={state.events} sales={state.sales} gastosCaja={state.gastos || []} ev={ev} onSelectEvent={(id) => dispatch({ type: "SELECT_EVENT", id })} onExit={() => setAppMode("tpv")} flash={flash} />
+          <CRM onEventoCreado={eventoCreado} events={state.events} sales={state.sales} gastosCaja={state.gastos || []} ev={ev} onSelectEvent={(id) => dispatch({ type: "SELECT_EVENT", id })} onExit={() => (puede(accApp, "tpv", ev, hoyLocal()) ? setAppMode("tpv") : exitToLogin())} flash={flash} />
         </Suspense>
       )}
 
@@ -1443,6 +1453,9 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
   const [nuevoEv, setNuevoEv] = useState(null);   // null · "pin" · "abierto"
   const [atajos, setAtajos] = useState(null);   // null · "pin" · "abierto"
   const accGate = useAcceso();
+  const sinTpv = !puede(accGate, "tpv", ev, hoyLocal());
+  // Al volver de Stripe: espera a que llegue el alta y avisa
+  useEffect(() => { esperarAltaTrasPago().then(v => { if (v === "ok") flash?.("✓ Suscripción activada. ¡Bienvenido a TIXFAST!"); else if (v === "cancelada") flash?.("No se ha completado el alta. Puedes intentarlo cuando quieras.", "warn"); }); }, []);
   const isMobile = useIsMobile();
   const [mode, setMode] = useState(null);            // null | cajero | validador | admin | supervisor | crm
   const [verEventos, setVerEventos] = useState(false);
@@ -1494,13 +1507,13 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
           {sugerido && <button type="button" className="tg-aviso-ev" onClick={() => onSelectEvent(sugerido.id)}>⚠️ Este evento ya pasó. <b>Ir a {sugerido.name}</b> ({estadoFecha(sugerido).t.toLowerCase()})</button>}
           {/* Accesos rápidos, a la vista nada más entrar (antes los atajos estaban al final de la pantalla) */}
           <div className="tg-accesos">
-            {ev.id && <button type="button" onClick={() => setAtajos("pin")} className="tg-atajos" aria-label="Atajos rápidos: gastos, cambio y dinero de socios">⚡ Atajos rápidos</button>}
+            {ev.id && !sinTpv && <button type="button" onClick={() => setAtajos("pin")} className="tg-atajos" aria-label="Atajos rápidos: gastos, cambio y dinero de socios">⚡ Atajos rápidos</button>}
             <button type="button" className="tg-nuevo-ev" onClick={() => setNuevoEv("pin")}><Ic n="plus" s={15} w={2.4} />Nuevo evento</button>
           </div>
-          {accGate && (accGate.en_prueba || accGate.plan_id === "gratis") && (() => { const d = diasRestantes(accGate); const prueba = accGate.en_prueba; return (
+          {accGate?.en_prueba && (() => { const d = diasRestantes(accGate); const prueba = true; return (
             <div role="status" style={{ marginTop: 10, padding: "10px 12px", borderRadius: 12, border: `1px solid ${prueba && d > 5 ? "var(--line)" : "var(--amber)"}`, background: "var(--surface2)", fontSize: 13.5, lineHeight: 1.45, color: "var(--text)" }}>
-              {prueba ? <><b>Prueba gratuita:</b> {d === 1 ? "queda 1 día" : `quedan ${d} días`} con todo incluido.</> : <><b>Plan Gratis:</b> TPV completo, 1 evento a la vez y 2 barras. Facturación, stock, reservados y venta online van con la suscripción.</>}
-              <span style={{ color: "var(--muted)" }}> Tu plan, en CRM › Ajustes › Tu cuenta.</span>
+              <b>Prueba gratuita:</b> {d === 1 ? "queda 1 día" : `quedan ${d} días`}. Después la suscripción se renueva sola cada mes.
+              <span style={{ color: "var(--muted)" }}> Puedes cancelarla en CRM › Ajustes › Tu cuenta.</span>
             </div>); })()}
           <div className="tg-datos">
             <span><b>{puntos.length}</b> {puntos.length === 1 ? "barra" : "barras"}</span>
@@ -1510,7 +1523,8 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
         </section>
 
         <section className="tg-der" aria-label="Elige cómo entrar">
-          {(mode === null || mode === "admin" || mode === "supervisor" || mode === "crm") && (<>
+          {sinTpv && mode !== "crm" && <Suscripcion flash={flash} onTicketera={() => setMode("crm")} />}
+          {!sinTpv && (mode === null || mode === "admin" || mode === "supervisor" || mode === "crm") && (<>
             <button type="button" className="tg-cajero" onClick={() => puntos.length === 1 ? entrarBarra("cajero", puntos[0].id) : setMode("cajero")}>
               <span className="tg-cajero-ico" aria-hidden="true"><Ic n="receipt" s={28} w={2.1} /></span>
               <span style={{ flex: 1, minWidth: 0 }}>
@@ -1530,7 +1544,7 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
             </div>
           </>)}
 
-          {(mode === "cajero" || mode === "validador") && (
+          {!sinTpv && (mode === "cajero" || mode === "validador") && (
             <div>
               <button type="button" className="tg-volver" onClick={() => setMode(null)}><Ic n="chev" s={14} style={{ transform: "rotate(180deg)" }} />Volver</button>
               <div className="tg-barras">

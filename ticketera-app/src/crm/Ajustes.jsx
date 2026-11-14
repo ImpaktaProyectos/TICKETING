@@ -5,7 +5,8 @@ import { money, r2, fechaCorta, parseImporte, hoy, useIsMobile, C, Icon, Tile, B
 import { GRUPOS, grupoInfo, CATS_ING, GCATS, catsIngreso, catsGasto, esAuto, ICONOS_CAT, COLORES_CAT, TICKETERA_CAT } from "./categorias";
 import { ajustesCon, TIPOS_IVA } from "./fiscal";
 import { Switch } from "./Ingresos";
-import { cargarCuenta, useAcceso, bloqueada, diasRestantes, ESTADO_CUENTA, LIMITES_TXT, FUNCIONES } from "../cuenta";
+import { cargarCuenta, useAcceso, bloqueada, diasRestantes, sinSuscripcion, irAStripe, ESTADO_CUENTA } from "../cuenta";
+import { Suscripcion } from "../Suscripcion";
 import { Bloqueado } from "../Bloqueado";
 
 const pctTxt = (v) => String(r2(v || 0)).replace(".", ",");
@@ -434,16 +435,26 @@ export function ImportarCSV({ ev, busy, onClose, onImportar }) {
   );
 }
 
-/* ===================== TU CUENTA (plan, prueba y privacidad) ===================== */
+/* ===================== TU CUENTA (suscripción y privacidad) ===================== */
+const fechaEs = (iso) => iso ? new Date(iso).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }) : "";
 function Cuenta() {
   const [c, setC] = useState(undefined);
+  const [msg, setMsg] = useState(null);
+  const [busy, setBusy] = useState(false);
   useEffect(() => { let vivo = true; cargarCuenta().then(x => vivo && setC(x)).catch(() => vivo && setC(null)); return () => { vivo = false; }; }, []);
-  const a = c?.acc;
-  const est = a ? (a.plan_id === "gratis" && a.estado === "prueba" ? { t: "Prueba terminada", c: "var(--red)" } : ESTADO_CUENTA[a.estado] || ESTADO_CUENTA.activa) : null;
+  const a = c?.acc, f = c?.ficha;
+  const sin = a && sinSuscripcion(a);
+  const est = a ? (a.plan_id === "fundador" ? { t: "Fundador · sin cuota", c: "var(--green)" } : ESTADO_CUENTA[f?.estado || a.estado] || ESTADO_CUENTA.pendiente) : null;
   const dias = a?.en_prueba ? diasRestantes(a) : null;
-  const lim = a ? Object.entries(a.limites || {}).filter(([k]) => LIMITES_TXT[k]) : [];
-  const bloq = Array.isArray(a?.limites?.bloquea) ? a.limites.bloquea : [];
+  const portal = async () => { setBusy(true); setMsg(null); try { await irAStripe("portal"); } catch (e) { setMsg(e?.mostrar ? e.message : "No se ha podido abrir"); setBusy(false); } };
   const fila = (t, sub, der, ultima) => <div style={{ ...C.row, ...(ultima ? { borderBottom: "none" } : {}) }}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800 }}>{t}</div>{sub && <div style={{ fontSize: 13, color: "var(--muted)", overflowWrap: "anywhere" }}>{sub}</div>}</div>{der}</div>;
+  let detalle = null;
+  if (f && a?.plan_id !== "fundador") {
+    if (f.estado === "prueba") detalle = `Prueba gratuita hasta el ${fechaEs(f.prueba_hasta)}${dias != null ? ` (${dias === 1 ? "queda 1 día" : `quedan ${dias} días`})` : ""}. ${f.cancela_al_final ? "Has cancelado: no se cobrará nada." : `Ese día se cobrará la primera cuota${c.precio != null ? ` de ${money(c.precio)}` : ""}.`}`;
+    else if (f.estado === "activa") detalle = f.cancela_al_final ? `Cancelada: sigue activa hasta el ${fechaEs(f.periodo_fin)} y no se renovará.` : `Se renueva automáticamente el ${fechaEs(f.periodo_fin)}${c.precio != null ? ` por ${money(c.precio)}` : ""}.`;
+    else if (f.estado === "impagada") detalle = "No se ha podido cobrar la última cuota. Actualiza la tarjeta para no perder el acceso.";
+    else if (f.estado === "cancelada" || f.estado === "suspendida") detalle = "La suscripción no está activa. La ticketera sigue funcionando gratis.";
+  }
   return (<>
     <section style={C.panel}>
       <Head i="shield" c="var(--accent)" t="Tu cuenta" sub="Tu espacio es privado: nadie más puede ver tus eventos, ventas ni cuentas." />
@@ -451,19 +462,15 @@ function Cuenta() {
       {c === null && <div style={{ color: "var(--muted)", fontSize: 14, padding: "8px 0" }}>No se ha podido cargar la información de la cuenta. Revisa la conexión.</div>}
       {a && <>
         {fila("Correo", c.email || "—")}
-        {fila("Plan", a.en_prueba ? `Prueba gratuita con todo incluido · ${dias === 1 ? "queda 1 día" : `quedan ${dias} días`}` : null, <Badge c="var(--accent)">{a.plan_nombre}</Badge>)}
-        {fila("Estado", null, <Badge c={est.c}>{est.t}</Badge>)}
-        {fila("Límites", lim.length ? lim.map(([k, v]) => `${v} ${LIMITES_TXT[k][v === 1 ? 0 : 1]}`).join(" · ") : "Sin límites: eventos y barras ilimitados", null, !bloq.length)}
-        {bloq.length > 0 && fila("No incluido en tu plan", bloq.map(f => FUNCIONES[f] || f).join(" · "), null, true)}
+        {fila("Suscripción", detalle, <Badge c={est.c}>{est.t}</Badge>)}
+        {fila("Ticketera", "La venta de entradas online es siempre gratuita.", <Badge c="var(--green)">Gratis</Badge>, !f?.cliente_pago_id)}
+        {f?.cliente_pago_id && <div style={{ paddingTop: 10 }}>
+          <button onClick={portal} disabled={busy} style={{ ...C.btnGhost, width: "100%", justifyContent: "center", minHeight: 46, whiteSpace: "normal", textAlign: "center" }}>{busy ? "Abriendo…" : "Gestionar suscripción: tarjeta, facturas o cancelar"}</button>
+          {msg && <div style={{ fontSize: 13, color: "var(--amber)", marginTop: 6 }}>{msg}</div>}
+        </div>}
       </>}
     </section>
-    {a && (a.en_prueba || a.plan_id === "gratis") && <section style={{ ...C.panel, borderColor: "var(--accent)" }}>
-      <Head i="trend" c="var(--accent)" t={a.en_prueba ? "Cuando acabe la prueba" : "Suscríbete para tenerlo todo"} sub={a.en_prueba ? "Si no te suscribes, la cuenta pasa al plan Gratis. No se borra nada." : "Al suscribirte vuelve todo, con lo que ya tenías guardado."} />
-      <div style={{ fontSize: 14, lineHeight: 1.55 }}>
-        <div><b>Gratis:</b> TPV completo (ventas, tickets, cierres de caja), ingresos, gastos, socios y liquidaciones · 1 evento a la vez · 2 barras por evento.</div>
-        <div style={{ marginTop: 6 }}><b>Suscripción:</b> todo lo anterior sin límites, más facturación, stock, previsión, venta de entradas online, reservados VIP, RRPP y conexión con ticketeras.</div>
-        <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 13 }}>Un evento creado antes de que acabe tu acceso conserva todo hasta el día siguiente a su fecha: nunca se corta una noche. El pago online estará disponible aquí muy pronto.</div>
-      </div>
-    </section>}
+    {sin && <Suscripcion flash={(t) => setMsg(t)} compacto />}
+    {sin && msg && <div style={{ fontSize: 13, color: "var(--amber)", textAlign: "center" }}>{msg}</div>}
   </>);
 }

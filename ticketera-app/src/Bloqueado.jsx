@@ -12,12 +12,12 @@ export function Bloqueado({ funcion, plan, onVerPlan }) {
   return (
     <section style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 18, padding: "26px 20px", textAlign: "center", maxWidth: 520, margin: "18px auto", boxSizing: "border-box" }}>
       <div style={{ width: 56, height: 56, borderRadius: 16, margin: "0 auto 12px", display: "grid", placeItems: "center", color: "var(--accent)", background: "color-mix(in srgb, var(--accent) 12%, transparent)" }}>{CANDADO}</div>
-      <div style={{ fontWeight: 900, fontSize: 19 }}>{nombre} es de la suscripción</div>
+      <div style={{ fontWeight: 900, fontSize: 19 }}>{nombre} va con la suscripción</div>
       <p style={{ color: "var(--muted)", fontSize: 14.5, lineHeight: 1.5, margin: "8px 0 0" }}>
-        Con el plan {plan || "Gratis"} puedes seguir vendiendo en el TPV, cerrar cajas y llevar ingresos, gastos, socios y liquidaciones.
+        Suscríbete para usarlo (la primera vez, 7 días gratis). La venta de entradas online sigue funcionando gratis.
         Lo que ya tenías guardado aquí no se borra: vuelve a estar disponible al suscribirte.
       </p>
-      {onVerPlan && <button onClick={onVerPlan} style={{ marginTop: 16, minHeight: 48, padding: "0 22px", borderRadius: 14, border: "none", background: "var(--accent)", color: "#fff", fontWeight: 900, fontSize: 15.5, cursor: "pointer" }}>Ver mi plan</button>}
+      {onVerPlan && <button onClick={onVerPlan} style={{ marginTop: 16, minHeight: 48, padding: "0 22px", borderRadius: 14, border: "none", background: "var(--accent)", color: "#fff", fontWeight: 900, fontSize: 15.5, cursor: "pointer" }}>Ver la suscripción</button>}
     </section>
   );
 }

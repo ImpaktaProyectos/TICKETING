@@ -25,7 +25,8 @@ import { useAcceso, puede } from "../cuenta";
 import { Bloqueado, Candado } from "../Bloqueado";
 
 // Pestañas que son funciones de pago (si el plan no las incluye, se ve el aviso en su lugar)
-const FUNC_TAB = { facturacion: "facturacion", stock: "stock", prevision: "prevision" };
+// Entradas (la ticketera) es siempre gratuita; Ajustes también se puede abrir siempre.
+const FUNC_TAB = { dashboard: "crm", ingresos: "crm", gastos: "crm", liquidacion: "crm", socios: "crm", facturacion: "facturacion", stock: "stock", prevision: "prevision" };
 const Facturacion = lazy(() => import("./fac/Facturacion"));   // módulo aparte: no toca los números de los eventos
 
 const COLORES = ["#ff5a3c", "#a855f7", "#3b82f6", "#22d3a6", "#ffb400", "#ec4899", "#14b8a6", "#f97316"];
@@ -52,6 +53,8 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
   const [nuevoEv, setNuevoEv] = useState(false);
   const isMobile = useIsMobile();
   const acc = useAcceso();
+  // Sin suscripción, el CRM abre directamente en la ticketera
+  useEffect(() => { if (tab === "dashboard" && !puede(acc, "crm", ev, hoy())) setTab("entradas"); }, [acc, ev?.id]);
   const [tab, setTab] = useState("dashboard");
   const [data, setData] = useState(null);      // { socios, participacion, ingresos, fuentes }
   const [error, setError] = useState(null);
