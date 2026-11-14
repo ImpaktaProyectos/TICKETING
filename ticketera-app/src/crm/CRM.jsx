@@ -219,7 +219,10 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
           )}
           {data && tab === "gastos" && (
             <Gastos ev={ev} events={events} gastos={gastosEv} G={G} F={F} onAjustes={() => abrirAjustes("fiscal")} socios={socios} socioById={socioById} ingresosTotal={T.total} isMobile={isMobile} busy={busy}
-              onSave={(x) => run(() => crm.saveGasto({ ...x, eventoId: ev.id }), x.id ? "Gasto actualizado" : "Gasto añadido")}
+              onSave={(x) => run(async () => { const g = await crm.saveGasto({ ...x, eventoId: ev.id }); if (x.__foto) { const { subirFotoGasto } = await import("../fotosGasto"); await crm.setGastoArchivo(g.id, await subirFotoGasto(ev.id, g.id, x.__foto)); } }, x.id ? "Gasto actualizado" : "Gasto añadido")}
+              onPagado={(g, v) => run(() => crm.setGastoPagado(g.id, v), v ? `✓ ${g.concepto || g.categoria}: pagado` : `${g.concepto || g.categoria}: pendiente de pago`)}
+              onFoto={(g, file) => run(async () => { const F = await import("../fotosGasto"); if (!file) { await crm.setGastoArchivo(g.id, null); await F.borrarFotoGasto(g.archivoPath); return; } const path = await F.subirFotoGasto(ev.id, g.id, file); await crm.setGastoArchivo(g.id, path); if (g.archivoPath) await F.borrarFotoGasto(g.archivoPath); }, file ? "📷 Foto guardada" : "Foto quitada")}
+              onVerFoto={async (path) => { const w = window.open("", "_blank"); try { const { verFotoGasto } = await import("../fotosGasto"); const u = await verFotoGasto(path); if (w) w.location.href = u; else window.location.assign(u); } catch (e) { w?.close(); flash(e?.mostrar ? e.message : "No se ha podido abrir", "warn"); } }}
               onDelete={(x) => run(() => crm.deleteGasto(x.id), "Gasto borrado")}
               onCopiar={(desde) => run(async () => { const nn = await crm.copiarPresupuesto(desde.id, ev.id); if (!nn) throw new Error("vacío"); }, `Presupuesto de ${desde.name} copiado`)} />
           )}

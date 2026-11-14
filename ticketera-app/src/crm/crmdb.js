@@ -20,6 +20,7 @@ const gastoFrom = (g) => ({
   personas: g.personas != null ? Number(g.personas) : null, precioHora: g.precio_hora != null ? n(g.precio_hora) : null, horas: g.horas != null ? n(g.horas) : null,
   estado: g.estado || "previsto", pagadoPor: g.pagado_por || null, fecha: g.fecha || null, nota: g.nota || "", creadoEn: g.creado_en,
   iva: g.iva != null ? Number(g.iva) : null, factura: g.factura == null ? null : !!g.factura,
+  archivoPath: g.archivo_path || null, cajaPagadoDb: g.caja_pagado != null ? n(g.caja_pagado) : null,
 });
 const CONEX_COLS = "id, proveedor, entorno, clave_fin, estado, ultimo_error, ultima_sync, actualizado_en";
 const conexFrom = (c) => c ? { id: c.id, proveedor: c.proveedor, entorno: c.entorno, claveFin: c.clave_fin || "", estado: c.estado, error: c.ultimo_error || "", ultimaSync: c.ultima_sync } : null;
@@ -124,8 +125,20 @@ const gastoTo = (x) => ({
   iva: x.iva == null || x.iva === "" ? null : Math.min(30, Math.max(0, Number(x.iva) || 0)),
   factura: x.factura == null ? null : !!x.factura,
   nota: String(x.nota || "").trim().slice(0, 500) || null,
+  ...(x.archivoPath !== undefined ? { archivo_path: x.archivoPath || null } : {}),
   actualizado_en: new Date().toISOString(),
 });
+// Gastos del CRM de un evento (para los atajos rápidos del TPV)
+export async function loadGastosEvento(eventoId) {
+  return ok(await supabase.from("ticket_crm_gastos").select("*").eq("evento_id", eventoId).order("creado_en", { ascending: true })).map(gastoFrom);
+}
+// Marcar un gasto como pagado (✓) o quitarlo, sin tocar nada más
+export async function setGastoPagado(id, pagado) {
+  ok(await supabase.from("ticket_crm_gastos").update({ estado: pagado ? "pagado" : "confirmado", actualizado_en: new Date().toISOString() }).eq("id", id));
+}
+export async function setGastoArchivo(id, path) {
+  ok(await supabase.from("ticket_crm_gastos").update({ archivo_path: path || null, actualizado_en: new Date().toISOString() }).eq("id", id));
+}
 export async function saveGasto(x) {
   if (x.id) return gastoFrom(ok(await supabase.from("ticket_crm_gastos").update(gastoTo(x)).eq("id", x.id).select().single()));
   return gastoFrom(ok(await supabase.from("ticket_crm_gastos").insert(gastoTo(x)).select().single()));

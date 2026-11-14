@@ -39,7 +39,7 @@ export function totalesGastos(ev, gastosIn, gastosCaja, auto = []) {
 }
 
 
-export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTotal, busy, onSave, onDelete, onCopiar, onAjustes }) {
+export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTotal, busy, onSave, onDelete, onCopiar, onAjustes, onPagado, onFoto, onVerFoto }) {
   const isMobile = useIsMobile();
   const [form, setForm] = useState(null);      // { tipo, gasto, padre }
   const [filtro, setFiltro] = useState(null);  // categoría
@@ -133,8 +133,8 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
               </div>))}
             {(k === COMIS_CAT || k === IVA_CAT) && G.auto.filter(a => a.categoria === k).map((a, ix) => <Auto key={ix} a={a} onAjustes={onAjustes} />)}
             {items.map(g => g.tipo === "artista"
-              ? <Artista key={g.id} a={g} ivaOn={ivaOn} hijos={hijosDe(g.id)} total={totalArtista(g)} socioById={socioById} onEdit={(x, padre) => setForm(padre ? { tipo: "normal", gasto: x, padre } : { tipo: "artista", gasto: x })} onAdd={() => setForm({ tipo: "normal", gasto: { categoria: "Artistas" }, padre: g })} />
-              : <Fila key={g.id} g={g} ivaOn={ivaOn} socioById={socioById} onClick={() => setForm({ tipo: g.tipo, gasto: g })} />)}
+              ? <Artista key={g.id} a={g} ivaOn={ivaOn} hijos={hijosDe(g.id)} total={totalArtista(g)} socioById={socioById} onPagado={onPagado} busy={busy} onEdit={(x, padre) => setForm(padre ? { tipo: "normal", gasto: x, padre } : { tipo: "artista", gasto: x })} onAdd={() => setForm({ tipo: "normal", gasto: { categoria: "Artistas" }, padre: g })} />
+              : <Fila key={g.id} g={g} ivaOn={ivaOn} socioById={socioById} onPagado={onPagado} busy={busy} onClick={() => setForm({ tipo: g.tipo, gasto: g })} />)}
           </Grupo>); })}
       </Seccion>
 
@@ -154,7 +154,7 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
         </Sheet>
       )}
 
-      {form && <GastoForm {...form} socios={socios.filter(s => s.activo || s.id === form.gasto?.pagadoPor)} usadas={gastos.map(g => g.categoria)} ivaOn={ivaOn} hijos={form.gasto?.id ? hijosDe(form.gasto.id).length : 0} busy={busy}
+      {form && <GastoForm {...form} onFoto={onFoto} onVerFoto={onVerFoto} socios={socios.filter(s => s.activo || s.id === form.gasto?.pagadoPor)} usadas={gastos.map(g => g.categoria)} ivaOn={ivaOn} hijos={form.gasto?.id ? hijosDe(form.gasto.id).length : 0} busy={busy}
         onClose={() => setForm(null)}
         onSave={async (x) => { const ok = await onSave(x); if (ok) setForm(null); }}
         onDelete={async (x) => { const ok = await onDelete(x); if (ok) setForm(null); }} />}
@@ -212,13 +212,28 @@ const FacturaBadge = ({ g, ivaOn }) => {
     {ivaOn && x.pct > 0 && <Badge>IVA {x.pct} %</Badge>}
   </span>;
 };
-function Fila({ g, socioById, onClick, ivaOn }) {
+// ✓ Verificar pago: un toque lo marca como pagado (verde) y otro lo quita. Lo pagado desde la caja del TPV lo manda la caja.
+export function CheckPago({ g, onPagado, busy, s = 30 }) {
+  const pagado = g.estado === "pagado", caja = g.cajaPagado != null;
+  if (!onPagado) return null;
+  return (
+    <button onClick={(e) => { e.stopPropagation(); if (!caja) onPagado(g, !pagado); }} disabled={busy || caja} aria-pressed={pagado}
+      aria-label={caja ? "Pagado desde la caja del TPV" : pagado ? `Quitar «pagado» de ${g.concepto || g.categoria}` : `Marcar como pagado ${g.concepto || g.categoria}`}
+      title={caja ? "Pagado desde la caja del TPV" : pagado ? "Pagado · toca para quitarlo" : "Marcar como pagado"}
+      style={{ width: s, height: s, minWidth: s, borderRadius: 10, display: "grid", placeItems: "center", cursor: caja ? "default" : "pointer", flexShrink: 0,
+        border: `2px solid ${pagado ? "var(--green)" : "var(--line)"}`, background: pagado ? "var(--green)" : "transparent", color: pagado ? "#04241b" : "var(--muted)", opacity: busy ? .6 : 1 }}>
+      {pagado ? <Icon n="check" s={Math.round(s * .55)} w={3} c="currentColor" /> : null}
+    </button>);
+}
+function Fila({ g, socioById, onClick, ivaOn, onPagado, busy, sinBorde }) {
   const ci = gcatInfo(g.categoria), s = g.pagadoPor ? socioById(g.pagadoPor) : null;
   const meta = g.tipo === "personal"
     ? `${g.personas ?? 0} × ${money(g.precioHora || 0)}/h × ${String(g.horas ?? 0).replace(".", ",")} h`
     : [g.proveedor, g.fecha ? fechaCorta(g.fecha) : null].filter(Boolean).join(" · ");
   return (
-    <button onClick={onClick} style={C.listBtn}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, borderTop: sinBorde ? "none" : "1px solid var(--line)" }}>
+    <CheckPago g={g} onPagado={onPagado} busy={busy} />
+    <button onClick={onClick} style={{ ...C.listBtn, borderTop: "none", flex: 1, minWidth: 0 }}>
       <Tile n={g.tipo === "personal" ? "users" : ci.i} c={ci.c} s={34} />
       <span style={{ flex: 1, minWidth: 0 }}>
         <b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.concepto || g.categoria}</b>
@@ -227,23 +242,27 @@ function Fila({ g, socioById, onClick, ivaOn }) {
           <FacturaBadge g={g} ivaOn={ivaOn} />
           {s && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--blue)", fontWeight: 800 }}><Avatar nombre={s.nombre} c={s.color} s={16} />pagó {s.nombre}</span>}
           {g.cajaPagado != null && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--green)", fontWeight: 800 }}><Icon n="check" s={12} w={2.6} />pagado desde la caja del TPV</span>}
+          {g.archivoPath && <span title="Tiene foto de la factura o ticket" style={{ fontWeight: 800 }}>📷</span>}
         </span>
       </span>
       <Importe g={g} />
     </button>
+    </div>
   );
 }
-function Artista({ a, hijos, total, socioById, onEdit, onAdd, ivaOn }) {
+function Artista({ a, hijos, total, socioById, onEdit, onAdd, ivaOn, onPagado, busy }) {
   return (
     <div style={{ borderTop: "1px solid var(--line)", padding: "4px 0 8px" }}>
-      <Fila g={a} ivaOn={ivaOn} socioById={socioById} onClick={() => onEdit(a)} />
+      <Fila g={a} ivaOn={ivaOn} socioById={socioById} onClick={() => onEdit(a)} onPagado={onPagado} busy={busy} sinBorde />
       <div style={{ marginLeft: 46, borderLeft: "2px solid var(--line)", paddingLeft: 10 }}>
         {hijos.map(h => { const hi = HIJOS.find(x => x.k === h.concepto) || HIJOS[4]; return (
-          <button key={h.id} onClick={() => onEdit(h, a)} style={{ ...C.listBtn, borderTop: "none", padding: "7px 2px" }}>
+          <div key={h.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <CheckPago g={h} onPagado={onPagado} busy={busy} s={26} />
+          <button onClick={() => onEdit(h, a)} style={{ ...C.listBtn, borderTop: "none", padding: "7px 2px", flex: 1, minWidth: 0 }}>
             <Tile n={hi.i} c={hi.c} s={28} />
-            <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 700 }}>{h.concepto || "Gasto"}</span>
-            <span style={{ fontSize: 14, fontWeight: 800 }}>{money(importe(h))}</span>
-          </button>); })}
+            <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 700 }}>{h.concepto || "Gasto"}{h.archivoPath ? " 📷" : ""}</span>
+            <span style={{ fontSize: 14, fontWeight: 800, color: h.estado === "pagado" ? "var(--green)" : "var(--text)" }}>{money(importe(h))}</span>
+          </button></div>); })}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, paddingTop: 6, flexWrap: "wrap-reverse" }}>
           <button onClick={onAdd} style={C.btnSm}><Icon n="plus" s={14} w={2.4} />Añadir extra</button>
           <span style={{ fontSize: 13, color: "var(--muted)", whiteSpace: "nowrap", marginLeft: "auto" }}>Total artista <b style={{ color: "var(--text)", fontSize: 14.5 }}>{money(total)}</b></span>
@@ -255,7 +274,9 @@ function Artista({ a, hijos, total, socioById, onEdit, onAdd, ivaOn }) {
 
 /* ---------- Formulario de gasto (normal · personal · artista · extra de un artista) ---------- */
 const catPorDefecto = () => { const v = catsGasto(true); return (v.find(c => c.k === "Producción técnica") || v[0] || { k: "Otros" }).k; };
-function GastoForm({ tipo, gasto, padre, socios, usadas, hijos, busy, ivaOn, onClose, onSave, onDelete }) {
+function GastoForm({ tipo, gasto, padre, socios, usadas, hijos, busy, ivaOn, onClose, onSave, onDelete, onFoto, onVerFoto }) {
+  const [fotoNueva, setFotoNueva] = useState(null);   // gasto nuevo: la foto se sube al guardar
+  const [subiendo, setSubiendo] = useState(false);
   const isMobile = useIsMobile();
   const nuevo = !gasto.id;
   const esHijo = !!padre;
@@ -282,7 +303,7 @@ function GastoForm({ tipo, gasto, padre, socios, usadas, hijos, busy, ivaOn, onC
   const extra = Array.from(new Set([...usadas, f.categoria])).filter(c => c && !esAuto(c) && !visibles.some(x => x.k === c));
   const items = [...visibles.map(c => ({ k: c.k, i: c.i, c: c.c })), ...extra.map(k => { const c = gcatInfo(k); return { k, i: c.i, c: c.c }; }), { k: "__otra", t: "Nueva…", i: "plus", c: "var(--muted)" }];
   const titulo = tipo === "artista" ? (nuevo ? "Nuevo artista" : "Editar artista") : tipo === "personal" ? (nuevo ? "Nuevo puesto de personal" : "Editar personal") : esHijo ? `Gasto de ${padre.concepto || "artista"}` : (nuevo ? "Nuevo gasto" : "Editar gasto");
-  const guardar = () => { if (!valido || busy) return; onSave({ ...f, categoria: esHijo || tipo === "artista" ? "Artistas" : catFinal, previsto: previstoNum, real: realNum, personas: tipo === "personal" ? f.personas : null, precioHora: tipo === "personal" ? parseImporte(f.precioHora) : null, horas: tipo === "personal" ? parseImporte(f.horas) : null, iva: fx.iva, factura: fx.factura }); };
+  const guardar = () => { if (!valido || busy) return; onSave({ ...f, __foto: fotoNueva, categoria: esHijo || tipo === "artista" ? "Artistas" : catFinal, previsto: previstoNum, real: realNum, personas: tipo === "personal" ? f.personas : null, precioHora: tipo === "personal" ? parseImporte(f.precioHora) : null, horas: tipo === "personal" ? parseImporte(f.horas) : null, iva: fx.iva, factura: fx.factura }); };
   const cuenta = realNum != null ? realNum : previstoNum || 0;
   return (
     <Sheet title={titulo} onClose={onClose}
@@ -356,6 +377,15 @@ function GastoForm({ tipo, gasto, padre, socios, usadas, hijos, busy, ivaOn, onC
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1.6fr", gap: 12 }}>
         <Field l="Fecha (opcional)" mb={4}><input type="date" value={f.fecha} onChange={e => set({ fecha: e.target.value })} style={C.input} /></Field>
         <Field l="Nota (opcional)" mb={4}><input value={f.nota} maxLength={500} onChange={e => set({ nota: e.target.value })} style={C.input} /></Field>
+        {onFoto && <Field l="Foto de la factura o del ticket (opcional)" mb={4}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <label style={{ ...C.btnSm, cursor: "pointer" }}><Icon n="upload" s={15} />{subiendo ? "Subiendo…" : gasto.archivoPath || fotoNueva ? "Cambiar foto" : "Hacer foto o subir"}
+              <input type="file" accept="image/*,application/pdf" capture="environment" style={{ display: "none" }} onChange={async (e) => { const file = e.target.files?.[0]; e.target.value = ""; if (!file) return; if (!gasto.id) { setFotoNueva(file); return; } setSubiendo(true); await onFoto(gasto, file); setSubiendo(false); }} /></label>
+            {gasto.archivoPath && !fotoNueva && <button onClick={() => onVerFoto(gasto.archivoPath)} style={C.btnSm}><Icon n="eye" s={15} />Ver foto</button>}
+            {gasto.archivoPath && <button onClick={async () => { setSubiendo(true); await onFoto(gasto, null); setSubiendo(false); }} style={{ ...C.btnSm, color: "var(--muted)" }}>Quitar</button>}
+            {fotoNueva && <span style={{ fontSize: 12.5, color: "var(--green)", fontWeight: 700 }}>📷 {fotoNueva.name || "Foto"} · se sube al guardar</span>}
+          </div>
+        </Field>}
       </div>
     </Sheet>
   );

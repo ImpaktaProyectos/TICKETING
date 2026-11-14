@@ -5,6 +5,7 @@ import { logout } from "./auth";
 import * as db from "./db";
 import { secretoDe, estadoDe, comprobar as comprobarPin, crearHuella, problema as problemaPin, fuerza as fuerzaPin, disponible as cifradoDisponible } from "./pin";
 import { CierreNoche } from "./CierreNoche";
+import { Atajos } from "./Atajos";
 import { CATS_GASTO, categoriaDe } from "./cierreNocheCalc";
 import { previstosParaCaja } from "./gastosPrevistos";
 import * as sd from "./socioDeudas";
@@ -47,7 +48,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.14b";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.14c";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -745,16 +746,18 @@ export default function App() {
   useEffect(() => { if (showGasto && ev.id) cargarAportaciones(); }, [showGasto, ev.id]);
   const [askGastoVoid, setAskGastoVoid] = useState(null);
   const registrarGasto = async (importe, concepto, tipo = "gasto", categoria = "", crmGastoId = null, extra = {}) => {
-    if (!ev.id || !punto?.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return false; }
+    // extra.puntoId: apuntarlo en otra barra (atajos rápidos desde la pantalla de inicio)
+    const P = extra.puntoId ? (ev.puntos.find(p => p.id === extra.puntoId) || null) : punto;
+    if (!ev.id || !P?.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return false; }
     const imp = round2(Number(importe) || 0);
     if (!(imp > 0) || imp >= 1000000) { flash("Escribe el importe del gasto", "warn"); return false; }
     const id = uid();
-    const por = role === "cajero" ? punto.name : role === "admin" ? "Admin" : "Supervisor";
-    const g = { id, tipo: tipo === "entrada" ? "entrada" : "gasto", eventId: ev.id, puntoId: punto.id, importe: imp, concepto: String(concepto || "").trim().slice(0, 120), categoria: tipo === "entrada" ? "" : String(categoria || ""), crmGastoId: tipo === "entrada" ? null : crmGastoId || null, por, ts: Date.now(), voided: false, closureId: null, synced: false };
+    const por = extra.por || (role === "cajero" ? P.name : role === "admin" ? "Admin" : "Supervisor");
+    const g = { id, tipo: tipo === "entrada" ? "entrada" : "gasto", eventId: ev.id, puntoId: P.id, importe: imp, concepto: String(concepto || "").trim().slice(0, 120), categoria: tipo === "entrada" ? "" : String(categoria || ""), crmGastoId: tipo === "entrada" ? null : crmGastoId || null, por, ts: Date.now(), voided: false, closureId: null, synced: false };
     // Cambio de un socio: primero se apunta su aportación o su devolución (necesita conexión); si falla, no se mueve nada
     if (extra.aportSocio || extra.devolverAport) {
       try {
-        if (extra.aportSocio) await sd.crearAportacion({ eventoId: ev.id, socio: extra.aportSocio, importe: imp, concepto: g.concepto || "Cambio para la caja", puntoId: punto.id, gastoEntradaId: id, por });
+        if (extra.aportSocio) await sd.crearAportacion({ eventoId: ev.id, socio: extra.aportSocio, importe: imp, concepto: g.concepto || "Cambio para la caja", puntoId: P.id, gastoEntradaId: id, por });
         else {
           const a = extra.devolverAport;
           if (imp > a.importe + 0.001) { flash(`${a.socio} puso ${money(a.importe)}: no se le puede devolver más`, "warn"); return false; }
@@ -768,9 +771,9 @@ export default function App() {
       cargarAportaciones();
     }
     baseDispatch({ type: "ADD_GASTO", gasto: g });
-    flash(`${g.tipo === "entrada" ? "➕ Cambio añadido" : "💸 Gasto registrado"} · ${money(imp)}${g.tipo !== "entrada" ? " · " + categoriaDe(g).t : ""}${g.concepto && g.concepto !== categoriaDe(g).t ? " · " + g.concepto : ""}`);
+    flash(`${g.tipo === "entrada" ? "➕ Cambio añadido" : "💸 Gasto registrado"}${extra.puntoId ? ` en ${P.name}` : ""} · ${money(imp)}${g.tipo !== "entrada" ? " · " + categoriaDe(g).t : ""}${g.concepto && g.concepto !== categoriaDe(g).t ? " · " + g.concepto : ""}`);
     if (navigator.vibrate) navigator.vibrate(30);
-    const r = await db.registrarGasto({ id, tipo: g.tipo, eventoId: ev.id, puntoId: punto.id, importe: imp, concepto: g.concepto, categoria: g.categoria, crmGastoId: g.crmGastoId, por });
+    const r = await db.registrarGasto({ id, tipo: g.tipo, eventoId: ev.id, puntoId: P.id, importe: imp, concepto: g.concepto, categoria: g.categoria, crmGastoId: g.crmGastoId, por });
     if (r.offline) setPending(db.pendingCount());
     return true;
   };
@@ -983,7 +986,8 @@ export default function App() {
 
       {/* ===== LOGIN ===== */}
       {role === null && (
-        <RoleGate ev={ev} events={state.events} online={online} pending={pending}
+        <RoleGate ev={ev} events={state.events} online={online} pending={pending} flash={flash} gastosCaja={evGastos}
+          onMovimiento={(puntoId, importe, concepto, tipo, categoria, crmGastoId, extra) => registrarGasto(importe, concepto, tipo, categoria, crmGastoId, { ...extra, puntoId })}
           onSelectEvent={id => dispatch({ type: "SELECT_EVENT", id })}
           onRole={(r, puntoId, modo) => { if (puntoId) dispatch({ type: "SET_PUNTO", id: puntoId }); setRole(r); setView("pos"); const crmMode = modo === "crm" && r === "admin"; setAppMode(crmMode ? "crm" : "tpv");  }} />
       )}
@@ -1410,7 +1414,8 @@ function MenuRow({ icon, label, onClick, tone, right, big }) {
 }
 
 /* ---------------------- Login ---------------------- */
-function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 0 }) {
+function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 0, flash, onMovimiento, gastosCaja = [] }) {
+  const [atajos, setAtajos] = useState(null);   // null · "pin" · "abierto"
   const isMobile = useIsMobile();
   const [mode, setMode] = useState(null);            // null | cajero | validador | admin | supervisor | crm
   const [verEventos, setVerEventos] = useState(false);
@@ -1505,7 +1510,12 @@ function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 
         </section>
       </div>
 
-      <footer className="tg-pie">TIXFAST · versión {APP_VERSION}</footer>
+      <footer className="tg-pie">
+        {ev.id && <button type="button" onClick={() => setAtajos("pin")} className="tg-atajos" aria-label="Atajos rápidos: gastos, cambio y dinero de socios"><Ic n="list" s={15} w={2.2} />⚡ Atajos rápidos</button>}
+        <span>TIXFAST · versión {APP_VERSION}</span>
+      </footer>
+      {atajos === "pin" && <PinModal secreto={secretoDe(ev, "admin")} onOk={() => setAtajos("abierto")} onClose={() => setAtajos(null)} label="PIN de administrador para los atajos" />}
+      {atajos === "abierto" && <Atajos ev={ev} gastosCaja={gastosCaja} flash={flash} onMovimiento={onMovimiento} onCerrar={() => setAtajos(null)} />}
 
       {verEventos && (
         <div style={isMobile ? S.sheetWrap : S.overlay} onClick={() => setVerEventos(false)}>
@@ -1601,7 +1611,7 @@ const TG_CSS = `
 .tg-barra-n{display:block;font-size:18px;font-weight:900;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tg-barra-e{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);margin-top:3px}
 .tg-vacio{padding:18px;border-radius:16px;border:1px dashed rgba(255,255,255,.15);color:var(--muted);font-size:14px;text-align:center}
-.tg-pie{text-align:center;font-size:12px;color:var(--muted);opacity:.8;max-width:1120px;width:100%;margin:0 auto}
+.tg-pie{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;font-size:12px;color:var(--muted);max-width:1120px;width:100%;margin:0 auto}.tg-pie>span{opacity:.8}.tg-atajos{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 16px;border-radius:999px;border:1px solid var(--line);background:var(--surface2);color:var(--text);font-weight:800;font-size:13.5px;cursor:pointer}.tg-atajos:hover{border-color:var(--accent)}.tg-atajos:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .tg-evrow{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:14px;border-radius:14px;border:1px solid var(--line);color:var(--text);font:inherit;cursor:pointer}
 @media (max-width:520px){.tg-evento{align-items:flex-start;padding:14px}.tg-ev-ico{width:44px;height:44px}.tg-cambiar{padding:7px 8px;font-size:12.5px}}
 @media (max-width:360px){.tg-cambiar{font-size:0;gap:0;padding:8px}.tg-cambiar svg{width:16px;height:16px}.tg-cajero{padding:18px 14px;gap:12px}.tg-cajero-t{font-size:24px}.tg-cajero-ico{width:48px;height:48px}.tg-rol{min-height:108px;padding:14px 12px}.tg-roles{gap:10px}}
