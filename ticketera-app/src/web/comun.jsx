@@ -284,7 +284,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 
 /* ===================== PRIVACIDAD (RGPD) =====================
    Primera capa junto al formulario + segunda capa completa en una hoja. El responsable es el organizador. */
-export const PRIVACIDAD_VERSION = "2026-11-v1";
+export const PRIVACIDAD_VERSION = "2026-11-v2";
 export function InfoPrivacidad({ legal, organizador, previa }) {
   const [ver, setVer] = useState(false);
   const l = legal || {};
@@ -303,6 +303,7 @@ export function InfoPrivacidad({ legal, organizador, previa }) {
         <p><b>Novedades y ofertas:</b> solo si marcas la casilla, te enviaremos por correo novedades, preventas y ofertas de nuestros eventos, adaptadas a lo que has comprado. Base legal: tu consentimiento. Puedes retirarlo cuando quieras con el enlace de cada correo o escribiéndonos, sin que afecte a tus entradas.</p>
         <p><b>Qué datos:</b> los que rellenas en el formulario (nombre, correo y los demás que pida este evento), los nombres de los asistentes y datos técnicos de la compra para evitar fraudes.</p>
         <p><b>Cuánto tiempo:</b> los datos de la compra, hasta {meses} meses después del evento (o más si una ley lo exige, por ejemplo para facturación). Los de novedades, hasta que te des de baja.</p>
+        <p><b>Relaciones públicas:</b> si compras con el enlace o el código de un relaciones públicas del evento, o le pagas a él en mano, la venta queda a su nombre para calcular su comisión. Solo ve tu nombre y cuántas entradas compraste; nunca tu correo ni tu teléfono.</p>
         <p><b>Quién más los trata:</b> TIXFAST, la plataforma de venta, como encargado del tratamiento, y sus proveedores de alojamiento y envío de correo, con contrato y dentro de la UE o países con protección equivalente. No vendemos tus datos.</p>
         <p><b>Tus derechos:</b> puedes pedir acceso, rectificación, supresión, oposición, limitación y portabilidad escribiendo a {l.email ? <a href={`mailto:${l.email}`} style={{ color: "inherit" }}>{l.email}</a> : "el organizador"}. Si crees que no se respetan, puedes reclamar ante la Agencia Española de Protección de Datos (aepd.es).</p>
         <p style={{ fontSize: 12.5, opacity: .7 }}>Versión {PRIVACIDAD_VERSION}</p>

@@ -3,6 +3,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import Publico from "./web/Publico.jsx";
+import { guardarCodigoRP } from "./web/rrppEnlace.js";
+
+guardarCodigoRP();   // ?rp=CODIGO del enlace de un RRPP
 
 class Red extends React.Component {
   constructor(p) { super(p); this.state = { error: null }; }

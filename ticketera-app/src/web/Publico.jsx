@@ -10,14 +10,17 @@ import { textoQR, money, eur, fecha, hora, tema, Mensaje, MIS, cap, reducido, Di
 export { textoQR } from "./comun";
 import { useCarrito, BarraCarrito, HojaCarrito, ElegirEntradas, CompraVarios } from "./Carrito";
 import PaginaOrganizacion, { MasFiestas } from "./Microsite";
+import { codigoRP } from "./rrppEnlace";
+const PanelRRPP = React.lazy(() => import("./PanelRRPP"));
 
 export default function Publico() {
-  const m = window.location.pathname.match(/^\/(e|o|mis-entradas|compra)\/([^/?#]+)/);
+  const m = window.location.pathname.match(/^\/(e|o|mis-entradas|compra|rp)\/([^/?#]+)/);
   if (!m) return <Mensaje titulo="Página no encontrada" />;
   const v = decodeURIComponent(m[2]);
   if (m[1] === "e") return <PaginaEvento slug={v.toLowerCase()} />;
   if (m[1] === "o") return <PaginaOrganizacion slug={v.toLowerCase()} />;
   if (m[1] === "compra") return <MisCompra acceso={v} />;
+  if (m[1] === "rp") return <React.Suspense fallback={<Mensaje titulo="Cargando tu panel…" />}><PanelRRPP acceso={v} /></React.Suspense>;
   return <MisEntradas acceso={v} />;
 }
 
@@ -315,7 +318,7 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
     if (!acepta) return setErr(ERRORES.condiciones);
     setBusy(true);
     try {
-      const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: aceptaEdad, marketing: novedades, privacidad: PRIVACIDAD_VERSION };
+      const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: aceptaEdad, marketing: novedades, privacidad: PRIVACIDAD_VERSION, rrpp: codigoRP() };
       CAMPOS.forEach(f => { if (pedir(f.k) && c[f.k]) comprador[f.k] = String(c[f.k]).trim(); });
       const { data, error } = await supabase.rpc("web_comprar", {
         p_slug: ev.slug, p_items: items.map(t => ({ tramo: t.id, cantidad: cant[t.id] })), p_comprador: comprador,

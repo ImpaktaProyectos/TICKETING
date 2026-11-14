@@ -19,7 +19,8 @@ import { useReservados, resCfg } from "../reservados";
 import { DineroSocios } from "./DineroSocios";
 import { CambioSocios } from "./CambioSocios";
 import { aplicarCaja } from "../gastosPrevistos";
-const Facturacion = lazy(() => import("./fac/Facturacion"));   // módulo aparte: no toca los números de los eventos
+const Facturacion = lazy(() => import("./fac/Facturacion"));
+const RRPP = lazy(() => import("./RRPP"));                      // relaciones públicas: enlaces, efectivo, comisión y liquidación   // módulo aparte: no toca los números de los eventos
 
 const COLORES = ["#ff5a3c", "#a855f7", "#3b82f6", "#22d3a6", "#ffb400", "#ec4899", "#14b8a6", "#f97316"];
 
@@ -28,7 +29,7 @@ const NAV_GRUPOS = [
   ["Resumen", [["dashboard", "chart", "Panel"]]],
   ["Dinero", [["ingresos", "wallet", "Ingresos"], ["gastos", "receipt", "Gastos"], ["entradas", "ticket", "Entradas"], ["liquidacion", "scale", "Liquidación"]]],
   ["Planificar", [["prevision", "trend", "Previsión"], ["stock", "box", "Stock"]]],
-  ["Equipo", [["socios", "users", "Socios"]]],
+  ["Equipo", [["socios", "users", "Socios"], ["rrpp", "megaphone", "RRPP"]]],
   ["Empresa", [["facturacion", "file", "Facturación"]]],
 ];
 const NAV_TODO = NAV_GRUPOS.flatMap(g => g[1]);
@@ -204,7 +205,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
             </div>
           )}
           {error && tab !== "facturacion" && <div style={{ ...C.panel, borderColor: "var(--amber)", color: "var(--amber)", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}><span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon n="alert" s={18} />{error}</span><button onClick={cargar} style={C.ghost}>Reintentar</button></div>}
-          {!data && !error && tab !== "facturacion" && <Esqueleto />}
+          {!data && !error && tab !== "facturacion" && tab !== "rrpp" && <Esqueleto />}
           {tab === "facturacion" && <Suspense fallback={<div style={{ color: "var(--muted)", padding: 30, textAlign: "center" }}>Cargando facturación…</div>}><Facturacion flash={flash} /></Suspense>}
           {data && tab === "dashboard" && (
             <Dashboard ev={ev} events={events} sales={sales} gastosCaja={gastosCaja} ajustes={data.ajustes} onSelectEvent={onSelectEvent} refreshKey={data} />
@@ -265,6 +266,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
               onSync={(eventoId) => sincronizar(eventoId)}
               onImportar={() => setImportar(true)} />
           )}
+          {tab === "rrpp" && <Suspense fallback={<div style={{ color: "var(--muted)", padding: 30, textAlign: "center" }}>Cargando RRPP…</div>}><RRPP ev={ev} isMobile={isMobile} flash={flash} onDatos={() => cargar()} /></Suspense>}
           {data && tab === "socios" && (
             <Socios ev={ev} data={data} T={T} G={G} isMobile={isMobile} busy={busy} flash={flash}
               onGuardarSocio={(s) => run(() => crm.saveSocio(s), s.id ? "Socio actualizado" : "Socio añadido")}

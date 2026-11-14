@@ -8,6 +8,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "../supabase";
 import { money, eur, fecha, cap, card, btn, Tramo, CAMPOS, ERRORES, Campo, Check, lbl, inpP, MIS, stepBtn, InfoPrivacidad, PRIVACIDAD_VERSION } from "./comun";
+import { codigoRP } from "./rrppEnlace";
 
 const CLAVE = (org) => "tixfast_carrito_" + org;
 const AVISO = "tixfast-carrito";
@@ -221,7 +222,7 @@ export function CompraVarios({ org, carrito, T, onVolver }) {
     setBusy(true);
     let clave; try { clave = sessionStorage.getItem("tixfast_clave_" + org.slug) || crypto.randomUUID(); sessionStorage.setItem("tixfast_clave_" + org.slug, clave); } catch { clave = crypto.randomUUID(); }
     try {
-      const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: aceptaEdad, marketing: novedades, privacidad: PRIVACIDAD_VERSION };
+      const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: aceptaEdad, marketing: novedades, privacidad: PRIVACIDAD_VERSION, rrpp: codigoRP() };
       CAMPOS.forEach(f => { if (pedir(f.k) && c[f.k]) comprador[f.k] = String(c[f.k]).trim(); });
       const asistentes = gs.flatMap(g => plazasDe(g).map((p, i) => ({ evento: g.evento, tramo: p.tramo, nombre: a(g.evento, i).nombre.trim(), dni: dniAsis(g.evento) !== "no" ? a(g.evento, i).dni.trim() : "" })));
       const { data, error } = await supabase.rpc("web_comprar_varios", {
