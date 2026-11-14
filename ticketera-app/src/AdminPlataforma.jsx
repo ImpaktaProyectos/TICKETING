@@ -42,14 +42,15 @@ export default function AdminPlataforma({ onCerrar }) {
         <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 900, fontSize: 17 }}>Panel TIXFAST</div><div style={{ fontSize: 12, color: "var(--muted)" }}>Administración de la plataforma</div></div>
         <button onClick={onCerrar} style={K.btn} aria-label="Cerrar el panel">Cerrar</button>
       </header>
-      <nav role="tablist" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, padding: "10px 12px", borderBottom: "1px solid var(--line)" }}>
-        {[["resumen", "Resumen"], ["cuentas", "Cuentas"], ["errores", "Errores"], ["registro", "Registro"]].map(([k, t]) =>
+      <nav role="tablist" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(104px, 1fr))", gap: 6, padding: "10px 12px", borderBottom: "1px solid var(--line)" }}>
+        {[["resumen", "Resumen"], ["cuentas", "Cuentas"], ["crecimiento", "Crecimiento"], ["errores", "Errores"], ["registro", "Registro"]].map(([k, t]) =>
           <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} style={{ ...K.chip(tab === k), borderRadius: 12, minHeight: 42, padding: 0 }}>{t}</button>)}
       </nav>
       <main data-scroll style={{ flex: 1, overflow: "auto", overscrollBehavior: "contain", padding: "14px 12px calc(20px + env(safe-area-inset-bottom))" }}>
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
           {tab === "resumen" && <Resumen avisar={avisar} irA={setTab} />}
           {tab === "cuentas" && <Cuentas avisar={avisar} />}
+          {tab === "crecimiento" && <Crecimiento avisar={avisar} />}
           {tab === "errores" && <Errores avisar={avisar} />}
           {tab === "registro" && <Registro />}
         </div>
@@ -241,7 +242,7 @@ function Errores({ avisar }) {
 }
 
 /* ---------- Registro de acciones ---------- */
-const ACCIONES = { cortesia: "Regalar suscripción", fundador: "Hacer Fundador", quitar: "Quitar acceso", precio: "Cambiar precio", baja_stripe_inmediata: "Baja inmediata en Stripe", baja_stripe_fin_periodo: "Baja al final del periodo", bloquear_acceso: "Bloquear cuenta", desbloquear_acceso: "Desbloquear cuenta" };
+const ACCIONES = { campana: "Campaña de correo", enviar_correo: "Correo enviado a mano", descuento: "Descuento aplicado", ampliar_prueba: "Prueba ampliada", crecimiento_ajustes: "Cambiar automatizaciones", cortesia: "Regalar suscripción", fundador: "Hacer Fundador", quitar: "Quitar acceso", precio: "Cambiar precio", baja_stripe_inmediata: "Baja inmediata en Stripe", baja_stripe_fin_periodo: "Baja al final del periodo", bloquear_acceso: "Bloquear cuenta", desbloquear_acceso: "Desbloquear cuenta" };
 function Registro() {
   const [lista, setLista] = useState(null);
   useEffect(() => { rpc("admin_registro", { p_limite: 200 }).then(x => setLista(x || [])).catch(() => setLista(false)); }, []);
@@ -252,4 +253,131 @@ function Registro() {
     <div style={{ fontWeight: 800 }}>{ACCIONES[x.accion] || x.accion}{x.accion === "precio" && x.detalle ? `: ${x.detalle.antes ?? "—"} → ${x.detalle.ahora} €` : ""}</div>
     <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2, overflowWrap: "anywhere" }}>{fecha(x.fecha, true)} · {x.cuenta || "plataforma"} · por {x.admin || "—"}</div>
   </div>)}</div>);
+}
+
+/* ---------- Crecimiento: retener, recuperar y captar ---------- */
+const SECUENCIAS = [
+  ["bienvenida", "Bienvenida", "Al registrarse, invita a empezar la prueba", null],
+  ["sin_prueba", "No ha empezado la prueba", "Recordatorios los días…", "dias"],
+  ["prueba_consejos", "Consejos de la prueba", "El primer día de prueba", null],
+  ["prueba_acaba", "La prueba acaba", "Aviso antes del primer cobro (días antes)", "dias_antes"],
+  ["impago", "Impago", "Avisos para actualizar la tarjeta los días…", "dias"],
+  ["cancela", "Ha cancelado", "Oferta para quedarse (descuento o pausa)", null],
+  ["recuperar", "Recuperar", "Oferta para volver los días…", "dias"],
+  ["inactivo", "Inactivo", "Paga pero no entra desde hace (días)", "dias_num"],
+];
+const MOTIVO_TXT = { caro: "Es caro", temporada: "Temporada baja", falta: "Le falta algo", no_uso: "No lo usa", otro: "Otro" };
+const RIESGO_TXT = { impago: ["Impago", "var(--red)"], cancela: ["Cancela", "var(--amber)"], prueba_acaba: ["Prueba acaba", "var(--amber)"], inactivo: ["Inactivo", "var(--muted)"] };
+const SEGMENTOS = [["sin_suscripcion", "Sin suscripción"], ["nunca_probaron", "Nunca probaron"], ["canceladas", "Canceladas"], ["clientes", "Clientes actuales"], ["todas", "Todas"]];
+
+function Crecimiento({ avisar }) {
+  const [d, setD] = useState(null);
+  const [cfg, setCfg] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const [camp, setCamp] = useState({ segmento: "sin_suscripcion", asunto: "", texto: "", boton: "Abrir TIXFAST" });
+  const cargar = () => rpc("admin_crecimiento").then(x => { setD(x); setCfg(x.config); }).catch(() => setD(false));
+  useEffect(() => { cargar(); }, []);
+  if (d === null) return <div style={{ color: "var(--muted)" }}>Cargando…</div>;
+  if (d === false) return <div style={{ color: "var(--red)" }}>No se ha podido cargar. ¿Está aplicada la migración de crecimiento?</div>;
+  const k = d.kpi || {};
+  const conv = k.pruebas_30d ? Math.round((k.convertidas_30d / k.pruebas_30d) * 100) : null;
+  const accion = async (id, fn, ok) => { setBusy(id); try { await fn(); if (ok) avisar(ok); cargar(); } catch (e) { avisar(e?.message || "No se ha podido", true); } setBusy(null); };
+  const ret = cfg?.oferta_retencion || { descuento: 50, meses: 3 };
+  const setSec = (sec, campo, v) => setCfg(c => ({ ...c, secuencias: { ...c.secuencias, [sec]: { ...(c.secuencias?.[sec] || {}), [campo]: v } } }));
+  const setOf = (o, campo, v) => setCfg(c => ({ ...c, [o]: { ...(c[o] || {}), [campo]: v } }));
+  const numeros = (t) => t.split(/[^\d]+/).filter(Boolean).map(Number).filter(n => n >= 0 && n <= 90).slice(0, 5);
+  const totMot = Object.values(d.motivos || {}).reduce((a, b) => a + b, 0);
+  const tiles = [
+    ["Pagando", k.pagando, k.precio != null ? `${eurosTxt((k.pagando || 0) * k.precio)} al mes` : ""],
+    ["Conversión prueba → pago", conv != null ? `${conv} %` : "—", `${k.convertidas_30d || 0} de ${k.pruebas_30d || 0} pruebas (30 días)`],
+    ["Registros 30 días", k.registros_30d, "Cuentas nuevas"],
+    ["Cancelaciones 30 días", k.cancelaciones_30d, `${k.rescatadas_30d || 0} rescatadas con oferta`, k.cancelaciones_30d ? "var(--amber)" : null],
+    ["Impagos", eurosTxt(k.impago_importe || 0), "Al mes, por cobrar", k.impago_importe ? "var(--red)" : null],
+    ["Correos 30 días", k.correos_30d, `${k.sin_correos_promo || 0} no quieren comerciales`],
+  ];
+  return (<div style={{ display: "grid", gap: 14 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
+      {tiles.map(([t, n, sub, c]) => <div key={t} style={K.card}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .6 }}>{t}</div><div style={{ fontSize: 26, fontWeight: 900, color: c || "var(--text)", marginTop: 2 }}>{n ?? 0}</div><div style={{ fontSize: 12.5, color: "var(--muted)" }}>{sub}</div></div>)}
+    </div>
+
+    <section style={K.card}>
+      <div style={{ fontWeight: 900, fontSize: 16 }}>🚨 En riesgo ({d.riesgo.length})</div>
+      <div style={{ fontSize: 13, color: "var(--muted)", margin: "2px 0 10px" }}>Clientes que se pueden perder. Los correos automáticos ya les escriben; aquí puedes actuar a mano.</div>
+      {!d.riesgo.length && <div style={{ color: "var(--muted)", fontSize: 14 }}>Nadie en riesgo ahora mismo. 🎉</div>}
+      <div style={{ display: "grid", gap: 8 }}>
+        {d.riesgo.map(r => { const [t, c] = RIESGO_TXT[r.motivo] || ["", "var(--muted)"]; const id = r.owner_id; return (
+          <div key={id + r.motivo} style={{ border: "1px solid var(--line)", borderRadius: 14, padding: 12 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}><span style={K.badge(c)}>{t}</span><span style={{ fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{r.email}</span></div>
+            <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 4 }}>
+              {r.motivo === "impago" && `Sin cobrar desde el ${fecha(r.fecha)}`}{r.motivo === "cancela" && `Se va el ${fecha(r.periodo_fin || r.prueba_hasta)}`}
+              {r.motivo === "prueba_acaba" && `La prueba acaba el ${fecha(r.prueba_hasta)}`}{r.motivo === "inactivo" && `Último acceso: ${hace(r.ultimo_acceso)}`}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+              <button disabled={!!busy} onClick={() => accion(id + "c", () => servidor({ accion: "enviar_correo", cuenta: id, tipo: r.motivo }), "✓ Correo enviado")} style={{ ...K.btn, minHeight: 40 }}>✉️ Enviar correo</button>
+              {r.con_stripe && r.motivo !== "impago" && <button disabled={!!busy} onClick={() => window.confirm(`¿Aplicar ${ret.descuento} % durante ${ret.meses} meses a ${r.email}?`) && accion(id + "d", () => servidor({ accion: "descuento", cuenta: id, pct: ret.descuento, meses: ret.meses }), "✓ Descuento aplicado")} style={{ ...K.btn, minHeight: 40 }}>🎁 {ret.descuento} % {ret.meses} m</button>}
+              {r.estado === "prueba" && r.con_stripe && <button disabled={!!busy} onClick={() => accion(id + "p", () => servidor({ accion: "ampliar_prueba", cuenta: id, dias: 7 }), "✓ Prueba ampliada 7 días")} style={{ ...K.btn, minHeight: 40 }}>⏱️ +7 días de prueba</button>}
+            </div>
+          </div>); })}
+      </div>
+    </section>
+
+    <section style={K.card}>
+      <div style={{ fontWeight: 900, fontSize: 16 }}>Por qué se van (90 días)</div>
+      {!totMot && <div style={{ color: "var(--muted)", fontSize: 14, marginTop: 6 }}>Aún no hay bajas. Cuando alguien cancele, verás aquí el motivo.</div>}
+      {totMot > 0 && <div style={{ display: "grid", gap: 6, marginTop: 8 }}>{Object.entries(d.motivos).sort((a, b) => b[1] - a[1]).map(([m, n]) =>
+        <div key={m}><div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5 }}><span>{MOTIVO_TXT[m] || m}</span><b>{n}</b></div>
+          <div style={{ height: 8, borderRadius: 8, background: "var(--surface2)", overflow: "hidden" }}><div style={{ width: `${(n / totMot) * 100}%`, height: "100%", background: "var(--accent)" }} /></div></div>)}
+        <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>Resultado: {d.resultados?.descuento || 0} se quedaron con descuento · {d.resultados?.pausa || 0} pausaron · {d.resultados?.cancela || 0} cancelaron</div>
+      </div>}
+      {d.comentarios.length > 0 && <div style={{ marginTop: 10, display: "grid", gap: 6 }}>{d.comentarios.slice(0, 10).map((x, i) => <div key={i} style={{ fontSize: 13.5, borderLeft: "3px solid var(--line)", paddingLeft: 10 }}>«{x.comentario}» <span style={{ color: "var(--muted)" }}>— {MOTIVO_TXT[x.motivo]} · {x.email || ""}</span></div>)}</div>}
+    </section>
+
+    {cfg && <section style={K.card}>
+      <div style={{ fontWeight: 900, fontSize: 16 }}>⚙️ Correos automáticos</div>
+      <div style={{ fontSize: 13, color: "var(--muted)", margin: "2px 0 10px" }}>Se revisan cada hora. Cada correo se envía una sola vez a cada cuenta. Los comerciales llevan enlace para darse de baja.</div>
+      <div style={{ display: "grid", gap: 8 }}>
+        {SECUENCIAS.map(([sec, t, sub, tipo]) => { const v = cfg.secuencias?.[sec] || {}; return (
+          <div key={sec} style={{ border: "1px solid var(--line)", borderRadius: 12, padding: 10, display: "grid", gap: 6 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={!!v.activo} onChange={e => setSec(sec, "activo", e.target.checked)} style={{ width: 22, height: 22, accentColor: "var(--accent)" }} />
+              <span style={{ flex: 1 }}><b>{t}</b><span style={{ display: "block", fontSize: 12.5, color: "var(--muted)" }}>{sub}</span></span>
+            </label>
+            {tipo === "dias" && <input value={(v.dias || []).join(", ")} onChange={e => setSec(sec, "dias", numeros(e.target.value))} style={{ ...K.input, minHeight: 40, fontSize: 15 }} aria-label={`Días de ${t}`} />}
+            {tipo === "dias_antes" && <input value={v.dias_antes ?? 2} inputMode="numeric" onChange={e => setSec(sec, "dias_antes", Math.min(6, numeros(e.target.value)[0] ?? 1))} style={{ ...K.input, minHeight: 40, fontSize: 15 }} aria-label="Días antes" />}
+            {tipo === "dias_num" && <input value={v.dias ?? 14} inputMode="numeric" onChange={e => setSec(sec, "dias", Math.max(7, numeros(e.target.value)[0] ?? 14))} style={{ ...K.input, minHeight: 40, fontSize: 15 }} aria-label="Días sin entrar" />}
+          </div>); })}
+      </div>
+      <div style={{ fontWeight: 900, marginTop: 14 }}>Ofertas</div>
+      {[["oferta_retencion", "Para quedarse (al cancelar)"], ["oferta_recuperar", "Para volver (tras cancelar)"]].map(([o, t]) => <div key={o} style={{ display: "grid", gridTemplateColumns: "1fr 90px 90px", gap: 8, alignItems: "center", marginTop: 8 }}>
+        <span style={{ fontSize: 14 }}>{t}</span>
+        <input value={cfg[o]?.descuento ?? ""} inputMode="numeric" onChange={e => setOf(o, "descuento", Math.min(100, numeros(e.target.value)[0] ?? 0))} style={{ ...K.input, minHeight: 40 }} aria-label={`${t}: descuento %`} />
+        <input value={cfg[o]?.meses ?? ""} inputMode="numeric" onChange={e => setOf(o, "meses", Math.max(1, Math.min(12, numeros(e.target.value)[0] ?? 1)))} style={{ ...K.input, minHeight: 40 }} aria-label={`${t}: meses`} />
+      </div>)}
+      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4, textAlign: "right" }}>% de descuento · meses</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 90px", gap: 8, alignItems: "center", marginTop: 8 }}><span style={{ fontSize: 14 }}>Pausa máxima (meses, temporada baja)</span>
+        <input value={cfg.pausa_max_meses ?? 3} inputMode="numeric" onChange={e => setCfg(c => ({ ...c, pausa_max_meses: Math.max(1, Math.min(6, numeros(e.target.value)[0] ?? 3)) }))} style={{ ...K.input, minHeight: 40 }} aria-label="Pausa máxima" /></div>
+      <button disabled={!!busy} onClick={() => accion("cfg", () => rpc("admin_crecimiento_guardar", { p: cfg }), "✓ Automatizaciones guardadas")} style={{ ...K.btn, width: "100%", marginTop: 12, minHeight: 50, background: "var(--accent)", border: "none", color: "#fff" }}>Guardar</button>
+    </section>}
+
+    <section style={K.card}>
+      <div style={{ fontWeight: 900, fontSize: 16 }}>📣 Campaña de correo</div>
+      <div style={{ fontSize: 13, color: "var(--muted)", margin: "2px 0 10px" }}>Para novedades u ofertas puntuales. Solo llega a quien no se ha dado de baja de los correos comerciales.</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{SEGMENTOS.map(([k2, t]) => <button key={k2} onClick={() => setCamp(c => ({ ...c, segmento: k2 }))} style={K.chip(camp.segmento === k2)}>{t}</button>)}</div>
+      <input value={camp.asunto} onChange={e => setCamp(c => ({ ...c, asunto: e.target.value.slice(0, 120) }))} placeholder="Asunto" style={{ ...K.input, marginTop: 10 }} aria-label="Asunto" />
+      <textarea value={camp.texto} onChange={e => setCamp(c => ({ ...c, texto: e.target.value.slice(0, 4000) }))} placeholder={"Texto del correo.\n\nDeja una línea en blanco entre párrafos."} rows={6} style={{ ...K.input, marginTop: 8, padding: 12, minHeight: 140, resize: "vertical" }} aria-label="Texto" />
+      <input value={camp.boton} onChange={e => setCamp(c => ({ ...c, boton: e.target.value.slice(0, 40) }))} placeholder="Texto del botón (opcional)" style={{ ...K.input, marginTop: 8 }} aria-label="Botón" />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
+        <button disabled={!!busy} onClick={() => accion("cp", () => servidor({ accion: "campana", ...camp, prueba: true }), "✓ Te hemos enviado la prueba")} style={K.btn}>Enviarme una prueba</button>
+        <button disabled={!!busy} onClick={() => window.confirm(`¿Enviar «${camp.asunto}» a «${SEGMENTOS.find(x => x[0] === camp.segmento)[1]}»?`) && accion("ce", async () => { const r = await servidor({ accion: "campana", ...camp, id_campana: `${camp.segmento}-${camp.asunto}`.toLowerCase().replace(/[^a-z0-9]+/g, "-") }); avisar(`✓ ${r.enviados} enviados${r.quedan ? ` · quedan ${r.quedan}: vuelve a pulsar` : ""}`); }, null)} style={{ ...K.btn, background: "var(--accent)", border: "none", color: "#fff" }}>Enviar campaña</button>
+      </div>
+    </section>
+
+    <section style={K.card}>
+      <div style={{ fontWeight: 900, fontSize: 16 }}>✉️ Últimos correos</div>
+      {!d.correos.length && <div style={{ color: "var(--muted)", fontSize: 14, marginTop: 6 }}>Aún no se ha enviado ninguno.</div>}
+      <div style={{ display: "grid", gap: 4, marginTop: 8 }}>{d.correos.slice(0, 40).map((x, i) => <div key={i} style={{ fontSize: 13, padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
+        <span style={K.badge(x.estado === "enviado" ? "var(--green)" : x.estado === "error" ? "var(--red)" : "var(--muted)")}>{x.estado}</span> <b>{x.asunto}</b>
+        <div style={{ color: "var(--muted)", overflowWrap: "anywhere" }}>{fecha(x.fecha, true)} · {x.email}{x.error ? ` · ${x.error}` : ""}</div></div>)}</div>
+    </section>
+  </div>);
 }

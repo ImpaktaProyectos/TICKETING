@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
     const acceso = String(body?.acceso || "");
     if (compra ? !UUID.test(compra) : !UUID.test(acceso)) return json({ ok: false, motivo: "acceso" }, 400);
     const clave = Deno.env.get("BREVO_API_KEY");
-    if (!clave) return json({ ok: false, motivo: "sin_correo" });   // aún sin configurar: la compra sigue bien
+    if (!clave || !Deno.env.get("CORREO_REMITENTE")) return json({ ok: false, motivo: "sin_correo" });   // el remitente es un secreto, nunca va en el código   // aún sin configurar: la compra sigue bien
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
     if (compra) return await enviarCompra(admin, compra, body, clave);
@@ -70,7 +70,7 @@ Deno.serve(async (req) => {
       method: "POST",
       headers: { "api-key": clave, "Content-Type": "application/json", "Accept": "application/json" },
       body: JSON.stringify({
-        sender: { email: Deno.env.get("CORREO_REMITENTE") || "impaktadigital.info@gmail.com", name: String(e?.nombre || "TIXFAST").slice(0, 60) },
+        sender: { email: Deno.env.get("CORREO_REMITENTE")!, name: String(e?.nombre || "TIXFAST").slice(0, 60) },
         to: [{ email: p.email, name: p.nombre }],
         subject: `${p.prueba ? "[PRUEBA] " : ""}Tus entradas · ${e?.nombre || "evento"}`,
         htmlContent: html,
@@ -133,7 +133,7 @@ async function enviarCompra(admin: any, acceso: string, body: any, clave: string
 </div></div><div style="text-align:center;font-size:12px;color:#8c929b;margin-top:14px">Entradas con TIXFAST</div></div></body></html>`;
   const res = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST", headers: { "api-key": clave, "Content-Type": "application/json", "Accept": "application/json" },
-    body: JSON.stringify({ sender: { email: Deno.env.get("CORREO_REMITENTE") || "impaktadigital.info@gmail.com", name: remitente }, to: [{ email: c.email, name: c.nombre }],
+    body: JSON.stringify({ sender: { email: Deno.env.get("CORREO_REMITENTE")!, name: remitente }, to: [{ email: c.email, name: c.nombre }],
       subject: `${c.prueba ? "[PRUEBA] " : ""}Tus entradas · ${remitente}`, htmlContent: html, textContent: `Ya tienes tus entradas. Míralas aquí: ${enlace}` }),
   });
   if (!res.ok) {

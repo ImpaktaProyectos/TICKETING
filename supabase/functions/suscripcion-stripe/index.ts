@@ -31,9 +31,10 @@ async function aplicar(sub: any) {
   const cus = typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
   const finPeriodo = sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end ?? null;
   const cambios: Record<string, unknown> = {
-    estado: ESTADO[sub.status] || "pendiente", plan_id: "pro", proveedor_pago: "stripe",
+    // En pausa (temporada baja): no se cobra y no hay acceso hasta que se reanude
+    estado: sub.pause_collection && sub.status === "active" ? "suspendida" : (ESTADO[sub.status] || "pendiente"), plan_id: "pro", proveedor_pago: "stripe",
     suscripcion_pago_id: sub.id, cliente_pago_id: cus,
-    prueba_hasta: fecha(sub.trial_end), periodo_fin: fecha(finPeriodo),
+    prueba_hasta: fecha(sub.trial_end), periodo_fin: fecha(sub.pause_collection?.resumes_at ?? finPeriodo),
     cancela_al_final: !!sub.cancel_at_period_end || !!sub.cancel_at,
     actualizada_en: new Date().toISOString(),
   };

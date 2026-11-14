@@ -7,8 +7,9 @@ import { secretoDe, estadoDe, comprobar as comprobarPin, crearHuella, problema a
 import { CierreNoche } from "./CierreNoche";
 import { Atajos } from "./Atajos";
 import { NuevoEvento } from "./NuevoEvento";
-import { useAcceso, puede, avisoNuevoEvento, avisoNuevaBarra, hoyLocal, diasRestantes, esperarAltaTrasPago, usePrecioSuscripcion, eurosTxt } from "./cuenta";
+import { useAcceso, puede, avisoNuevoEvento, avisoNuevaBarra, hoyLocal, diasRestantes, esperarAltaTrasPago, usePrecioSuscripcion, eurosTxt, irAStripe } from "./cuenta";
 import { Suscripcion } from "./Suscripcion";
+import { TuCuenta } from "./TuCuenta";
 import { Capa } from "./Capa";
 import { Escaparate } from "./Escaparate";
 const AdminPlataforma = lazy(() => import("./AdminPlataforma"));
@@ -62,7 +63,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.15d";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.15e";   // súbela al publicar cambios para verificar la actualización
 globalThis.TIXFAST_VERSION = APP_VERSION;
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
@@ -1460,6 +1461,15 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
   const sinTpv = !puede(accGate, "tpv", ev, hoyLocal());
   const [verSusc, setVerSusc] = useState(false);
   const precioSusc = usePrecioSuscripcion();
+  // Enlaces de los correos (?accion=…): abren directamente el paso correcto
+  const [hoja, setHoja] = useState(null);   // null · "cuenta" · "quedarme" · "volver"
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search); const a = q.get("accion"); if (!a) return;
+    q.delete("accion"); try { window.history.replaceState(null, "", window.location.pathname + (q.toString() ? `?${q}` : "")); } catch {}
+    if (a === "prueba") setVerSusc(true);
+    else if (a === "tarjeta") irAStripe("portal").catch(e => flash?.(e?.mostrar ? e.message : "No se ha podido abrir", "warn"));
+    else if (["cuenta", "quedarme", "volver"].includes(a)) setHoja(a);
+  }, []);
   // Panel de administración de TIXFAST: solo si el servidor confirma que eres administrador
   const [soyAdmin, setSoyAdmin] = useState(false);
   const [panel, setPanel] = useState(false);
@@ -1538,6 +1548,11 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
             <div style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 3, lineHeight: 1.45 }}>Puedes entrar en todo y verlo. Para vender y guardar, activa tu suscripción: 7 días gratis{precioSusc != null ? ` y luego ${eurosTxt(precioSusc)} al mes` : ""}. La venta de entradas online es gratis siempre.</div>
             <button type="button" onClick={() => setVerSusc(true)} className="tg-susc-btn">Empezar prueba de 7 días</button>
           </div>}
+          {hoja && <Capa><div onClick={() => setHoja(null)} style={{ position: "fixed", inset: 0, zIndex: 140, background: "rgba(0,0,0,.6)", display: "grid", placeItems: "end center", overflow: "auto" }}>
+            <div role="dialog" aria-modal="true" aria-label="Tu cuenta" onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 540, maxHeight: "94dvh", overflow: "auto", overscrollBehavior: "contain", padding: "14px 12px calc(14px + env(safe-area-inset-bottom))", boxSizing: "border-box" }}>
+              {hoja === "volver" ? <Suscripcion flash={flash} compacto oferta="recuperar" /> : <TuCuenta inicial={hoja === "quedarme" ? "oferta" : null} />}
+              <button onClick={() => setHoja(null)} style={{ width: "100%", minHeight: 48, marginTop: 10, borderRadius: 14, border: "1px solid var(--line)", background: "var(--surface2)", color: "var(--text)", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>Cerrar</button>
+            </div></div></Capa>}
           {verSusc && <Capa><div onClick={() => setVerSusc(false)} style={{ position: "fixed", inset: 0, zIndex: 140, background: "rgba(0,0,0,.6)", display: "grid", placeItems: "end center", overflow: "auto" }}>
             <div role="dialog" aria-modal="true" aria-label="Suscripción" onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 540, maxHeight: "94dvh", overflow: "auto", overscrollBehavior: "contain", padding: "14px 12px calc(14px + env(safe-area-inset-bottom))", boxSizing: "border-box" }}>
               <Suscripcion flash={flash} compacto />

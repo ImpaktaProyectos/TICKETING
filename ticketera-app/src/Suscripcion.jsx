@@ -3,29 +3,32 @@
 // automática. La primera vez, los 7 primeros días son gratis (la tarjeta se pide igualmente).
 // La ticketera (venta de entradas online) es siempre gratuita.
 import React, { useEffect, useState } from "react";
-import { cargarCuenta, irAStripe, DIAS_PRUEBA } from "./cuenta";
+import { cargarCuenta, cargarOfertas, irAStripe, DIAS_PRUEBA } from "./cuenta";
 
 const euros = (v) => Number(v).toLocaleString("es-ES", { style: "currency", currency: "EUR", minimumFractionDigits: Number.isInteger(Number(v)) ? 0 : 2 });
 const fechaLarga = (d) => d.toLocaleDateString("es-ES", { day: "numeric", month: "long" });
 const INCLUYE = ["TPV con tickets, cierres de caja y cierre de la noche", "CRM: ingresos, gastos, socios y liquidaciones", "Facturación, stock y previsión", "Reservados VIP y conexión con ticketeras"];
 
-export function Suscripcion({ flash, onTicketera, compacto = false }) {
+export function Suscripcion({ flash, onTicketera, compacto = false, oferta = null }) {
   const [c, setC] = useState(undefined);
   const [acepto, setAcepto] = useState(false);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { let vivo = true; cargarCuenta().then(x => vivo && setC(x)).catch(() => vivo && setC(null)); return () => { vivo = false; }; }, []);
+  const [dto, setDto] = useState(null);   // oferta para volver (si la hay y no se ha usado)
+  useEffect(() => { let vivo = true; cargarCuenta().then(x => vivo && setC(x)).catch(() => vivo && setC(null));
+    if (oferta === "recuperar") cargarOfertas().then(o => vivo && o?.recuperar?.descuento > 0 && setDto(o.recuperar)).catch(() => {});
+    return () => { vivo = false; }; }, []);
   const precio = c?.precio;
   const conPrueba = !c?.ficha?.prueba_usada;
   const finPrueba = new Date(Date.now() + DIAS_PRUEBA * 86400000);
   const ir = async () => {
     if (!acepto || busy) return;
     setBusy(true);
-    try { await irAStripe("alta"); } catch (e) { flash?.(e?.mostrar ? e.message : "No se ha podido abrir el pago", "warn"); setBusy(false); }
+    try { await irAStripe("alta", dto ? { oferta: "recuperar" } : {}); } catch (e) { flash?.(e?.mostrar ? e.message : "No se ha podido abrir el pago", "warn"); setBusy(false); }
   };
   return (
     <section style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 20, padding: compacto ? 16 : "22px 18px", boxSizing: "border-box", width: "100%", maxWidth: 520, margin: "0 auto", textAlign: "left" }}>
       <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1, textTransform: "uppercase", color: "var(--accent)" }}>Suscripción TIXFAST</div>
-      <div style={{ fontWeight: 900, fontSize: compacto ? 19 : 22, marginTop: 4, lineHeight: 1.2 }}>{conPrueba ? `Empieza con ${DIAS_PRUEBA} días gratis` : "Reactiva tu suscripción"}</div>
+      <div style={{ fontWeight: 900, fontSize: compacto ? 19 : 22, marginTop: 4, lineHeight: 1.2 }}>{conPrueba ? `Empieza con ${DIAS_PRUEBA} días gratis` : dto ? `Vuelve con un ${dto.descuento} % de descuento` : "Reactiva tu suscripción"}</div>
       <div style={{ color: "var(--muted)", fontSize: 14.5, marginTop: 6, lineHeight: 1.45 }}>
         {precio != null ? <>Después, <b style={{ color: "var(--text)" }}>{euros(precio)} al mes</b> con renovación automática. Cancela cuando quieras.</> : c === undefined ? "Cargando…" : "Las suscripciones abren muy pronto."}
       </div>
@@ -36,6 +39,7 @@ export function Suscripcion({ flash, onTicketera, compacto = false }) {
         <input type="checkbox" checked={acepto} onChange={e => setAcepto(e.target.checked)} style={{ width: 22, height: 22, marginTop: 1, flexShrink: 0, accentColor: "var(--accent)" }} />
         <span>{conPrueba
           ? <>Acepto la suscripción mensual con <b>renovación automática</b>. Hoy no se cobra nada; si no cancelo antes del <b>{fechaLarga(finPrueba)}</b>, se cobrarán {euros(precio)} ese día y cada mes hasta que cancele.</>
+          : dto ? <>Acepto la suscripción mensual con <b>renovación automática</b>: {dto.meses} {dto.meses === 1 ? "mes" : "meses"} con un {dto.descuento} % de descuento y después {euros(precio)} cada mes hasta que cancele.</>
           : <>Acepto la suscripción mensual con <b>renovación automática</b>: se cobrarán {euros(precio)} hoy y cada mes hasta que cancele.</>}</span>
       </label>}
       <button onClick={ir} disabled={!acepto || busy || precio == null} style={{ width: "100%", minHeight: 54, marginTop: 12, borderRadius: 16, border: "none", background: "var(--accent)", color: "#fff", fontWeight: 900, fontSize: 16.5, cursor: "pointer", opacity: acepto && precio != null && !busy ? 1 : .45 }}>

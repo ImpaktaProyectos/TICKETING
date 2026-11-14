@@ -52,7 +52,7 @@ export async function cargarCuenta() {
   const { data: u } = await supabase.auth.getUser();
   const email = u?.user?.email || "";
   const acc = await refrescarAcceso(true);
-  const { data: ficha } = await supabase.from("ticket_cuentas").select("plan_id, estado, prueba_hasta, prueba_usada, periodo_fin, cancela_al_final, cliente_pago_id").maybeSingle();
+  const { data: ficha } = await supabase.from("ticket_cuentas").select("plan_id, estado, prueba_hasta, prueba_usada, periodo_fin, cancela_al_final, cliente_pago_id, suscripcion_pago_id").maybeSingle();
   const { data: pro } = await supabase.from("ticket_planes").select("nombre, precio_mes").eq("id", "pro").maybeSingle();
   if (!acc) return { email, acc: { plan_id: "fundador", plan_nombre: "Fundador", estado: "activa", limites: {} }, ficha: null, precio: null };
   return { email, acc, ficha: ficha || null, precio: pro?.precio_mes != null ? Number(pro.precio_mes) : null };
@@ -66,10 +66,27 @@ const MOTIVOS = {
   sin_cliente: "Aún no tienes ninguna suscripción que gestionar.",
   sin_pasarela: "El cobro con tarjeta aún no está disponible.",
   sesion: "Vuelve a entrar en tu cuenta e inténtalo de nuevo.",
+  sin_suscripcion: "No tienes ninguna suscripción activa.",
+  oferta_usada: "Ya usaste esta oferta.",
+  sin_oferta: "Ahora mismo no hay ninguna oferta disponible.",
 };
-export async function irAStripe(accion) {
+
+// Antes de irse: quedarse con descuento, pausar unos meses, cancelar (con su motivo) o arrepentirse
+export async function retener(opcion, datos = {}) {
+  if (!navigator.onLine) throw Object.assign(new Error("Sin conexión: inténtalo con internet."), { mostrar: true });
+  const { data, error } = await supabase.functions.invoke("suscripcion", { body: { ...datos, accion: "retener", opcion, origen: window.location.origin } });
+  if (error || !data?.ok) throw Object.assign(new Error(MOTIVOS[data?.motivo] || "No se ha podido completar. Inténtalo de nuevo."), { mostrar: true });
+  await refrescarAcceso(true);
+  return data;
+}
+// Ofertas disponibles para esta cuenta (descuento para quedarse o para volver, meses de pausa)
+export async function cargarOfertas() {
+  const { data, error } = await supabase.rpc("ticket_ofertas");
+  return error ? null : data;
+}
+export async function irAStripe(accion, extra = {}) {
   if (!navigator.onLine) throw Object.assign(new Error("Sin conexión: para suscribirte hace falta internet."), { mostrar: true });
-  const { data, error } = await supabase.functions.invoke("suscripcion", { body: { accion, origen: window.location.origin } });
+  const { data, error } = await supabase.functions.invoke("suscripcion", { body: { ...extra, accion, origen: window.location.origin } });
   if (error || !data?.ok || !data.url) throw Object.assign(new Error(MOTIVOS[data?.motivo] || "No se ha podido abrir el pago. Inténtalo de nuevo en un momento."), { mostrar: true });
   window.location.assign(data.url);
 }
