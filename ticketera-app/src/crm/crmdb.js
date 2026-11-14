@@ -133,8 +133,9 @@ export async function loadGastosEvento(eventoId) {
   return ok(await supabase.from("ticket_crm_gastos").select("*").eq("evento_id", eventoId).order("creado_en", { ascending: true })).map(gastoFrom);
 }
 // Marcar un gasto como pagado (✓) o quitarlo, sin tocar nada más
-export async function setGastoPagado(id, pagado) {
-  ok(await supabase.from("ticket_crm_gastos").update({ estado: pagado ? "pagado" : "confirmado", actualizado_en: new Date().toISOString() }).eq("id", id));
+// importe: lo que se pagó de verdad (queda como importe real; el previsto no se toca)
+export async function setGastoPagado(id, pagado, importe) {
+  ok(await supabase.from("ticket_crm_gastos").update({ estado: pagado ? "pagado" : "confirmado", ...(pagado && importe != null ? { real: Math.round(Number(importe) * 100) / 100 } : {}), actualizado_en: new Date().toISOString() }).eq("id", id));
 }
 export async function setGastoArchivo(id, path) {
   ok(await supabase.from("ticket_crm_gastos").update({ archivo_path: path || null, actualizado_en: new Date().toISOString() }).eq("id", id));

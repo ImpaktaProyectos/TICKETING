@@ -10,6 +10,7 @@ import * as sd from "./socioDeudas";
 import { GCATS } from "./crm/categorias";
 import { resCfg } from "./reservados";
 import { aplicarCaja, categoriaTPV } from "./gastosPrevistos";
+import { ConfirmarPago } from "./ConfirmarPago";
 
 const money = (v) => (Number(v) || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR", useGrouping: "always" });
 const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
@@ -207,7 +208,8 @@ function Pagos({ ev, gastosCaja, flash }) {
   const imp = (g) => g.real != null ? g.real : g.previsto || 0;
   const pagados = filas.filter(g => g.estado === "pagado");
   const pendiente = r2(filas.filter(g => g.estado !== "pagado").reduce((t, g) => t + imp(g), 0));
-  const marcar = async (g, v) => { setBusy(g.id); try { await crm.setGastoPagado(g.id, v); await cargar(); } catch { flash("No se ha podido guardar", "warn"); } setBusy(null); };
+  const [pagar, setPagar] = useState(null);   // ✓: se confirma cuánto se pagó
+  const marcar = async (g, v, importe) => { setBusy(g.id); try { await crm.setGastoPagado(g.id, v, importe); await cargar(); if (v) flash(`✓ ${nombre(g)}: pagado ${money(importe)}`); } catch { flash("No se ha podido guardar", "warn"); } setBusy(null); };
   if (!lista) return <div style={K.nota}>Cargando…</div>;
   if (!filas.length) return <div style={K.nota}>Este evento no tiene gastos en el CRM. Apúntalos con «Registrar un gasto» o en CRM → Gastos.</div>;
   return (<>
@@ -218,13 +220,14 @@ function Pagos({ ev, gastosCaja, flash }) {
     <div style={{ height: 8, borderRadius: 6, background: "var(--line)", overflow: "hidden", marginBottom: 12 }}><div style={{ height: "100%", width: `${pagados.length / filas.length * 100}%`, background: "var(--green)" }} /></div>
     {filas.slice().sort((a, b) => (a.estado === "pagado") - (b.estado === "pagado")).map(g => { const pag = g.estado === "pagado", caja = g.cajaPagado != null; return (
       <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: "1px solid var(--line)" }}>
-        <button onClick={() => !caja && marcar(g, !pag)} disabled={busy === g.id || caja} aria-pressed={pag} aria-label={pag ? `Quitar pagado de ${nombre(g)}` : `Marcar como pagado ${nombre(g)}`}
+        <button onClick={() => !caja && (pag ? marcar(g, false) : setPagar(g))} disabled={busy === g.id || caja} aria-pressed={pag} aria-label={pag ? `Quitar pagado de ${nombre(g)}` : `Marcar como pagado ${nombre(g)}`}
           style={{ width: 36, height: 36, borderRadius: 11, flexShrink: 0, display: "grid", placeItems: "center", cursor: caja ? "default" : "pointer", border: `2px solid ${pag ? "var(--green)" : "var(--line)"}`, background: pag ? "var(--green)" : "transparent", color: "#04231a", opacity: busy === g.id ? .5 : 1 }}>{pag ? P(ICO.pagos, 20) : null}</button>
         <span style={{ flex: 1, minWidth: 0 }}>
           <b style={{ display: "block", fontSize: 15, textDecoration: pag ? "line-through" : "none", color: pag ? "var(--muted)" : "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nombre(g)}</b>
           <span style={{ display: "block", fontSize: 12.5, color: caja ? "var(--green)" : "var(--muted)" }}>{caja ? "Pagado desde la caja del TPV" : g.categoria}{g.archivoPath ? " · 📷" : ""}</span>
         </span>
-        <b style={{ flexShrink: 0, color: pag ? "var(--green)" : "var(--text)" }}>{money(imp(g))}</b>
+        <span style={{ textAlign: "right", flexShrink: 0 }}><b style={{ display: "block", color: pag ? "var(--green)" : "var(--text)" }}>{money(imp(g))}</b>{g.real != null && g.previsto != null && Math.abs(g.real - g.previsto) >= 0.01 && <span style={{ fontSize: 11.5, color: g.real > g.previsto ? "var(--red)" : "var(--green)", fontWeight: 700 }}>{g.real > g.previsto ? "+" : "−"}{money(Math.abs(g.real - g.previsto))} vs previsto</span>}</span>
       </div>); })}
+    {pagar && <ConfirmarPago g={pagar} nombre={nombre(pagar)} onCerrar={() => setPagar(null)} onConfirmar={async (importe) => { await marcar(pagar, true, importe); setPagar(null); }} />}
   </>);
 }

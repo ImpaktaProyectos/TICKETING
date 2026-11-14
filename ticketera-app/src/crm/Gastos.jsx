@@ -7,6 +7,7 @@ import { Vacio, Pill } from "./Ingresos";
 import { GCATS, CAJA_CAT, COMIS_CAT, IVA_CAT, gcatInfo, catsGasto, esAuto } from "./categorias";
 import { importe, ivaGasto, ivaDe, TIPOS_IVA } from "./fiscal";
 import { aplicarCaja } from "../gastosPrevistos";
+import { ConfirmarPago } from "../ConfirmarPago";
 
 export { GCATS, CAJA_CAT, gcatInfo } from "./categorias";
 export { importe } from "./fiscal";
@@ -43,6 +44,10 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
   const isMobile = useIsMobile();
   const [form, setForm] = useState(null);      // { tipo, gasto, padre }
   const [copiar, setCopiar] = useState(false);
+  // ✓ pagado: primero se confirma cuánto se pagó (lo previsto con un toque, o se cambia el importe)
+  const [pagar, setPagar] = useState(null);
+  const nombreGasto = (g) => { const p = g.padreId ? gastos.find(x => x.id === g.padreId) : null; return `${p ? (p.proveedor || p.concepto) + " · " : ""}${g.proveedor || g.concepto || g.categoria}`; };
+  const pedirPago = onPagado ? (g, v) => (v ? setPagar(g) : onPagado(g, false)) : null;
   const top = gastos.filter(g => !g.padreId);
   const hijosDe = (id) => gastos.filter(g => g.padreId === id);
   const totalArtista = (a) => r2(importe(a) + hijosDe(a.id).reduce((t, h) => t + importe(h), 0));
@@ -116,8 +121,8 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
             </div>))}
           {(k === COMIS_CAT || k === IVA_CAT) && G.auto.filter(a => a.categoria === k).map((a, ix) => <Auto key={ix} a={a} onAjustes={onAjustes} />)}
           {items.map(g => g.tipo === "artista"
-            ? <Artista key={g.id} a={g} ivaOn={ivaOn} hijos={hijosDe(g.id)} total={totalArtista(g)} socioById={socioById} onPagado={onPagado} busy={busy} onEdit={(x, padre) => setForm(padre ? { tipo: "normal", gasto: x, padre } : { tipo: "artista", gasto: x })} onAdd={() => setForm({ tipo: "normal", gasto: { categoria: "Artistas" }, padre: g })} />
-            : <Fila key={g.id} g={g} ivaOn={ivaOn} socioById={socioById} onPagado={onPagado} busy={busy} onClick={() => setForm({ tipo: g.tipo, gasto: g })} />)}
+            ? <Artista key={g.id} a={g} ivaOn={ivaOn} hijos={hijosDe(g.id)} total={totalArtista(g)} socioById={socioById} onPagado={pedirPago} busy={busy} onEdit={(x, padre) => setForm(padre ? { tipo: "normal", gasto: x, padre } : { tipo: "artista", gasto: x })} onAdd={() => setForm({ tipo: "normal", gasto: { categoria: "Artistas" }, padre: g })} />
+            : <Fila key={g.id} g={g} ivaOn={ivaOn} socioById={socioById} onPagado={pedirPago} busy={busy} onClick={() => setForm({ tipo: g.tipo, gasto: g })} />)}
           {!esAuto(k) && k !== CAJA_CAT && <button onClick={() => setForm(k === "Artistas" ? { tipo: "artista", gasto: {} } : { tipo: "normal", gasto: { categoria: k } })} style={{ ...C.btnSm, margin: "10px 0 4px", borderStyle: "dashed" }}><Icon n="plus" s={14} w={2.4} />Añadir en {k}</button>}
         </CategoriaGastos>); })}
 
@@ -138,6 +143,7 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
         </Sheet>
       )}
 
+      {pagar && <ConfirmarPago g={pagar} nombre={nombreGasto(pagar)} onCerrar={() => setPagar(null)} onConfirmar={async (importe) => { const ok = await onPagado(pagar, true, importe); if (ok !== false) setPagar(null); }} />}
       {form && <GastoForm {...form} onFoto={onFoto} onVerFoto={onVerFoto} socios={socios.filter(s => s.activo || s.id === form.gasto?.pagadoPor)} usadas={gastos.map(g => g.categoria)} ivaOn={ivaOn} hijos={form.gasto?.id ? hijosDe(form.gasto.id).length : 0} busy={busy}
         onClose={() => setForm(null)}
         onSave={async (x) => { const ok = await onSave(x); if (ok) setForm(null); }}
