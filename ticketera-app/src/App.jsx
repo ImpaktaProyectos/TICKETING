@@ -57,7 +57,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.14e";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.14f";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -410,7 +410,8 @@ export default function App() {
   const firmar = (ventaUuid, product, idx = 0, prueba = false) => { try { return crearToken({ clave: ev.qrClave, ventaUuid, idx, productoId: product?.id, prueba }); } catch { return null; } };
   const qrPrueba = (product, idx = 0) => qrDe(product) ? firmar(uid(), product, idx, true) : null;
   const imprimirPrueba = (product, qty = 1) => {
-    if (qrDe(product) && qty > 1) setPrintJob({ kind: "multi", tickets: Array.from({ length: qty }, () => ({ product, folio: "PRUEBA", qr: qrPrueba(product) })), time: timeNow(), n: Date.now() });
+    // Con ×2, ×3… sale un ticket por unidad (igual que en la venta real)
+    if (qty > 1) setPrintJob({ kind: "multi", tickets: Array.from({ length: qty }, (_, i) => ({ product, folio: "PRUEBA", qr: qrPrueba(product, i) })), time: timeNow(), n: Date.now() });
     else setPrintJob({ kind: "ticket", product, time: timeNow(), num: null, folio: "PRUEBA", qty, qr: qrPrueba(product), n: Date.now() });
   };
 
@@ -571,7 +572,8 @@ export default function App() {
     const rows = folios.map((f, i) => ({ id: clientUuids[i], clientUuid: clientUuids[i], code: f, num: baseNum + i + 1, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: salePrice, ts: Date.now() + i, synced: online, voided: false, closureId: null, pago: pay?.pago || null, invite, inviteValue: invite ? product.price : 0, entregado: i === 0 ? (pay?.entregado ?? null) : null, cambio: i === 0 ? (pay?.cambio ?? null) : null }));
     baseDispatch({ type: "SELL", rows });
     if (product.print !== false) {
-      if (qrDe(product) && qty > 1) setPrintJob({ kind: "multi", tickets: rows.map(r => ({ product, num: r.num, folio: r.code, qr: firmar(r.clientUuid, product) })), time, n: Date.now() });
+      // Con ×2, ×3… se imprime un ticket por unidad, cada uno con su número y su folio (nunca uno solo con «10 × precio»)
+      if (qty > 1) setPrintJob({ kind: "multi", tickets: rows.map(r => ({ product, num: r.num, folio: r.code, qr: qrDe(product) ? firmar(r.clientUuid, product) : null })), time, n: Date.now() });
       else setPrintJob({ kind: "ticket", product, time, num: rows[0].num, folio: rows[0].code, qty, qr: qrDe(product) ? firmar(rows[0].clientUuid, product) : null, n: Date.now() });
       flash(invite ? `🎁 Invitación · ${qty > 1 ? qty + "× " : ""}${product.name}` : `🖨️ ${qty > 1 ? qty + "× " : ""}${product.name}`);
     } else flash(invite ? `🎁 Invitación guardada · ${product.name} (sin ticket)` : `✅ Venta guardada · ${qty > 1 ? qty + "× " : ""}${product.name} (sin ticket)`);
