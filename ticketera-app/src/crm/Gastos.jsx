@@ -65,7 +65,35 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {/* ===== Añadir (lo primero) ===== */}
+      {/* ===== Gasto total del evento (arriba del todo) ===== */}
+      <section style={{ ...C.hero, padding: isMobile ? 16 : 22 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.1fr 1fr", gap: isMobile ? 14 : 28, alignItems: "center" }}>
+          <div>
+            <div style={C.label}>Gastos de {ev.name}</div>
+            <div style={{ fontSize: isMobile ? 38 : 50, fontWeight: 900, letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4, color: "var(--text)" }}>{money(G.total)}</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{gastos.length + G.caja.length} {gastos.length + G.caja.length === 1 ? "gasto" : "gastos"}. Cada uno cuenta por su importe real; si aún no lo tiene, por el previsto.{ivaOn ? " Sin IVA." : ""}</div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <Barra t="Presupuesto previsto" v={G.previsto} max={Math.max(1, G.previsto, G.total)} c="var(--muted)" i="scale" />
+            <Barra t="Gastos" v={G.total} max={Math.max(1, G.previsto, G.total)} c={G.previsto && G.total > G.previsto + 0.005 ? "var(--red)" : "var(--accent)"} i="receipt" />
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : `repeat(${G.cajaTotal > 0 ? 3 : 2},minmax(0,1fr))`, gap: 8, marginTop: 16 }}>
+          <Mini l="Gastado real" v={money(G.real)} sub={G.previsto ? `${Math.round(G.real / G.previsto * 100)} % del previsto` : null} c={G.previsto && G.real > G.previsto ? "var(--red)" : undefined} />
+          <Mini l="Pendiente de pagar" v={money(G.pendiente)} c={G.pendiente ? "var(--amber)" : undefined} />
+          {G.cajaTotal > 0 && <Mini l="Sacado de caja (TPV)" v={money(G.cajaTotal)} />}
+        </div>
+        {(ivaOn || F?.comisionTotal > 0) && (
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,minmax(0,1fr))", gap: 8, marginTop: 8 }}>
+            {F.comisionTotal > 0 && <Mini l="Comisiones" v={money(F.comisionTotal)} c="var(--rose)" />}
+            {ivaOn && <Mini l={F.iva.neto >= 0 ? "IVA a Hacienda" : "IVA a devolver"} v={money(Math.abs(F.iva.neto))} sub="estimado" />}
+            {ivaOn && <Mini l="Con factura" v={money(F.iva.conFactura)} sub={`${F.iva.nConFactura} ${F.iva.nConFactura === 1 ? "gasto" : "gastos"} · IVA ${money(F.iva.soportado)}`} />}
+            {ivaOn && <Mini l="Sin factura" v={money(F.iva.sinFactura)} sub={`${F.iva.nSinFactura} ${F.iva.nSinFactura === 1 ? "gasto" : "gastos"}`} c={F.iva.sinFactura > 0 ? "var(--amber)" : undefined} />}
+          </div>
+        )}
+      </section>
+
+      {/* ===== Añadir ===== */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8 }}>
         <AddBtn i="plus" t="Gasto" sub={isMobile ? null : "Alquiler, sonido, publicidad…"} primary onClick={() => setForm({ tipo: "normal", gasto: {} })} />
         <AddBtn i="users" t="Personal" sub={isMobile ? null : "Camareros: personas × €/hora × horas"} onClick={() => setForm({ tipo: "personal", gasto: {} })} />
@@ -93,37 +121,6 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
           {!esAuto(k) && k !== CAJA_CAT && <button onClick={() => setForm(k === "Artistas" ? { tipo: "artista", gasto: {} } : { tipo: "normal", gasto: { categoria: k } })} style={{ ...C.btnSm, margin: "10px 0 4px", borderStyle: "dashed" }}><Icon n="plus" s={14} w={2.4} />Añadir en {k}</button>}
         </CategoriaGastos>); })}
 
-      {/* ===== Totales del evento (abajo y plegados) ===== */}
-      {cats.length > 0 && <Seccion id="gas-totales" i="chart" t="Totales del evento" sub="Presupuesto, gastado y lo que falta por pagar" total={money(G.total)} inicial>
-        <div style={{ padding: isMobile ? 14 : 18 }}>
-          <div>
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.1fr 1fr", gap: isMobile ? 14 : 28, alignItems: "center" }}>
-          <div>
-            <div style={C.label}>Gastos de {ev.name}</div>
-            <div style={{ fontSize: isMobile ? 38 : 50, fontWeight: 900, letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4, color: "var(--text)" }}>{money(G.total)}</div>
-            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{gastos.length + G.caja.length} {gastos.length + G.caja.length === 1 ? "gasto" : "gastos"}. Cada uno cuenta por su importe real; si aún no lo tiene, por el previsto.{ivaOn ? " Sin IVA." : ""}</div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <Barra t="Presupuesto previsto" v={G.previsto} max={Math.max(1, G.previsto, G.total)} c="var(--muted)" i="scale" />
-            <Barra t="Gastos" v={G.total} max={Math.max(1, G.previsto, G.total)} c={G.previsto && G.total > G.previsto + 0.005 ? "var(--red)" : "var(--accent)"} i="receipt" />
-          </div>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : `repeat(${G.cajaTotal > 0 ? 3 : 2},minmax(0,1fr))`, gap: 8, marginTop: 16 }}>
-          <Mini l="Gastado real" v={money(G.real)} sub={G.previsto ? `${Math.round(G.real / G.previsto * 100)} % del previsto` : null} c={G.previsto && G.real > G.previsto ? "var(--red)" : undefined} />
-          <Mini l="Pendiente de pagar" v={money(G.pendiente)} c={G.pendiente ? "var(--amber)" : undefined} />
-          {G.cajaTotal > 0 && <Mini l="Sacado de caja (TPV)" v={money(G.cajaTotal)} />}
-        </div>
-        {(ivaOn || F?.comisionTotal > 0) && (
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,minmax(0,1fr))", gap: 8, marginTop: 8 }}>
-            {F.comisionTotal > 0 && <Mini l="Comisiones" v={money(F.comisionTotal)} c="var(--rose)" />}
-            {ivaOn && <Mini l={F.iva.neto >= 0 ? "IVA a Hacienda" : "IVA a devolver"} v={money(Math.abs(F.iva.neto))} sub="estimado" />}
-            {ivaOn && <Mini l="Con factura" v={money(F.iva.conFactura)} sub={`${F.iva.nConFactura} ${F.iva.nConFactura === 1 ? "gasto" : "gastos"} · IVA ${money(F.iva.soportado)}`} />}
-            {ivaOn && <Mini l="Sin factura" v={money(F.iva.sinFactura)} sub={`${F.iva.nSinFactura} ${F.iva.nSinFactura === 1 ? "gasto" : "gastos"}`} c={F.iva.sinFactura > 0 ? "var(--amber)" : undefined} />}
-          </div>
-        )}
-          </div>
-        </div>
-      </Seccion>}
 
       {/* ===== Adelantos de socios ===== */}
       {adelantos.length > 0 && (
