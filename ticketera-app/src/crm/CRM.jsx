@@ -21,6 +21,11 @@ import { CambioSocios } from "./CambioSocios";
 import { aplicarCaja } from "../gastosPrevistos";
 import { NuevoEvento } from "../NuevoEvento";
 import { estadoFecha, ordenarEventos } from "../eventos";
+import { useAcceso, puede } from "../cuenta";
+import { Bloqueado, Candado } from "../Bloqueado";
+
+// Pestañas que son funciones de pago (si el plan no las incluye, se ve el aviso en su lugar)
+const FUNC_TAB = { facturacion: "facturacion", stock: "stock", prevision: "prevision" };
 const Facturacion = lazy(() => import("./fac/Facturacion"));   // módulo aparte: no toca los números de los eventos
 
 const COLORES = ["#ff5a3c", "#a855f7", "#3b82f6", "#22d3a6", "#ffb400", "#ec4899", "#14b8a6", "#f97316"];
@@ -46,6 +51,7 @@ const NAV_MAS = NAV_TODO.filter(n => !NAV_MOVIL.includes(n));
 export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent, onExit, flash, onEventoCreado }) {
   const [nuevoEv, setNuevoEv] = useState(false);
   const isMobile = useIsMobile();
+  const acc = useAcceso();
   const [tab, setTab] = useState("dashboard");
   const [data, setData] = useState(null);      // { socios, participacion, ingresos, fuentes }
   const [error, setError] = useState(null);
@@ -68,10 +74,12 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
     if (busy) return false;
     setBusy(true);
     try { await fn(); if (okMsg) flash(okMsg); await cargar(); return true; }
-    catch (e) { flash(e?.mostrar ? e.message : navigator.onLine ? "No se ha podido guardar" : "Sin conexión: no se ha guardado", "warn"); return false; }
+    catch (e) { const m = String(e?.message || ""); flash(m.startsWith("TIXFAST: ") ? m.slice(9) : e?.mostrar ? e.message : navigator.onLine ? "No se ha podido guardar" : "Sin conexión: no se ha guardado", "warn"); return false; }
     finally { setBusy(false); }
   };
   const aviso = (msg) => { const e = new Error(msg); e.mostrar = true; return e; };
+  const bloq = (k) => !!FUNC_TAB[k] && !puede(acc, FUNC_TAB[k], ev, hoy());
+  const verPlan = () => abrirAjustes("cuenta");
   const abrirAjustes = (sec) => { if (tab !== "ajustes") setVolverA(tab); setAjSeccion(sec || "conexiones"); setTab("ajustes"); };
 
   // ---- Ticketera: sincronizar ventas (el servidor habla con Fourvenues) ----
@@ -178,7 +186,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
             {NAV_GRUPOS.map(([g, items]) => (
               <div key={g} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase", padding: "0 10px 4px" }}>{g}</div>
-                {items.map(([k, ico, l]) => <button key={k} onClick={() => irA(k)} aria-current={tab === k ? "page" : undefined} style={navBtn(tab === k)}><Icon n={ico} s={18} c="currentColor" />{l}</button>)}
+                {items.map(([k, ico, l]) => <button key={k} onClick={() => irA(k)} aria-current={tab === k ? "page" : undefined} style={navBtn(tab === k)}><Icon n={ico} s={18} c="currentColor" /><span style={{ flex: 1, textAlign: "left" }}>{l}</span>{bloq(k) && <Candado />}</button>)}
               </div>))}
           </nav>
           <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 2, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
@@ -217,7 +225,8 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
           )}
           {error && tab !== "facturacion" && <div style={{ ...C.panel, borderColor: "var(--amber)", color: "var(--amber)", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}><span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon n="alert" s={18} />{error}</span><button onClick={cargar} style={C.ghost}>Reintentar</button></div>}
           {!data && !error && tab !== "facturacion" && <Esqueleto />}
-          {tab === "facturacion" && <Suspense fallback={<div style={{ color: "var(--muted)", padding: 30, textAlign: "center" }}>Cargando facturación…</div>}><Facturacion flash={flash} /></Suspense>}
+          {bloq(tab) && <Bloqueado funcion={FUNC_TAB[tab]} plan={acc?.plan_nombre} onVerPlan={verPlan} />}
+          {tab === "facturacion" && !bloq(tab) && <Suspense fallback={<div style={{ color: "var(--muted)", padding: 30, textAlign: "center" }}>Cargando facturación…</div>}><Facturacion flash={flash} /></Suspense>}
           {data && tab === "dashboard" && (
             <Dashboard ev={ev} events={events} sales={sales} gastosCaja={gastosCaja} ajustes={data.ajustes} onSelectEvent={onSelectEvent} refreshKey={data} />
           )}
@@ -241,13 +250,13 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
           {data && tab === "entradas" && (
             <Entradas ev={ev} events={events} onSelectEvent={onSelectEvent} flash={flash} ingresos={ingresos} barras={barras} onVentaEntradas={(i) => setEditVenta(i)} onEditarIngreso={(i) => setEditIng(i)} />
           )}
-          {data && tab === "prevision" && (
+          {data && tab === "prevision" && !bloq(tab) && (
             <Prevision ev={ev} events={events} ingresos={ingresos} gastos={gastosEv} G={G} F={F} ajustes={data.ajustes || {}}
               vinculo={vinculo} conexion={data.conexion} sincronizando={sincronizando} flash={flash}
               onSync={() => sincronizar(ev.id)} onIrGastos={() => setTab("gastos")}
               onGuardarDefecto={async (pv) => { await crm.saveAjustes({ ...(data.ajustes || {}), prevision: pv }); await cargar(); }} />
           )}
-          {data && tab === "stock" && (
+          {data && tab === "stock" && !bloq(tab) && (
             <Stock ev={ev} sales={sales} ajustes={data.ajustes || {}} flash={flash} onRecargarCRM={cargar}
               onGuardarAjustes={async (datos) => { await crm.saveAjustes(datos); await cargar(); }} />
           )}
@@ -300,7 +309,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
         <div onClick={() => setMas(false)} style={{ ...C.modalWrap, alignItems: "flex-end" }}>
           <div role="dialog" aria-label="Más secciones" onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 520, background: "var(--surface)", borderRadius: "22px 22px 0 0", padding: "10px 14px", paddingBottom: "calc(14px + env(safe-area-inset-bottom))", boxSizing: "border-box" }}>
             <div style={{ width: 40, height: 4, borderRadius: 4, background: "var(--line)", margin: "4px auto 10px" }} />
-            {[...NAV_MAS, ["ajustes", "gear", "Ajustes"]].map(([k, ico, l]) => <button key={k} onClick={() => irA(k)} style={{ ...navBtn(tab === k), padding: "13px 10px", fontSize: 15.5 }}><Icon n={ico} s={20} c="currentColor" />{l}</button>)}
+            {[...NAV_MAS, ["ajustes", "gear", "Ajustes"]].map(([k, ico, l]) => <button key={k} onClick={() => irA(k)} style={{ ...navBtn(tab === k), padding: "13px 10px", fontSize: 15.5 }}><Icon n={ico} s={20} c="currentColor" /><span style={{ flex: 1, textAlign: "left" }}>{l}</span>{bloq(k) && <Candado s={15} />}</button>)}
             <button onClick={cambiarTema} role="switch" aria-checked={tema === "claro"} style={{ ...navBtn(false), padding: "13px 10px", fontSize: 15.5 }}><Icon n={tema === "claro" ? "moon" : "sun"} s={20} c="currentColor" />{tema === "claro" ? "Modo oscuro" : "Modo claro"}</button>
             <button onClick={() => setMas(false)} style={{ ...C.ghost, width: "100%", marginTop: 8 }}>Cerrar</button>
           </div>

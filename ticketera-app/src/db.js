@@ -5,7 +5,7 @@ const prodFromDb = (p) => ({ id: p.id, name: p.nombre, price: Number(p.precio), 
 const byOrden = (a, b) => (a.orden - b.orden) || String(a.creado_en || "").localeCompare(String(b.creado_en || "")) || String(a.id).localeCompare(String(b.id));
 const puntoFromDb = (p) => ({ id: p.id, name: p.nombre, archivado: p.archivado, combos: p.combos || [], fondo: p.fondo != null ? Number(p.fondo) : null, fondoEn: p.fondo_en, fondoPor: p.fondo_por, fondoPrevisto: p.fondo_previsto != null ? Number(p.fondo_previsto) : null, estado: ["abierta", "cerrada"].includes(p.estado) ? p.estado : "prueba", abiertaEn: p.abierta_en, abiertaPor: p.abierta_por, cerradaEn: p.cerrada_en, cerradaPor: p.cerrada_por, sortMode: p.orden_modo === "ventas" ? "ventas" : "manual", products: (p.ticket_productos || []).slice().sort(byOrden).map(prodFromDb) });
 const evFromDb = (e) => ({
-  id: e.id, name: e.nombre, date: e.fecha, venue: e.recinto || "", template: e.plantilla, paper: e.papel,
+  id: e.id, name: e.nombre, date: e.fecha, creadoEn: e.creado_en || null, venue: e.recinto || "", template: e.plantilla, paper: e.papel,
   footer: e.pie || "", logo: e.logo_url || "", showEventName: e.mostrar_evento, showDate: e.mostrar_fecha,
   showTime: e.mostrar_hora, showPrice: e.mostrar_precio, anularPin: e.anular_pin,
   closed: !!e.cerrada, pedirFondo: e.pedir_fondo !== false, startsAt: e.inicio || "", endsAt: e.fin || "", advanced: !!e.venta_avanzada, changeHelp: e.ayuda_cambio !== false,

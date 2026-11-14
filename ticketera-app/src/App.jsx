@@ -7,6 +7,8 @@ import { secretoDe, estadoDe, comprobar as comprobarPin, crearHuella, problema a
 import { CierreNoche } from "./CierreNoche";
 import { Atajos } from "./Atajos";
 import { NuevoEvento } from "./NuevoEvento";
+import { useAcceso, puede, avisoNuevoEvento, avisoNuevaBarra, hoyLocal, diasRestantes } from "./cuenta";
+import { Bloqueado } from "./Bloqueado";
 import { eventoPorDefecto, estadoFecha, ordenarEventos } from "./eventos";
 import { CATS_GASTO, categoriaDe } from "./cierreNocheCalc";
 import { previstosParaCaja } from "./gastosPrevistos";
@@ -57,7 +59,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.15a";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.15b";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -749,7 +751,8 @@ export default function App() {
   };
   const guardarCfgRes = (cfg) => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { style: { ...(ev.style || {}), reservados: cfg } } });
   const lineaRes = <LineaReservados ev={ev} punto={punto} res={res} testMode={testMode} isMobile={isMobile} onElegir={(it) => abrirCobroRes(it)} onVerMapa={() => { if (role === "cajero") setResMapa(true); else setView("reservados"); }} />;
-  const vistaRes = (extra = {}) => <ReservadosVista ev={ev} punto={punto} role={role} res={res} sales={evSales} isMobile={isMobile} flash={flash} onGuardarCfg={guardarCfgRes} onCobrarTarifa={(t, r) => abrirCobroRes({ ...t, tipo: "tarifa" }, r.id)} onVentaSocio={(role === "admin" || role === "supervisor") ? (fijo) => setResSocio({ fijo }) : null} {...extra} />;
+  const accApp = useAcceso();
+  const vistaRes = (extra = {}) => !puede(accApp, "reservados", ev, hoyLocal()) ? <Bloqueado funcion="reservados" plan={accApp?.plan_nombre} /> : <ReservadosVista ev={ev} punto={punto} role={role} res={res} sales={evSales} isMobile={isMobile} flash={flash} onGuardarCfg={guardarCfgRes} onCobrarTarifa={(t, r) => abrirCobroRes({ ...t, tipo: "tarifa" }, r.id)} onVentaSocio={(role === "admin" || role === "supervisor") ? (fijo) => setResSocio({ fijo }) : null} {...extra} />;
 
   const voidOne = async (sale, by) => { baseDispatch({ type: "VOID_ONE", saleId: sale.id, by }); const r = await db.anularVenta(sale.clientUuid || sale.id, by); if (r.offline) setPending(db.pendingCount()); };
 
@@ -1439,6 +1442,7 @@ function MenuRow({ icon, label, onClick, tone, right, big }) {
 export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 0, flash, onMovimiento, gastosCaja = [], onEventoCreado }) {
   const [nuevoEv, setNuevoEv] = useState(null);   // null · "pin" · "abierto"
   const [atajos, setAtajos] = useState(null);   // null · "pin" · "abierto"
+  const accGate = useAcceso();
   const isMobile = useIsMobile();
   const [mode, setMode] = useState(null);            // null | cajero | validador | admin | supervisor | crm
   const [verEventos, setVerEventos] = useState(false);
@@ -1493,6 +1497,11 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
             {ev.id && <button type="button" onClick={() => setAtajos("pin")} className="tg-atajos" aria-label="Atajos rápidos: gastos, cambio y dinero de socios">⚡ Atajos rápidos</button>}
             <button type="button" className="tg-nuevo-ev" onClick={() => setNuevoEv("pin")}><Ic n="plus" s={15} w={2.4} />Nuevo evento</button>
           </div>
+          {accGate && (accGate.en_prueba || accGate.plan_id === "gratis") && (() => { const d = diasRestantes(accGate); const prueba = accGate.en_prueba; return (
+            <div role="status" style={{ marginTop: 10, padding: "10px 12px", borderRadius: 12, border: `1px solid ${prueba && d > 5 ? "var(--line)" : "var(--amber)"}`, background: "var(--surface2)", fontSize: 13.5, lineHeight: 1.45, color: "var(--text)" }}>
+              {prueba ? <><b>Prueba gratuita:</b> {d === 1 ? "queda 1 día" : `quedan ${d} días`} con todo incluido.</> : <><b>Plan Gratis:</b> TPV completo, 1 evento a la vez y 2 barras. Facturación, stock, reservados y venta online van con la suscripción.</>}
+              <span style={{ color: "var(--muted)" }}> Tu plan, en CRM › Ajustes › Tu cuenta.</span>
+            </div>); })()}
           <div className="tg-datos">
             <span><b>{puntos.length}</b> {puntos.length === 1 ? "barra" : "barras"}</span>
             <span><b style={{ color: abiertas ? "var(--green)" : "var(--muted)" }}>{abiertas}</b> abiertas</span>
@@ -2523,6 +2532,7 @@ function TemplateDesigner({ ev, dispatch, flash }) {
    EVENT CONFIG
    ============================================================ */
 function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash }) {
+  const acc = useAcceso();
   const isMobile = useIsMobile();
   const isAdmin = role === "admin";
   const [confirmReset, setConfirmReset] = useState(0); // 0 no, 1 primer aviso, 2 aviso final
@@ -2582,7 +2592,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
     setDraft({ name: "", subtitle: "", price: "", emoji: "🎟️", color: PALETTE[Math.floor(Math.random() * PALETTE.length)] });
     flash("Producto añadido a " + punto.name);
   };
-  const addPunto = () => { if (!newPunto.trim()) { flash("Pon nombre al punto", "warn"); return; } dispatch({ type: "ADD_PUNTO", eventId: ev.id, punto: { id: uid(), name: newPunto.trim(), archivado: false, products: [] } }); setNewPunto(""); flash("Punto de venta creado"); };
+  const addPunto = () => { if (!newPunto.trim()) { flash("Pon nombre al punto", "warn"); return; } const avB = avisoNuevaBarra(acc, ev); if (avB) { flash(avB, "warn"); return; } dispatch({ type: "ADD_PUNTO", eventId: ev.id, punto: { id: uid(), name: newPunto.trim(), archivado: false, products: [] } }); setNewPunto(""); flash("Punto de venta creado"); };
   const duplicarEvento = (src, name, date, venue) => {
     const pmap = {};
     const puntos = src.puntos.filter(p => !p.archivado).map(p => {
@@ -2601,6 +2611,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
   };
   const createEvent = () => {
     if (!newEvent.name.trim()) { flash("Falta el nombre", "warn"); return; }
+    const avE = avisoNuevoEvento(acc, state.events); if (avE) { flash(avE, "warn"); return; }
     if (newEvent.copyFrom) {
       const src = state.events.find(e => e.id === newEvent.copyFrom);
       if (src) { duplicarEvento(src, newEvent.name.trim().toUpperCase(), newEvent.date || new Date().toISOString().slice(0, 10), newEvent.venue); setNewEvent(null); return; }

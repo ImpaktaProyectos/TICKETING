@@ -5,8 +5,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Capa } from "../Capa";
 import * as crm from "./crmdb";
-import { money, useIsMobile, C, Icon, Tile, Badge, Seg, Sheet, Field, Seccion } from "./ui";
+import { money, hoy, useIsMobile, C, Icon, Tile, Badge, Seg, Sheet, Field, Seccion } from "./ui";
 import { Landing, PLANTILLAS_WEB } from "../web/Publico.jsx";
+import { useAcceso, puede } from "../cuenta";
+import { Candado } from "../Bloqueado";
 import { Organizaciones } from "./Organizaciones.jsx";
 import { ResumenVentas, Clientes } from "./Clientes.jsx";
 import { DineroEntradas } from "./DineroEntradas.jsx";
@@ -137,6 +139,8 @@ export function FechaHora({ valor, onChange, titulo = "Elige día y hora", place
 
 /* ===================== Pantalla principal ===================== */
 export function Entradas(props) {
+  const acc = useAcceso();
+  const bloqOnline = !puede(acc, "entradas_online", props.ev, hoy());
   const [modo, setModo] = useState(() => { try { return localStorage.getItem("tixfast_entradas_modo") || "eventos"; } catch { return "eventos"; } });
   const cambiar = (m) => { setModo(m); try { localStorage.setItem("tixfast_entradas_modo", m); } catch {} };
   return (
@@ -145,11 +149,12 @@ export function Entradas(props) {
         {[["eventos", "Eventos", "ticket"], ["orgs", "Organizaciones", "globe"]].map(([k, t, i]) => (
           <button key={k} role="tab" aria-selected={modo === k} onClick={() => cambiar(k)} style={{ display: "inline-flex", alignItems: "center", gap: 8, minHeight: 40, padding: "0 16px", borderRadius: 11, border: "none", fontWeight: 900, fontSize: 14.5, cursor: "pointer", background: modo === k ? "var(--accent)" : "transparent", color: modo === k ? "#fff" : "var(--text)" }}><Icon n={i} s={16} />{t}</button>))}
       </div>
-      {modo === "orgs" ? <Organizaciones flash={props.flash} /> : <EntradasEventos {...props} />}
+      {bloqOnline && <div style={{ ...C.panel, borderColor: "var(--amber)", display: "flex", alignItems: "center", gap: 10, fontSize: 14 }}><Candado s={18} /><span><b>La venta de entradas online es de la suscripción.</b> Puedes ver lo que ya tenías y apuntar ventas de entradas, pero no activar ventas online nuevas.</span></div>}
+      {modo === "orgs" ? <Organizaciones flash={props.flash} /> : <EntradasEventos {...props} bloqOnline={bloqOnline} />}
     </div>
   );
 }
-function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, onVentaEntradas, onEditarIngreso }) {
+function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, onVentaEntradas, onEditarIngreso, bloqOnline }) {
   const isMobile = useIsMobile();
   const [lista, setLista] = useState(null);        // { eventoId: resumen de su venta online }
   const [d, setD] = useState(null);                // { ficha, tramos } del evento elegido
@@ -169,9 +174,10 @@ function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, o
   }, [ev.id]);
 
   const activar = async () => {
+    if (bloqOnline) { flash("La venta de entradas online es de la suscripción. Mira tu plan en Ajustes › Tu cuenta.", "warn"); return; }
     setBusy(true);
     try { const ficha = await crm.webActivar(ev); setD({ ficha, tramos: [] }); refrescarLista(); flash("Venta online activada (en borrador)"); }
-    catch (e) { flash(e.message || "No se ha podido activar", "warn"); } finally { setBusy(false); }
+    catch (e) { flash(String(e.message || "No se ha podido activar").replace(/^TIXFAST: /, ""), "warn"); } finally { setBusy(false); }
   };
   const ordenados = useMemo(() => [...events].sort((a, b) => String(b.startsAt || b.date || "").localeCompare(String(a.startsAt || a.date || ""))), [events]);
   const w = lista?.[ev.id];

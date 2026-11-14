@@ -9,6 +9,7 @@ import { Capa } from "./Capa";
 import { uid } from "./supabase";
 import * as db from "./db";
 import { copiaDeEvento, ordenarEventos, estadoFecha } from "./eventos";
+import { useAcceso, bloqueada, avisoNuevoEvento } from "./cuenta";
 
 const aIso = (v) => { if (!v) return ""; const d = new Date(v); return isNaN(d) ? "" : d.toISOString(); };
 const fecha = (d) => { try { return new Date(d + "T12:00").toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" }); } catch { return d; } };
@@ -25,6 +26,9 @@ export function NuevoEvento({ events, ev, flash, onCreado, onCerrar }) {
   const ordenados = useMemo(() => ordenarEventos(events), [events]);
   const [x, setX] = useState({ nombre: "", inicio: "", fin: "", recinto: ev?.venue || "", desde: ev?.id || "", barras: true, reservados: true, online: true });
   const [busy, setBusy] = useState(false);
+  const acc = useAcceso();
+  const avisoLimite = avisoNuevoEvento(acc, events);
+  const sinRes = bloqueada(acc, "reservados"), sinOnline = bloqueada(acc, "entradas_online");
   const set = (k, v) => setX(o => ({ ...o, [k]: v }));
   const src = events.find(e => e.id === x.desde) || null;
   const nProd = src ? src.puntos.filter(p => !p.archivado).reduce((t, p) => t + (p.products || []).length, 0) : 0;
@@ -34,6 +38,7 @@ export function NuevoEvento({ events, ev, flash, onCreado, onCerrar }) {
 
   const crear = async () => {
     if (!listo || busy) return;
+    if (avisoLimite) { flash(avisoLimite, "warn"); return; }
     setBusy(true);
     const datos = { name: x.nombre.trim().toUpperCase().slice(0, 80), date: x.inicio.slice(0, 10), startsAt: x.inicio, endsAt: aIso(x.fin), venue: x.recinto.trim() };
     const nuevo = src ? copiaDeEvento(src, datos, uid, { barras: x.barras, reservados: x.reservados })
@@ -42,10 +47,10 @@ export function NuevoEvento({ events, ev, flash, onCreado, onCerrar }) {
     catch (e) { flash(e?.mostrar ? e.message : "No se ha podido crear el evento", "warn"); setBusy(false); return; }
     // Lo demás se copia después (si algo falla, el evento ya existe y se avisa)
     const avisos = [];
-    if (src && x.reservados) { try { const { copiarReservados } = await import("./reservados"); await copiarReservados(src.id, nuevo.id); } catch { avisos.push("los reservados"); } }
+    if (src && x.reservados && !sinRes) { try { const { copiarReservados } = await import("./reservados"); await copiarReservados(src.id, nuevo.id); } catch { avisos.push("los reservados"); } }
     let tramos = null;
-    if (src && x.online) { try { const crm = await import("./crm/crmdb"); tramos = await crm.webCopiarDe(src.id, { id: nuevo.id, name: nuevo.name }); } catch { avisos.push("la venta de entradas online"); } }
-    const copiado = src ? [x.barras && `${nuevo.puntos.length} ${nuevo.puntos.length === 1 ? "barra" : "barras"} y ${nuevo.puntos.reduce((t, p) => t + p.products.length, 0)} productos`, x.reservados && (res.tarifas || []).length && "reservados", tramos && `${tramos} tramos de entradas`].filter(Boolean).join(", ") : "";
+    if (src && x.online && !sinOnline) { try { const crm = await import("./crm/crmdb"); tramos = await crm.webCopiarDe(src.id, { id: nuevo.id, name: nuevo.name }); } catch { avisos.push("la venta de entradas online"); } }
+    const copiado = src ? [x.barras && `${nuevo.puntos.length} ${nuevo.puntos.length === 1 ? "barra" : "barras"} y ${nuevo.puntos.reduce((t, p) => t + p.products.length, 0)} productos`, x.reservados && !sinRes && (res.tarifas || []).length && "reservados", tramos && `${tramos} tramos de entradas`].filter(Boolean).join(", ") : "";
     flash(avisos.length ? `Evento creado, pero no se han podido copiar ${avisos.join(" ni ")}` : `✓ ${nuevo.name} creado${copiado ? ` · copiado: ${copiado}` : ""}`, avisos.length ? "warn" : undefined);
     setBusy(false);
     onCreado(nuevo);
@@ -75,11 +80,12 @@ export function NuevoEvento({ events, ev, flash, onCreado, onCerrar }) {
         </select>
         {src && <div style={{ marginTop: 10 }}>
           <label style={K.check(x.barras)}><input type="checkbox" checked={x.barras} onChange={e => set("barras", e.target.checked)} style={{ marginTop: 3 }} /><span><b>Barras, productos y precios del TPV</b><span style={{ display: "block", fontSize: 12.5, color: "var(--muted)" }}>{nBarras} barras · {nProd} productos, con sus bonos, colores, plantilla del ticket y ajustes</span></span></label>
-          <label style={K.check(x.reservados)}><input type="checkbox" checked={x.reservados} onChange={e => set("reservados", e.target.checked)} style={{ marginTop: 3 }} /><span><b>Reservados VIP</b><span style={{ display: "block", fontSize: 12.5, color: "var(--muted)" }}>Mesas (libres), {(res.tarifas || []).length} tarifas, extras, promotores y socios</span></span></label>
-          <label style={K.check(x.online)}><input type="checkbox" checked={x.online} onChange={e => set("online", e.target.checked)} style={{ marginTop: 3 }} /><span><b>Tarifas de entradas online</b><span style={{ display: "block", fontSize: 12.5, color: "var(--muted)" }}>Ficha y tramos de precio, en borrador (si el evento tenía venta online)</span></span></label>
+          {!sinRes && <label style={K.check(x.reservados)}><input type="checkbox" checked={x.reservados} onChange={e => set("reservados", e.target.checked)} style={{ marginTop: 3 }} /><span><b>Reservados VIP</b><span style={{ display: "block", fontSize: 12.5, color: "var(--muted)" }}>Mesas (libres), {(res.tarifas || []).length} tarifas, extras, promotores y socios</span></span></label>}
+          {!sinOnline && <label style={K.check(x.online)}><input type="checkbox" checked={x.online} onChange={e => set("online", e.target.checked)} style={{ marginTop: 3 }} /><span><b>Tarifas de entradas online</b><span style={{ display: "block", fontSize: 12.5, color: "var(--muted)" }}>Ficha y tramos de precio, en borrador (si el evento tenía venta online)</span></span></label>}
           <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 4 }}>No se copian ventas, cierres, ingresos ni gastos: cada fiesta empieza con sus cuentas a cero.</div>
         </div>}
-        <button onClick={crear} disabled={!listo || busy} style={{ ...K.btn, width: "100%", marginTop: 16, background: "var(--accent)", color: "#fff", opacity: listo && !busy ? 1 : .45 }}>{busy ? "Creando…" : listo ? `Crear ${x.nombre.trim().toUpperCase().slice(0, 30)}` : "Pon el nombre y cuándo empieza"}</button>
+        {avisoLimite && <div style={{ marginTop: 14, padding: "11px 12px", borderRadius: 12, border: "1px solid var(--amber)", color: "var(--amber)", fontSize: 13.5, fontWeight: 700 }}>🔒 {avisoLimite}</div>}
+        <button onClick={crear} disabled={!listo || busy || !!avisoLimite} style={{ ...K.btn, width: "100%", marginTop: 16, background: "var(--accent)", color: "#fff", opacity: listo && !busy && !avisoLimite ? 1 : .45 }}>{avisoLimite ? "🔒 Límite del plan alcanzado" : busy ? "Creando…" : listo ? `Crear ${x.nombre.trim().toUpperCase().slice(0, 30)}` : "Pon el nombre y cuándo empieza"}</button>
       </div>
     </div>
   </Capa>);
