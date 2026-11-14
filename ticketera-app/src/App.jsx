@@ -15,7 +15,14 @@ import QrCodigo from "./qr/QrCodigo";
 import { crearToken } from "./qr/token";
 import InformeQR from "./qr/InformeQR";
 // Modo CRM: código aparte que solo se descarga al abrirlo (el TPV no pesa más ni arranca más lento)
-const CRM = lazy(() => import("./crm/CRM.jsx"));
+// El CRM se descarga aparte (el TPV arranca antes), pero se adelanta en segundo plano para que abra al momento:
+// al quedar el equipo libre tras arrancar, al entrar como administrador y al tocar el botón del CRM.
+// Nunca con «ahorro de datos» ni con 2G. Cada llamada reutiliza la misma descarga.
+let crmCargando = null;
+const cargarCRM = () => (crmCargando ||= import("./crm/CRM.jsx").catch(e => { crmCargando = null; throw e; }));
+const conexionLenta = () => { const c = typeof navigator !== "undefined" ? navigator.connection : null; return !!(c && (c.saveData || /(^|-)2g$/.test(c.effectiveType || ""))); };
+export function precargarCRM() { if (conexionLenta() || (typeof navigator !== "undefined" && navigator.onLine === false)) return; cargarCRM().catch(() => {}); }
+const CRM = lazy(cargarCRM);
 // Validador de tickets con QR (cámara): solo se descarga en el móvil que valida
 const Validador = lazy(() => import("./qr/Validador.jsx"));
 
@@ -48,7 +55,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.14c";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.14d";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -337,6 +344,13 @@ export default function App() {
 
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState(null);
+  // Adelanta la descarga del CRM: unos segundos después de arrancar (con el equipo libre) y al entrar como administrador
+  useEffect(() => {
+    const ric = window.requestIdleCallback || ((f) => setTimeout(f, 1));
+    const t = setTimeout(() => ric(precargarCRM, { timeout: 4000 }), 4000);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => { if (role === "admin") precargarCRM(); }, [role]);
   const [view, setView] = useState("pos");
   const [appMode, setAppMode] = useState("tpv");   // "tpv" | "crm" (el CRM solo para admin)
   const [toast, setToast] = useState(null);
@@ -1481,7 +1495,7 @@ function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 
             </button>
             <div className="tg-roles">
               {roles.map(r => (
-                <button type="button" key={r.k} className="tg-rol" onClick={() => setMode(r.k)}>
+                <button type="button" key={r.k} className="tg-rol" onClick={() => setMode(r.k)} onPointerDown={r.k === "crm" ? precargarCRM : undefined}>
                   <span className="tg-rol-ico" aria-hidden="true"><Ic n={r.icon} s={22} /></span>
                   <span className="tg-rol-t">{r.t}</span>
                   <span className="tg-rol-d">{r.d}</span>
