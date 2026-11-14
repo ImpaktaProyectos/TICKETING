@@ -5,6 +5,7 @@
 //   · venta de entradas online: ficha y tramos de precio (en borrador)
 // Nunca copia ventas, cierres, ingresos ni gastos.
 import React, { useMemo, useState } from "react";
+import { Capa } from "./Capa";
 import { uid } from "./supabase";
 import * as db from "./db";
 import { copiaDeEvento, ordenarEventos, estadoFecha } from "./eventos";
@@ -50,7 +51,7 @@ export function NuevoEvento({ events, ev, flash, onCreado, onCerrar }) {
     onCreado(nuevo);
   };
 
-  return (
+  return (<Capa>
     <div style={K.wrap} onClick={() => !busy && onCerrar()}>
       <div role="dialog" aria-modal="true" aria-label="Nuevo evento" style={K.card} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -81,5 +82,5 @@ export function NuevoEvento({ events, ev, flash, onCreado, onCerrar }) {
         <button onClick={crear} disabled={!listo || busy} style={{ ...K.btn, width: "100%", marginTop: 16, background: "var(--accent)", color: "#fff", opacity: listo && !busy ? 1 : .45 }}>{busy ? "Creando…" : listo ? `Crear ${x.nombre.trim().toUpperCase().slice(0, 30)}` : "Pon el nombre y cuándo empieza"}</button>
       </div>
     </div>
-  );
+  </Capa>);
 }

@@ -2,6 +2,7 @@
 // Facturas emitidas y de gastos, contactos y datos fiscales. Módulo APARTE: no toca los números de los eventos.
 // Las facturas emitidas se numeran y bloquean en el servidor (fac_emitir) con huella encadenada (preparado VERI*FACTU).
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Capa } from "../../Capa";
 import { C, Icon, Tile, Badge, Seg, Sheet, Field, useIsMobile } from "../ui";
 import * as fdb from "./facdb";
 import { calcular, baseLinea, eur, fechaES, num, IVAS, IRPFS, trimestre, MESES, CATEGORIAS_GASTO, diasVencida, textoRecordatorio } from "./calculo";
@@ -367,7 +368,7 @@ function Editor({ f: inicial, E, d, busy, isMobile, flash, onCerrar, onGuardar, 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderTop: "1px solid var(--line)", marginTop: 8, paddingTop: 10 }}><b>Total</b><b style={{ fontSize: 26, letterSpacing: -.5 }}>{eur(T.total)}</b></div>
     </div>);
 
-  return (
+  return (<Capa>
     <div role="dialog" aria-label={f.rectificativa ? "Factura rectificativa" : "Factura"} style={{ position: "fixed", inset: 0, zIndex: 90, background: "var(--bg)", display: "flex", flexDirection: "column" }}>
       <header style={{ display: "flex", alignItems: "center", gap: 10, padding: "max(12px, env(safe-area-inset-top)) 16px 12px", borderBottom: "1px solid var(--line)", background: "var(--surface)" }}>
         <button onClick={cerrar} aria-label="Cerrar" style={{ ...C.btnSm, padding: "9px 11px" }}><Icon n="x" s={17} /></button>
@@ -437,7 +438,7 @@ function Editor({ f: inicial, E, d, busy, isMobile, flash, onCerrar, onGuardar, 
         </div>
       </Sheet>}
     </div>
-  );
+  </Capa>);
 }
 
 // Miniatura de cada plantilla (para elegir de un vistazo)

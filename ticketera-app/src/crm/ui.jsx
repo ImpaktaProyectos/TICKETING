@@ -1,5 +1,6 @@
 // Utilidades y estilos compartidos del CRM
 import React, { useEffect, useState } from "react";
+import { Capa } from "../Capa";
 
 // Siempre con separador de miles (1.380,00 €): más fácil de leer de un vistazo
 const FMT = (() => { try { return new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", useGrouping: "always" }); } catch { return new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }); } })();
@@ -76,7 +77,7 @@ export const C = {
   primary: { background: "var(--accent)", color: "#fff", border: "none", borderRadius: 12, padding: "12px 18px", fontWeight: 900, fontSize: 15, cursor: "pointer" },
   ghost: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 12, padding: "11px 16px", fontWeight: 700, cursor: "pointer" },
   small: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 10px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" },
-  input: { width: "100%", boxSizing: "border-box", background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "11px 13px", fontSize: 15, outline: "none" },
+  input: { width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "11px 13px", fontSize: 15, outline: "none" },
   empty: { textAlign: "center", padding: "22px 12px", color: "var(--muted)", border: "2px dashed var(--line)", borderRadius: 14, fontSize: 13.5 },
   modalWrap: { position: "fixed", inset: 0, zIndex: 90, background: "var(--overlay)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center" },
   modal: { width: "100%", maxWidth: 520, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 22, padding: 20, paddingBottom: "calc(20px + env(safe-area-inset-bottom))", maxHeight: "92dvh", overflow: "auto", boxSizing: "border-box", alignSelf: "center", margin: "0 auto" },
@@ -214,7 +215,7 @@ export function Grupo({ id, i, c, t, n, total, totalColor, children }) {
 // Hoja/modal con pie fijo (el botón de guardar siempre a mano en el móvil)
 export function Sheet({ title, onClose, children, footer }) {
   const isMobile = useIsMobile();
-  return (
+  return (<Capa>
     <div style={C.modalWrap} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 540, background: "var(--surface)", border: "1px solid var(--line)", display: "flex", flexDirection: "column", boxSizing: "border-box",
         ...(isMobile ? { borderRadius: "22px 22px 0 0", maxHeight: "94dvh", alignSelf: "flex-end" } : { borderRadius: 22, maxHeight: "90dvh", alignSelf: "center" }) }}>
@@ -222,23 +223,25 @@ export function Sheet({ title, onClose, children, footer }) {
           <div style={{ fontWeight: 900, fontSize: 18, minWidth: 0 }}>{title}</div>
           <button onClick={onClose} aria-label="Cerrar" style={{ width: 34, height: 34, borderRadius: 10, border: "1px solid var(--line)", background: "var(--surface2)", color: "var(--text)", display: "grid", placeItems: "center", cursor: "pointer", flexShrink: 0 }}><Icon n="x" s={16} /></button>
         </div>
-        <div style={{ overflowY: "auto", padding: "16px 18px", flex: 1, WebkitOverflowScrolling: "touch" }}>{children}</div>
+        <div data-scroll style={{ overflowY: "auto", overflowX: "hidden", overscrollBehavior: "contain", padding: "16px 18px", flex: 1, minHeight: 0, WebkitOverflowScrolling: "touch" }}>{children}</div>
         {footer && <div style={{ padding: "12px 18px", paddingBottom: "calc(12px + env(safe-area-inset-bottom))", borderTop: "1px solid var(--line)", background: "var(--surface)", borderRadius: isMobile ? 0 : "0 0 22px 22px" }}>{footer}</div>}
       </div>
     </div>
-  );
+  </Capa>);
 }
 export const Field = ({ l, children, mb = 16 }) => <div style={{ marginBottom: mb }}><div style={C.label}>{l}</div>{children}</div>;
 // Rejilla de opciones con icono (categorías): se toca y se ve claro cuál está elegida
 export function IconGrid({ items, valor, onChange, cols }) {
   const isMobile = useIsMobile();
+  // En el móvil, en fila (icono + nombre) y a 2 columnas: ocupa la mitad de alto y no hay que bajar tanto
+  const fila = isMobile && !cols;
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols || (isMobile ? 3 : 4)}, minmax(0,1fr))`, gap: 8 }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols || (isMobile ? 2 : 4)}, minmax(0,1fr))`, gap: fila ? 6 : 8 }}>
       {items.map(it => { const on = it.k === valor; return (
-        <button key={it.k} type="button" onClick={() => onChange(it.k)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "10px 6px", borderRadius: 12, cursor: "pointer", minWidth: 0,
+        <button key={it.k} type="button" onClick={() => onChange(it.k)} aria-pressed={on} style={{ display: "flex", flexDirection: fila ? "row" : "column", alignItems: "center", gap: fila ? 8 : 6, padding: fila ? "7px 8px" : "10px 6px", minHeight: fila ? 46 : undefined, borderRadius: 12, cursor: "pointer", minWidth: 0,
           border: `2px solid ${on ? (it.c || "var(--accent)") : "var(--line)"}`, background: on ? `color-mix(in srgb, ${it.c || "var(--accent)"} 12%, var(--surface2))` : "var(--surface2)", color: "var(--text)" }}>
-          <Tile n={it.i} c={it.c} s={34} />
-          <span style={{ fontSize: 12, fontWeight: 800, lineHeight: 1.15, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", width: "100%" }}>{it.t || it.k}</span>
+          <Tile n={it.i} c={it.c} s={fila ? 28 : 34} />
+          <span style={{ fontSize: fila ? 13 : 12, fontWeight: 800, lineHeight: 1.15, textAlign: fila ? "left" : "center", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", width: "100%" }}>{it.t || it.k}</span>
         </button>); })}
     </div>
   );

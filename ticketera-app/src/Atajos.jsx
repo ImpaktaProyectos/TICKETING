@@ -5,6 +5,7 @@
 //   · Añadir cambio → movimiento de la caja elegida (con el socio que lo pone, si es el caso)
 //   · Pagos del evento → lista de gastos del CRM para ir marcando ✓ pagado (igual que en el CRM)
 import React, { useEffect, useMemo, useState } from "react";
+import { Capa } from "./Capa";
 import * as crm from "./crm/crmdb";
 import * as sd from "./socioDeudas";
 import { GCATS } from "./crm/categorias";
@@ -41,7 +42,7 @@ export function Atajos({ ev, gastosCaja = [], flash, onMovimiento, onCerrar }) {
     ["cambio", ICO.cambio, "Añadir cambio a una caja", "Elige a qué barra va. Cuenta en su cierre Z", "#22d3a6"],
     ["pagos", ICO.pagos, "Pagos del evento", "Ve tachando ✓ lo que ya está pagado (igual que en el CRM)", "#a855f7"],
   ];
-  return (
+  return (<Capa>
     <div role="dialog" aria-modal="true" aria-label="Atajos rápidos" style={K.wrap}>
       <header style={K.head}>
         <button onClick={() => vista ? setVista(null) : onCerrar()} aria-label={vista ? "Volver a los atajos" : "Cerrar"} style={K.icoBtn}>{P(vista ? ICO.atras : ICO.x, 20)}</button>
@@ -65,7 +66,7 @@ export function Atajos({ ev, gastosCaja = [], flash, onMovimiento, onCerrar }) {
         {vista === "pagos" && <Pagos ev={ev} gastosCaja={gastosCaja} flash={flash} />}
       </div></div>
     </div>
-  );
+  </Capa>);
 }
 
 const estadoBarra = (p) => p.estado === "abierta" ? ["Abierta", "var(--green)"] : p.estado === "cerrada" ? ["Cerrada", "var(--red)"] : ["Modo prueba", "var(--amber)"];

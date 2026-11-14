@@ -34,6 +34,12 @@ const NAV_GRUPOS = [
   ["Empresa", [["facturacion", "file", "Facturación"]]],
 ];
 const NAV_TODO = NAV_GRUPOS.flatMap(g => g[1]);
+// Móvil: las fechas no se salen del ancho (iPhone), nada se desplaza de lado y el scroll no «se engancha»
+const CRM_CSS = `
+.crm-raiz input[type=date],.crm-raiz input[type=datetime-local],.crm-raiz input[type=time],#crm-capas input[type=date],#crm-capas input[type=datetime-local],#crm-capas input[type=time]{-webkit-appearance:none;appearance:none;display:block;min-width:0;max-width:100%;width:100%;box-sizing:border-box;min-height:44px;text-align:left}
+.crm-raiz input::-webkit-date-and-time-value,#crm-capas input::-webkit-date-and-time-value{text-align:left}
+.crm-raiz main,#crm-capas [data-scroll]{overscroll-behavior:contain;overflow-x:hidden}
+`;
 const NAV_MOVIL = NAV_TODO.filter(n => ["dashboard", "ingresos", "gastos", "entradas"].includes(n[0]));
 const NAV_MAS = NAV_TODO.filter(n => !NAV_MOVIL.includes(n));
 
@@ -152,7 +158,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
   const navBtn = (on) => ({ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 10px", borderRadius: 10, border: "none", cursor: "pointer", textAlign: "left", font: "inherit", fontSize: 14.5, fontWeight: on ? 800 : 650, background: on ? "color-mix(in srgb, var(--accent) 13%, transparent)" : "transparent", color: on ? "var(--accent)" : "var(--text)" });
   const enMas = NAV_MAS.some(n => n[0] === tab) || tab === "ajustes";
   return (
-    <div style={wrap}>
+    <div className="crm-raiz" style={wrap}>
       {!isMobile && (
         <aside aria-label="Menú del CRM" style={{ width: 248, flexShrink: 0, display: "flex", flexDirection: "column", gap: 16, background: "var(--surface)", borderRight: "1px solid var(--line)", padding: "max(18px, env(safe-area-inset-top)) 14px 16px", boxSizing: "border-box", overflowY: "auto" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 6px" }}>
@@ -312,6 +318,9 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
         onClose={() => setEditIng(null)}
         onSave={async (x) => { const ok = await run(() => crm.saveIngreso({ ...x, eventoId: ev.id }), x.id ? "Ingreso actualizado" : "Ingreso añadido"); if (ok) setEditIng(null); }}
         onDelete={async (x) => { const ok = await run(() => crm.deleteIngreso(x.id), "Ingreso borrado"); if (ok) setEditIng(null); }} />}
+      {/* Capa de ventanas del CRM (encima de la barra de abajo y del scroll; conserva el tema) */}
+      <div id="crm-capas" />
+      <style>{CRM_CSS}</style>
     </div>
   );
 }

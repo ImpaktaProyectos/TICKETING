@@ -3,6 +3,7 @@
 // o se cambia el importe (p. ej. 220 → 260) y queda guardado como importe real.
 // Sirve igual en el CRM (Gastos) y en los atajos rápidos (Pagos del evento).
 import React, { useState } from "react";
+import { Capa } from "./Capa";
 
 const money = (v) => (Number(v) || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR", useGrouping: "always" });
 const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
@@ -20,7 +21,7 @@ export function ConfirmarPago({ g, nombre, onConfirmar, onCerrar }) {
   const valido = Number.isFinite(imp) && imp >= 0 && imp < 100000000;
   const dif = previsto != null && valido ? r2(imp - previsto) : 0;
   const confirmar = async (v) => { if (busy) return; setBusy(true); await onConfirmar(v); setBusy(false); };
-  return (
+  return (<Capa>
     <div style={{ position: "fixed", inset: 0, zIndex: 140, background: "rgba(0,0,0,.6)", display: "grid", placeItems: "end center" }} onClick={() => !busy && onCerrar()}>
       <div role="dialog" aria-modal="true" aria-label={`¿Has pagado ${nombre}?`} onClick={e => e.stopPropagation()}
         style={{ width: "100%", maxWidth: 460, background: "var(--surface)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: "22px 22px 0 0", padding: "18px 18px calc(18px + env(safe-area-inset-bottom))", boxSizing: "border-box" }}>
@@ -44,5 +45,5 @@ export function ConfirmarPago({ g, nombre, onConfirmar, onCerrar }) {
         <button onClick={onCerrar} disabled={busy} style={{ width: "100%", minHeight: 44, marginTop: 8, borderRadius: 14, border: "none", background: "transparent", color: "var(--muted)", fontWeight: 700, fontSize: 14.5, cursor: "pointer" }}>Cancelar</button>
       </div>
     </div>
-  );
+  </Capa>);
 }

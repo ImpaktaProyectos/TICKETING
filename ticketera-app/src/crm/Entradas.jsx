@@ -3,6 +3,7 @@
 // con calendario propio para día y hora y una vista en directo de cómo lo verá el comprador.
 // Se guarda solo al escribir. La venta pública la hace el servidor (nunca desde aquí).
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Capa } from "../Capa";
 import * as crm from "./crmdb";
 import { money, useIsMobile, C, Icon, Tile, Badge, Seg, Sheet, Field, Seccion } from "./ui";
 import { Landing, PLANTILLAS_WEB } from "../web/Publico.jsx";
@@ -617,7 +618,7 @@ function PreviaGrande({ ev, url, isMobile, onClose }) {
   const [modo, setModo] = useState(isMobile ? "movil" : "ordenador");
   const ancho = useAncho();
   const anchoPc = Math.min(1280, ancho - 48), zoomPc = anchoPc / 1280;
-  return (
+  return (<Capa>
     <div role="dialog" aria-label="Vista previa" style={{ position: "fixed", inset: 0, zIndex: 95, background: "rgba(8,9,13,.92)", backdropFilter: "blur(6px)", display: "flex", flexDirection: "column", alignItems: "center", padding: "14px 12px calc(14px + env(safe-area-inset-bottom))", gap: 12 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
         {!isMobile && <Seg valor={modo} onChange={setModo} opciones={[{ k: "movil", t: "Móvil", i: "phone" }, { k: "ordenador", t: "Ordenador", i: "pos" }]} />}
@@ -630,7 +631,7 @@ function PreviaGrande({ ev, url, isMobile, onClose }) {
             <div style={{ width: 1280, zoom: zoomPc, pointerEvents: "none" }}><Landing ev={ev} previa /></div>
           </div>}
     </div>
-  );
+  </Capa>);
 }
 // Dibujo de cada plantilla (para elegir de un vistazo)
 function Esquema({ k, color, oscuro }) {

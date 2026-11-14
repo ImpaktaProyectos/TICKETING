@@ -2,6 +2,7 @@
 // Cada organización (la discoteca, la marca de fiestas…) tiene su microsite /o/<enlace> con todos sus
 // eventos, fotos y su identidad. Aquí se personaliza al 100 %, con la página real en pequeño al lado.
 import React, { useEffect, useRef, useState } from "react";
+import { Capa } from "../Capa";
 import * as crm from "./crmdb";
 import { useIsMobile, C, Icon, Tile, Badge, Seg, Sheet, Field } from "./ui";
 import { Microsite, ESTILOS_ORG, SECCIONES_ORG, disenoOrg, REDES_ORG, IcoRed } from "../web/Microsite.jsx";
@@ -384,7 +385,7 @@ function PreviaGrande({ o, url, isMobile, onClose }) {
   const [modo, setModo] = useState(isMobile ? "movil" : "ordenador");
   const ancho = useAncho();
   const anchoPc = Math.min(1280, ancho - 48);
-  return (
+  return (<Capa>
     <div role="dialog" aria-label="Vista previa" style={{ position: "fixed", inset: 0, zIndex: 95, background: "rgba(8,9,13,.92)", backdropFilter: "blur(6px)", display: "flex", flexDirection: "column", alignItems: "center", padding: "14px 12px calc(14px + env(safe-area-inset-bottom))", gap: 12 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
         {!isMobile && <Seg valor={modo} onChange={setModo} opciones={[{ k: "movil", t: "Móvil", i: "phone" }, { k: "ordenador", t: "Ordenador", i: "pos" }]} />}
@@ -397,7 +398,7 @@ function PreviaGrande({ o, url, isMobile, onClose }) {
             <div style={{ position: "relative", width: 1280, zoom: anchoPc / 1280, pointerEvents: "none" }}><Microsite o={o} previa /></div>
           </div>}
     </div>
-  );
+  </Capa>);
 }
 // Dibujo de cada plantilla
 function Muestra({ k, c, c2 }) {

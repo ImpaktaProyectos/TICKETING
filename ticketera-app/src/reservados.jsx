@@ -4,6 +4,7 @@
 // Las ventas son ventas normales del TPV (misma facturación, mismo cierre Z, mismo ticket);
 // aquí solo se apunta a qué reservado va cada una.
 import { secretoDe, comprobar as comprobarPin, leerBloqueo, acierto, fallo } from "./pin";
+import { Capa } from "./Capa";
 import { enlacePedirBebidas, waNumero } from "./mensajesReservados";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as db from "./db";
@@ -189,7 +190,7 @@ function useAtras(onClose) {
 }
 function Hoja({ title, sub, onClose, children, footer, ancho = 560 }) {
   useAtras(onClose);
-  return (
+  return (<Capa>
     <div style={R.wrap} onClick={onClose}>
       <div className="sheet-anim" style={{ ...R.sheet, maxWidth: ancho }} onClick={e => e.stopPropagation()} role="dialog" aria-label={title}>
         <div style={R.grab} />
@@ -201,7 +202,7 @@ function Hoja({ title, sub, onClose, children, footer, ancho = 560 }) {
         {footer && <div style={{ position: "sticky", bottom: -18, background: "var(--surface)", paddingTop: 12, marginTop: 6 }}>{footer}</div>}
       </div>
     </div>
-  );
+  </Capa>);
 }
 function Estado({ e, big }) { const x = ESTADOS[e] || ESTADOS.libre; return <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: big ? 13 : 11.5, fontWeight: 800, color: x.c, background: x.bg, borderRadius: 20, padding: big ? "5px 11px" : "3px 9px", whiteSpace: "nowrap" }}><span style={{ width: 7, height: 7, borderRadius: 7, background: x.c }} />{x.t}</span>; }
 

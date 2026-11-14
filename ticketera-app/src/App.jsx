@@ -57,7 +57,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.14i";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.14j";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -3723,6 +3723,9 @@ function shade(hex, p) { const n = parseInt(hex.slice(1), 16); let r = (n >> 16)
 
 /* ---------------------- styles ---------------------- */
 const CSS = `
+input[type=date],input[type=datetime-local],input[type=time]{-webkit-appearance:none;appearance:none;display:block;min-width:0;max-width:100%;box-sizing:border-box;min-height:44px;text-align:left}
+input::-webkit-date-and-time-value{text-align:left}
+
 @import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&family=Roboto+Mono:wght@400;700&display=swap');
 :root{--bg:#0b0c10;--surface:#14161d;--surface2:#1c1f29;--line:#2a2e3a;--text:#eceef5;--muted:#838aa0;--accent:#ff5a3c;--green:#22d3a6;--amber:#ffb400;--red:#ff4d4d;}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}

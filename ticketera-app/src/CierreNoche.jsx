@@ -4,6 +4,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { resumenNoche } from "./cierreNocheCalc";
 import * as sd from "./socioDeudas";
+import { Capa } from "./Capa";
 
 const money = (v) => (Number(v) || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR", useGrouping: "always" });
 const hora = (ts) => ts ? new Date(ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }) : "";
@@ -181,7 +182,7 @@ export function CierreNoche({ ev, evSales, evGastos, res, role, flash }) {
           </div>
         </div>)}
 
-      {confirmar && (
+      {confirmar && (<Capa>
         <div role="dialog" aria-modal="true" aria-label="Confirmar devolución" onClick={() => !busy && setConfirmar(null)} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,.6)", display: "grid", placeItems: "center", padding: 16 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 18, padding: 20, width: "100%", maxWidth: 420 }}>
             <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 6 }}>¿{confirmar.socio} ha devuelto el dinero?</div>
@@ -193,7 +194,7 @@ export function CierreNoche({ ev, evSales, evGastos, res, role, flash }) {
               <button onClick={() => devolver(confirmar)} disabled={busy} style={{ ...K.btn, flex: 1.5, background: "var(--green)", borderColor: "var(--green)", color: "#04231a" }}>{P(ICO.ok)}{busy ? "Guardando…" : "Sí, lo ha devuelto"}</button>
             </div>
           </div>
-        </div>)}
+        </div></Capa>)}
     </section>
   );
 }
