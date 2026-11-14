@@ -2,9 +2,8 @@
 -- TIXFAST · CRECIMIENTO Y RETENCIÓN AUTOMÁTICOS
 -- ---------------------------------------------------------------------
 -- · Correos automáticos según el momento de cada cuenta (bienvenida, prueba, impago,
---   cancelación, recuperación, inactividad). Cada correo se envía UNA sola vez (ticket_correos).
--- · Los correos comerciales respetan la baja (correos_promo); los de servicio (prueba que acaba,
---   impago) se envían siempre, como exige cualquier cobro recurrente.
+--   cancelación y recuperación). Solo mensajes que ayudan a ganar o conservar clientes. Cada correo se envía UNA sola vez (ticket_correos).
+-- · Los correos comerciales respetan la baja (correos_promo); los de impago se envían siempre.
 -- · Motivos de baja y ofertas (descuento, pausa) quedan registrados en ticket_bajas.
 -- · Todo se configura desde el panel de administración (ticket_crecimiento_config).
 -- =====================================================================
@@ -65,11 +64,9 @@ insert into public.ticket_crecimiento_config (id, ajustes) values (1, '{
     "bienvenida":      {"activo": true},
     "sin_prueba":      {"activo": true, "dias": [2, 6]},
     "prueba_consejos": {"activo": true},
-    "prueba_acaba":    {"activo": true, "dias_antes": 2},
     "impago":          {"activo": true, "dias": [0, 3, 6]},
     "cancela":         {"activo": true},
-    "recuperar":       {"activo": true, "dias": [7, 30]},
-    "inactivo":        {"activo": true, "dias": 14}
+    "recuperar":       {"activo": true, "dias": [7, 30]}
   },
   "oferta_retencion": {"descuento": 50, "meses": 3},
   "oferta_recuperar": {"descuento": 30, "meses": 2},
@@ -131,11 +128,6 @@ begin
   select b.owner_id, b.em, 'prueba_consejos', b.estado_desde::date::text, '{}'::jsonb from b
     where coalesce((s -> 'prueba_consejos' ->> 'activo')::boolean, false) and b.estado = 'prueba' and b.estado_desde between now() - interval '2 days' and now() - interval '1 day'
   union all
-  -- La prueba acaba pronto (aviso de servicio: se va a cobrar)
-  select b.owner_id, b.em, 'prueba_acaba', b.prueba_hasta::date::text, jsonb_build_object('prueba_hasta', b.prueba_hasta) from b
-    where coalesce((s -> 'prueba_acaba' ->> 'activo')::boolean, false) and b.estado = 'prueba' and not b.cancela_al_final
-      and b.prueba_hasta between now() + make_interval(days => greatest(coalesce((s -> 'prueba_acaba' ->> 'dias_antes')::int, 2) - 1, 0)) and now() + make_interval(days => coalesce((s -> 'prueba_acaba' ->> 'dias_antes')::int, 2))
-  union all
   -- Impago (aviso de servicio)
   select b.owner_id, b.em, 'impago', b.estado_desde::date::text || '-d' || dd, jsonb_build_object('dia', dd, 'ultimo', dd = (select max(v::int) from jsonb_array_elements_text(coalesce(s -> 'impago' -> 'dias', '[]')) v)) from b,
     lateral (select jsonb_array_elements_text(coalesce(s -> 'impago' -> 'dias', '[]'))::int dd) x
@@ -151,11 +143,7 @@ begin
     lateral (select jsonb_array_elements_text(coalesce(s -> 'recuperar' -> 'dias', '[]'))::int dd) x
     where coalesce((s -> 'recuperar' ->> 'activo')::boolean, false) and b.estado = 'cancelada' and b.prueba_usada and b.correos_promo and not b.oferta_recuperar_usada
       and b.estado_desde between now() - make_interval(days => dd + 1) and now() - make_interval(days => dd)
-  union all
-  -- Paga pero no entra: ayuda (como mucho una vez al mes)
-  select b.owner_id, b.em, 'inactivo', to_char(now(), 'YYYY-MM'), jsonb_build_object('dias', coalesce((s -> 'inactivo' ->> 'dias')::int, 14)) from b
-    where coalesce((s -> 'inactivo' ->> 'activo')::boolean, false) and b.estado in ('activa', 'prueba', 'cortesia') and b.correos_promo
-      and coalesce(b.ult, b.alta) < now() - make_interval(days => coalesce((s -> 'inactivo' ->> 'dias')::int, 14));
+;
 end $$;
 revoke all on function public.crecimiento_candidatos() from public, anon, authenticated;
 grant execute on function public.crecimiento_candidatos() to service_role;
@@ -241,7 +229,7 @@ begin
   perform public.ticket_exigir_superadmin();
   if jsonb_typeof(p) <> 'object' or jsonb_typeof(p -> 'secuencias') <> 'object' then raise exception 'Ajustes no válidos'; end if;
   for k in select jsonb_object_keys(p -> 'secuencias') loop
-    if k not in ('bienvenida', 'sin_prueba', 'prueba_consejos', 'prueba_acaba', 'impago', 'cancela', 'recuperar', 'inactivo') then raise exception 'Secuencia desconocida: %', k; end if;
+    if k not in ('bienvenida', 'sin_prueba', 'prueba_consejos', 'impago', 'cancela', 'recuperar') then raise exception 'Secuencia desconocida: %', k; end if;
   end loop;
   if coalesce((p -> 'oferta_retencion' ->> 'descuento')::int, 0) not between 0 and 100 or coalesce((p -> 'oferta_recuperar' ->> 'descuento')::int, 0) not between 0 and 100 then raise exception 'Descuento no válido'; end if;
   if coalesce((p -> 'oferta_retencion' ->> 'meses')::int, 1) not between 1 and 12 or coalesce((p -> 'oferta_recuperar' ->> 'meses')::int, 1) not between 1 and 12 then raise exception 'Meses no válidos'; end if;

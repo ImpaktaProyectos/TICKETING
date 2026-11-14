@@ -260,11 +260,9 @@ const SECUENCIAS = [
   ["bienvenida", "Bienvenida", "Al registrarse, invita a empezar la prueba", null],
   ["sin_prueba", "No ha empezado la prueba", "Recordatorios los días…", "dias"],
   ["prueba_consejos", "Consejos de la prueba", "El primer día de prueba", null],
-  ["prueba_acaba", "La prueba acaba", "Aviso antes del primer cobro (días antes)", "dias_antes"],
   ["impago", "Impago", "Avisos para actualizar la tarjeta los días…", "dias"],
   ["cancela", "Ha cancelado", "Oferta para quedarse (descuento o pausa)", null],
   ["recuperar", "Recuperar", "Oferta para volver los días…", "dias"],
-  ["inactivo", "Inactivo", "Paga pero no entra desde hace (días)", "dias_num"],
 ];
 const MOTIVO_TXT = { caro: "Es caro", temporada: "Temporada baja", falta: "Le falta algo", no_uso: "No lo usa", otro: "Otro" };
 const RIESGO_TXT = { impago: ["Impago", "var(--red)"], cancela: ["Cancela", "var(--amber)"], prueba_acaba: ["Prueba acaba", "var(--amber)"], inactivo: ["Inactivo", "var(--muted)"] };
@@ -302,7 +300,7 @@ function Crecimiento({ avisar }) {
 
     <section style={K.card}>
       <div style={{ fontWeight: 900, fontSize: 16 }}>🚨 En riesgo ({d.riesgo.length})</div>
-      <div style={{ fontSize: 13, color: "var(--muted)", margin: "2px 0 10px" }}>Clientes que se pueden perder. Los correos automáticos ya les escriben; aquí puedes actuar a mano.</div>
+      <div style={{ fontSize: 13, color: "var(--muted)", margin: "2px 0 10px" }}>Clientes que se pueden perder. A los de impago y cancelación ya les escriben los correos automáticos; aquí puedes actuar a mano.</div>
       {!d.riesgo.length && <div style={{ color: "var(--muted)", fontSize: 14 }}>Nadie en riesgo ahora mismo. 🎉</div>}
       <div style={{ display: "grid", gap: 8 }}>
         {d.riesgo.map(r => { const [t, c] = RIESGO_TXT[r.motivo] || ["", "var(--muted)"]; const id = r.owner_id; return (
@@ -313,7 +311,7 @@ function Crecimiento({ avisar }) {
               {r.motivo === "prueba_acaba" && `La prueba acaba el ${fecha(r.prueba_hasta)}`}{r.motivo === "inactivo" && `Último acceso: ${hace(r.ultimo_acceso)}`}
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-              <button disabled={!!busy} onClick={() => accion(id + "c", () => servidor({ accion: "enviar_correo", cuenta: id, tipo: r.motivo }), "✓ Correo enviado")} style={{ ...K.btn, minHeight: 40 }}>✉️ Enviar correo</button>
+              {["impago", "cancela"].includes(r.motivo) && <button disabled={!!busy} onClick={() => accion(id + "c", () => servidor({ accion: "enviar_correo", cuenta: id, tipo: r.motivo }), "✓ Correo enviado")} style={{ ...K.btn, minHeight: 40 }}>✉️ Enviar correo</button>}
               {r.con_stripe && r.motivo !== "impago" && <button disabled={!!busy} onClick={() => window.confirm(`¿Aplicar ${ret.descuento} % durante ${ret.meses} meses a ${r.email}?`) && accion(id + "d", () => servidor({ accion: "descuento", cuenta: id, pct: ret.descuento, meses: ret.meses }), "✓ Descuento aplicado")} style={{ ...K.btn, minHeight: 40 }}>🎁 {ret.descuento} % {ret.meses} m</button>}
               {r.estado === "prueba" && r.con_stripe && <button disabled={!!busy} onClick={() => accion(id + "p", () => servidor({ accion: "ampliar_prueba", cuenta: id, dias: 7 }), "✓ Prueba ampliada 7 días")} style={{ ...K.btn, minHeight: 40 }}>⏱️ +7 días de prueba</button>}
             </div>

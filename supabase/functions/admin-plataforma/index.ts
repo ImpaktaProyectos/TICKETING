@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
       const tipo = String(b.tipo || "");
       const t = plantilla(tipo, { precio: plan?.precio_mes != null ? Number(plan.precio_mes) : null, config: cfg?.ajustes || {}, sitio: sitio(),
         datos: { prueba_hasta: c.prueba_hasta, dia: 0, ultimo: false, fin: c.periodo_fin } });
-      if (!t || (tipo === "prueba_acaba" && !c.prueba_hasta)) return json({ ok: false, motivo: "tipo" });
+      if (!t) return json({ ok: false, motivo: "tipo" });
       if (t.comercial && !c.correos_promo) return json({ ok: false, motivo: "sin_promo" });
       const { data: fila } = await admin.from("ticket_correos").insert({ owner_id: cuenta, email, tipo, clave: `manual-${Date.now()}`, asunto: t.asunto }).select("id").single();
       try { await enviar(email, t, t.comercial ? bajaUrl(c.baja_token) : undefined); await admin.from("ticket_correos").update({ estado: "enviado" }).eq("id", fila.id); }

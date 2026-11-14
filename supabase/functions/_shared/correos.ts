@@ -30,9 +30,6 @@ export function plantilla(tipo: string, c: Contexto): Plantilla | null {
     case "prueba_consejos": return { comercial: false, asunto: "3 claves para tu primer evento con TIXFAST", titulo: "Saca el máximo a tu prueba",
       texto: ["1. Crea tus barras y productos (con colores y emojis para encontrarlos rápido).", "2. Conecta la impresora de 80 mm y haz un ticket de prueba desde el menú.", "3. Al acabar la noche, haz el cierre de cada barra: verás lo vendido, el efectivo y la tarjeta."],
       boton: { texto: "Abrir TIXFAST", url: ir() } };
-    case "prueba_acaba": return { comercial: false, asunto: `Tu prueba acaba el ${dia(c.datos.prueba_hasta)}`, titulo: "Tu prueba gratuita está a punto de acabar",
-      texto: [`El ${dia(c.datos.prueba_hasta)} empezará tu suscripción y se cobrarán ${p}. Después se renueva automáticamente cada mes.`, "Si no quieres continuar, cancela antes de esa fecha desde Ajustes › Tu cuenta y no se te cobrará nada."],
-      boton: { texto: "Ver mi suscripción", url: ir("cuenta") } };
     case "impago": return c.datos?.ultimo
       ? { comercial: false, asunto: "Último aviso: actualiza tu tarjeta para no perder el acceso", titulo: "Tu acceso se pausará mañana",
         texto: ["No hemos podido cobrar tu suscripción. Si no actualizas la tarjeta, mañana se pausarán el TPV y el CRM.", "Tus datos no se pierden: en cuanto se cobre, todo vuelve a funcionar."],
@@ -46,9 +43,6 @@ export function plantilla(tipo: string, c: Contexto): Plantilla | null {
     case "recuperar": return { comercial: true, asunto: `Vuelve a TIXFAST con un ${rec.descuento} % de descuento`, titulo: "Te echamos de menos",
       texto: [`Si vuelves ahora, tienes ${rec.descuento} % de descuento durante ${rec.meses} meses.`, "Tus eventos, productos y cuentas siguen guardados, tal y como los dejaste."],
       boton: { texto: "Volver con el descuento", url: ir("volver") } };
-    case "inactivo": return { comercial: true, asunto: "¿Todo bien con TIXFAST?", titulo: "Hace días que no entras",
-      texto: ["Si tienes algún problema o no sabes cómo hacer algo, responde a este correo y te ayudamos.", "¿No tienes eventos hasta dentro de un tiempo? Puedes pausar la suscripción desde Ajustes › Tu cuenta y no pagar mientras tanto."],
-      boton: { texto: "Abrir TIXFAST", url: ir() } };
   }
   return null;
 }
