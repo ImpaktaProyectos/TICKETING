@@ -57,7 +57,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.14l";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.14m";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -3749,7 +3749,9 @@ input,select,textarea{max-width:100%;}
 .gate-role:hover{border-color:#3a3f4d !important;}
 .gate-role:active{transform:scale(.98);}
 body{font-optical-sizing:auto;-webkit-font-smoothing:antialiased;}
+html,body{font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 button{font-family:Inter,-apple-system,sans-serif;cursor:pointer;}
+textarea{font-family:Inter,-apple-system,sans-serif}
 input,select{font-family:Inter,-apple-system,sans-serif;font-size:16px;}
 .scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
 .scroll-x::-webkit-scrollbar{display:none;}

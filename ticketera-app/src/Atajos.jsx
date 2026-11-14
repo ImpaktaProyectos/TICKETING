@@ -37,10 +37,10 @@ export function Atajos({ ev, gastosCaja = [], flash, onMovimiento, onCerrar }) {
   const [vista, setVista] = useState(null);   // null · gasto · socio · cambio · pagos
   const titulos = { gasto: "Registrar un gasto", socio: "Dinero que pone un socio", cambio: "Añadir cambio a una caja", pagos: "Pagos del evento" };
   const atajos = [
-    ["gasto", ICO.gasto, "Registrar un gasto", "Fotógrafo, camarero, hielo… Se apunta en el CRM; si lo pagas de una caja, también sale de ella", "#f59e0b"],
-    ["socio", ICO.socio, "Dinero que pone un socio", "Queda apuntado que hay que devolvérselo. Puede entrar en una caja como cambio", "#3b82f6"],
-    ["cambio", ICO.cambio, "Añadir cambio a una caja", "Elige a qué barra va. Cuenta en su cierre Z", "#22d3a6"],
-    ["pagos", ICO.pagos, "Pagos del evento", "Ve tachando ✓ lo que ya está pagado (igual que en el CRM)", "#a855f7"],
+    ["gasto", ICO.gasto, "Registrar un gasto", "Fotógrafo, camarero, hielo… Se apunta en el CRM; si lo pagas de una caja, también sale de ella", "var(--amber)"],
+    ["socio", ICO.socio, "Dinero que pone un socio", "Queda apuntado que hay que devolvérselo. Puede entrar en una caja como cambio", "#60a5fa"],
+    ["cambio", ICO.cambio, "Añadir cambio a una caja", "Elige a qué barra va. Cuenta en su cierre Z", "var(--green)"],
+    ["pagos", ICO.pagos, "Pagos del evento", "Ve tachando ✓ lo que ya está pagado (igual que en el CRM)", "#c084fc"],
   ];
   return (<Capa>
     <div role="dialog" aria-modal="true" aria-label="Atajos rápidos" style={K.wrap}>
