@@ -2,7 +2,7 @@
 // Presupuesto vivo: cada gasto tiene importe previsto y real, quién lo pagó y su estado.
 // Los gastos de caja del TPV se muestran aquí en solo lectura (se registran en la barra).
 import React, { useMemo, useState } from "react";
-import { money, r2, fechaCorta, parseImporte, useIsMobile, C, Icon, Tile, Avatar, Badge, Seg, Head, Sheet, Field, IconGrid, MoneyInput, Seccion, Grupo } from "./ui";
+import { money, r2, fechaCorta, parseImporte, useIsMobile, C, Icon, Tile, Avatar, Badge, Seg, Head, Sheet, Field, IconGrid, MoneyInput, Seccion, Grupo, usePlegado } from "./ui";
 import { Vacio, Pill } from "./Ingresos";
 import { GCATS, CAJA_CAT, COMIS_CAT, IVA_CAT, gcatInfo, catsGasto, esAuto } from "./categorias";
 import { importe, ivaGasto, ivaDe, TIPOS_IVA } from "./fiscal";
@@ -42,7 +42,6 @@ export function totalesGastos(ev, gastosIn, gastosCaja, auto = []) {
 export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTotal, busy, onSave, onDelete, onCopiar, onAjustes, onPagado, onFoto, onVerFoto }) {
   const isMobile = useIsMobile();
   const [form, setForm] = useState(null);      // { tipo, gasto, padre }
-  const [filtro, setFiltro] = useState(null);  // categoría
   const [copiar, setCopiar] = useState(false);
   const top = gastos.filter(g => !g.padreId);
   const hijosDe = (id) => gastos.filter(g => g.padreId === id);
@@ -55,13 +54,49 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
   const adelantos = Object.entries(G.pagadoSocio).filter(([, v]) => v > 0);
   const maxRes = Math.max(1, ingresosTotal, G.total);
 
-  // Lista agrupada por categoría (el filtro deja solo una)
-  const grupos = cats.filter(([k]) => !filtro || k === filtro).map(([k, v]) => ({ k, v, items: esAuto(k) ? [] : top.filter(g => g.categoria === k) }));
+  // Cuántos gastos hay y cuántos están pagados en cada categoría (los extras de cada artista cuentan aparte)
+  const n = gastos.length + G.caja.length;
+  const cuentaCat = (k, items) => {
+    if (k === CAJA_CAT) return { total: G.caja.length, pagados: G.caja.length };
+    if (esAuto(k)) return { total: 0, pagados: 0 };
+    const todos = items.flatMap(g => g.tipo === "artista" ? [g, ...hijosDe(g.id)] : [g]);
+    return { total: todos.length, pagados: todos.filter(g => g.estado === "pagado").length };
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {/* ===== Total de gastos (el resultado está en el Panel) ===== */}
-      <section style={{ ...C.hero, padding: isMobile ? 16 : 22 }}>
+      {/* ===== Añadir (lo primero) ===== */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8 }}>
+        <AddBtn i="plus" t="Gasto" sub={isMobile ? null : "Alquiler, sonido, publicidad…"} primary onClick={() => setForm({ tipo: "normal", gasto: {} })} />
+        <AddBtn i="users" t="Personal" sub={isMobile ? null : "Camareros: personas × €/hora × horas"} onClick={() => setForm({ tipo: "personal", gasto: {} })} />
+        <AddBtn i="mic" t="Artista" sub={isMobile ? null : "Caché, desplazamiento, hotel…"} onClick={() => setForm({ tipo: "artista", gasto: {} })} />
+      </div>
+
+      {/* ===== Una sola lista: cada categoría con gastos es un desplegable con sus gastos dentro ===== */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginTop: 2 }}>
+        <span style={{ fontSize: 13, color: "var(--muted)", fontWeight: 700 }}>{cats.length ? `${n} ${n === 1 ? "gasto" : "gastos"} en ${cats.length} ${cats.length === 1 ? "categoría" : "categorías"} · toca una para ver sus gastos` : ""}</span>
+        {otrosEventos.length > 0 && <button onClick={() => setCopiar(true)} style={C.btnSm}><Icon n="copy" s={14} />Copiar presupuesto de otro evento</button>}
+      </div>
+      {cats.length === 0 && <section style={C.panel}><Vacio i="receipt" t="Aún no hay gastos." sub={otrosEventos.length ? "Añade el primero con los botones de arriba o copia el presupuesto de otro evento." : "Añade el primero con los botones de arriba."} /></section>}
+      {cats.map(([k, v]) => { const ci = gcatInfo(k), items = esAuto(k) ? [] : top.filter(g => g.categoria === k), cnt = cuentaCat(k, items); return (
+        <CategoriaGastos key={k} id={`gcat-${ev.id}-${k}`} k={k} ci={ci} v={v} pagados={cnt.pagados} total={cnt.total}>
+          {k === CAJA_CAT && G.caja.map(g => (
+            <div key={g.id} style={{ ...C.listBtn, cursor: "default" }}>
+              <Tile n="cash" c="#ffb400" s={34} />
+              <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block" }}>{g.concepto || "Gasto de caja"}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>{ev.puntos.find(p => p.id === g.puntoId)?.name || "Barra"} · registrado en el TPV</span></span>
+              <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}><b style={{ fontSize: 15.5 }}>{money(g.importe)}</b><Badge><Icon n="lock" s={11} w={2.2} />Desde el TPV</Badge></span>
+            </div>))}
+          {(k === COMIS_CAT || k === IVA_CAT) && G.auto.filter(a => a.categoria === k).map((a, ix) => <Auto key={ix} a={a} onAjustes={onAjustes} />)}
+          {items.map(g => g.tipo === "artista"
+            ? <Artista key={g.id} a={g} ivaOn={ivaOn} hijos={hijosDe(g.id)} total={totalArtista(g)} socioById={socioById} onPagado={onPagado} busy={busy} onEdit={(x, padre) => setForm(padre ? { tipo: "normal", gasto: x, padre } : { tipo: "artista", gasto: x })} onAdd={() => setForm({ tipo: "normal", gasto: { categoria: "Artistas" }, padre: g })} />
+            : <Fila key={g.id} g={g} ivaOn={ivaOn} socioById={socioById} onPagado={onPagado} busy={busy} onClick={() => setForm({ tipo: g.tipo, gasto: g })} />)}
+          {!esAuto(k) && k !== CAJA_CAT && <button onClick={() => setForm(k === "Artistas" ? { tipo: "artista", gasto: {} } : { tipo: "normal", gasto: { categoria: k } })} style={{ ...C.btnSm, margin: "10px 0 4px", borderStyle: "dashed" }}><Icon n="plus" s={14} w={2.4} />Añadir en {k}</button>}
+        </CategoriaGastos>); })}
+
+      {/* ===== Totales del evento (abajo y plegados) ===== */}
+      {cats.length > 0 && <Seccion id="gas-totales" i="chart" t="Totales del evento" sub="Presupuesto, gastado y lo que falta por pagar" total={money(G.total)} inicial>
+        <div style={{ padding: isMobile ? 14 : 18 }}>
+          <div>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.1fr 1fr", gap: isMobile ? 14 : 28, alignItems: "center" }}>
           <div>
             <div style={C.label}>Gastos de {ev.name}</div>
@@ -86,57 +121,9 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
             {ivaOn && <Mini l="Sin factura" v={money(F.iva.sinFactura)} sub={`${F.iva.nSinFactura} ${F.iva.nSinFactura === 1 ? "gasto" : "gastos"}`} c={F.iva.sinFactura > 0 ? "var(--amber)" : undefined} />}
           </div>
         )}
-      </section>
-
-      {/* ===== Añadir ===== */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8 }}>
-        <AddBtn i="plus" t="Gasto" sub={isMobile ? null : "Alquiler, sonido, publicidad…"} primary onClick={() => setForm({ tipo: "normal", gasto: {} })} />
-        <AddBtn i="users" t="Personal" sub={isMobile ? null : "Personas × €/hora × horas"} onClick={() => setForm({ tipo: "personal", gasto: {} })} />
-        <AddBtn i="mic" t="Artista" sub={isMobile ? null : "Caché y sus gastos"} onClick={() => setForm({ tipo: "artista", gasto: {} })} />
-      </div>
-
-      {/* ===== Por categoría (toca para filtrar) ===== */}
-      <Seccion id="gas-resumen" i="chart" t="En qué se va el dinero" sub="Toca una categoría para ver solo sus gastos" total={money(G.total)}
-          acciones={<span style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--muted)" }}><Ley c="var(--accent)" t="Cuenta" /><Ley c="var(--text)" t="Previsto" marca /></span>}>
-        {cats.length === 0 && <Vacio i="receipt" t="Aún no hay gastos." sub={otrosEventos.length ? "Añade el primero o copia el presupuesto de otro evento." : "Añade el primero con los botones de arriba."} />}
-        {cats.map(([k, v]) => { const ci = gcatInfo(k), on = filtro === k, pasa = v.previsto && v.total > v.previsto + 0.005; return (
-          <button key={k} onClick={() => setFiltro(on ? null : k)} style={{ ...C.listBtn, padding: "10px 8px", borderRadius: on ? 12 : 0, background: on ? "color-mix(in srgb, var(--accent) 10%, transparent)" : "transparent", outline: on ? "2px solid var(--accent)" : "none", outlineOffset: -2 }}>
-            <Tile n={ci.i} c={ci.c} s={34} />
-            <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
-                <span style={{ fontWeight: 800, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k} <span style={{ color: "var(--muted)", fontWeight: 600, fontSize: 12 }}>· {v.n}</span></span>
-                <b style={{ fontSize: 14.5, flexShrink: 0, color: pasa ? "var(--red)" : "var(--text)" }}>{money(v.total)}</b>
-              </span>
-              <span style={{ display: "block", position: "relative", height: 8, borderRadius: 4, background: "var(--surface2)" }}>
-                <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.abs(v.total) / maxCat * 100}%`, borderRadius: 4, background: pasa ? "var(--red)" : ci.c }} />
-                {v.previsto > 0 && <span style={{ position: "absolute", top: -3, bottom: -3, width: 2, left: `calc(${Math.min(100, v.previsto / maxCat * 100)}% - 1px)`, background: "var(--text)", borderRadius: 1 }} />}
-              </span>
-            </span>
-          </button>); })}
-      </Seccion>
-
-      {/* ===== Lista de gastos agrupada (cada categoría plegable) ===== */}
-      <Seccion id="gas-lista" i="receipt" t={filtro || "Todos los gastos"} sub={filtro ? null : `${gastos.length} gastos${G.caja.length ? ` · ${G.caja.length} de caja` : ""}`}
-          total={money(filtro ? (G.porCat[filtro]?.total || 0) : G.total)}
-          acciones={(filtro || otrosEventos.length > 0) ? <span style={{ display: "flex", gap: 6 }}>
-            {filtro && <button onClick={() => setFiltro(null)} style={C.btnSm}><Icon n="x" s={14} />Quitar filtro</button>}
-            {!filtro && otrosEventos.length > 0 && <button onClick={() => setCopiar(true)} style={C.btnSm}><Icon n="copy" s={14} />Copiar presupuesto</button>}
-          </span> : null}>
-        {grupos.length === 0 && <Vacio i="receipt" t="Sin gastos todavía." />}
-        {grupos.map(({ k, v, items }) => { const ci = gcatInfo(k); return (
-          <Grupo key={k} id={"gas-cat-" + k} i={ci.i} c={ci.c} t={k} n={v.n} total={money(v.total)}>
-            {k === CAJA_CAT && G.caja.map(g => (
-              <div key={g.id} style={{ ...C.listBtn, cursor: "default" }}>
-                <Tile n="cash" c="#ffb400" s={34} />
-                <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block" }}>{g.concepto || "Gasto de caja"}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>{ev.puntos.find(p => p.id === g.puntoId)?.name || "Barra"} · registrado en el TPV</span></span>
-                <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}><b style={{ fontSize: 15.5 }}>{money(g.importe)}</b><Badge><Icon n="lock" s={11} w={2.2} />Desde el TPV</Badge></span>
-              </div>))}
-            {(k === COMIS_CAT || k === IVA_CAT) && G.auto.filter(a => a.categoria === k).map((a, ix) => <Auto key={ix} a={a} onAjustes={onAjustes} />)}
-            {items.map(g => g.tipo === "artista"
-              ? <Artista key={g.id} a={g} ivaOn={ivaOn} hijos={hijosDe(g.id)} total={totalArtista(g)} socioById={socioById} onPagado={onPagado} busy={busy} onEdit={(x, padre) => setForm(padre ? { tipo: "normal", gasto: x, padre } : { tipo: "artista", gasto: x })} onAdd={() => setForm({ tipo: "normal", gasto: { categoria: "Artistas" }, padre: g })} />
-              : <Fila key={g.id} g={g} ivaOn={ivaOn} socioById={socioById} onPagado={onPagado} busy={busy} onClick={() => setForm({ tipo: g.tipo, gasto: g })} />)}
-          </Grupo>); })}
-      </Seccion>
+          </div>
+        </div>
+      </Seccion>}
 
       {/* ===== Adelantos de socios ===== */}
       {adelantos.length > 0 && (
@@ -163,6 +150,32 @@ export function Gastos({ ev, events, gastos, G, F, socios, socioById, ingresosTo
 }
 
 /* ---------- Piezas ---------- */
+// Una categoría como desplegable: cabecera con su total y cuántos están pagados; dentro, sus gastos
+function CategoriaGastos({ id, k, ci, v, pagados, total, children }) {
+  const [plegado, toggle] = usePlegado(id, true);
+  const todo = total > 0 && pagados === total;
+  const pasa = v.previsto > 0 && v.total > v.previsto + 0.005;
+  return (
+    <section style={{ ...C.panel, padding: 0, overflow: "hidden" }}>
+      <button type="button" onClick={toggle} aria-expanded={!plegado} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: "transparent", border: "none", color: "var(--text)", cursor: "pointer", font: "inherit", textAlign: "left" }}>
+        <Tile n={ci.i} c={ci.c} s={40} />
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: "block", fontWeight: 900, fontSize: 16.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k}</span>
+          <span style={{ display: "block", fontSize: 12.5, marginTop: 2, color: todo ? "var(--green)" : "var(--muted)", fontWeight: todo ? 800 : 600 }}>
+            {total ? (todo ? `✓ ${total === 1 ? "Pagado" : `Los ${total} pagados`}` : `${total} ${total === 1 ? "gasto" : "gastos"} · ${pagados} pagado${pagados === 1 ? "" : "s"}`) : `${v.n} ${v.n === 1 ? "línea" : "líneas"}`}
+          </span>
+          {total > 0 && <span style={{ display: "block", height: 5, borderRadius: 3, background: "var(--surface2)", marginTop: 7, overflow: "hidden" }}><span style={{ display: "block", height: "100%", width: `${pagados / total * 100}%`, background: "var(--green)" }} /></span>}
+        </span>
+        <span style={{ textAlign: "right", flexShrink: 0 }}>
+          <b style={{ display: "block", fontSize: 17, color: pasa ? "var(--red)" : "var(--text)" }}>{money(v.total)}</b>
+          {v.previsto > 0 && Math.abs(v.total - v.previsto) >= 0.01 && <span style={{ fontSize: 11.5, color: pasa ? "var(--red)" : "var(--muted)" }}>previsto {money(v.previsto)}</span>}
+        </span>
+        <span style={{ color: "var(--muted)", flexShrink: 0, transition: "transform .18s", transform: plegado ? "rotate(-90deg)" : "none" }}><Icon n="chev" s={20} w={2.2} /></span>
+      </button>
+      {!plegado && <div style={{ padding: "0 14px 10px", borderTop: "1px solid var(--line)" }}>{children}</div>}
+    </section>
+  );
+}
 const Barra = ({ t, v, max, c, i }) => (
   <div>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 5 }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--muted)", fontWeight: 700 }}><Icon n={i} s={15} />{t}</span><b>{money(v)}</b></div>
@@ -276,6 +289,8 @@ function Artista({ a, hijos, total, socioById, onEdit, onAdd, ivaOn, onPagado, b
 const catPorDefecto = () => { const v = catsGasto(true); return (v.find(c => c.k === "Producción técnica") || v[0] || { k: "Otros" }).k; };
 function GastoForm({ tipo, gasto, padre, socios, usadas, hijos, busy, ivaOn, onClose, onSave, onDelete, onFoto, onVerFoto }) {
   const [fotoNueva, setFotoNueva] = useState(null);   // gasto nuevo: la foto se sube al guardar
+  // Artista nuevo: sus gastos habituales en el mismo formulario (se crean como extras del artista)
+  const [extras, setExtras] = useState({ Transporte: "", Alojamiento: "", Dietas: "", "Hospitalidad (rider)": "" });
   const [subiendo, setSubiendo] = useState(false);
   const isMobile = useIsMobile();
   const nuevo = !gasto.id;
@@ -303,8 +318,9 @@ function GastoForm({ tipo, gasto, padre, socios, usadas, hijos, busy, ivaOn, onC
   const extra = Array.from(new Set([...usadas, f.categoria])).filter(c => c && !esAuto(c) && !visibles.some(x => x.k === c));
   const items = [...visibles.map(c => ({ k: c.k, i: c.i, c: c.c })), ...extra.map(k => { const c = gcatInfo(k); return { k, i: c.i, c: c.c }; }), { k: "__otra", t: "Nueva…", i: "plus", c: "var(--muted)" }];
   const titulo = tipo === "artista" ? (nuevo ? "Nuevo artista" : "Editar artista") : tipo === "personal" ? (nuevo ? "Nuevo puesto de personal" : "Editar personal") : esHijo ? `Gasto de ${padre.concepto || "artista"}` : (nuevo ? "Nuevo gasto" : "Editar gasto");
-  const guardar = () => { if (!valido || busy) return; onSave({ ...f, __foto: fotoNueva, categoria: esHijo || tipo === "artista" ? "Artistas" : catFinal, previsto: previstoNum, real: realNum, personas: tipo === "personal" ? f.personas : null, precioHora: tipo === "personal" ? parseImporte(f.precioHora) : null, horas: tipo === "personal" ? parseImporte(f.horas) : null, iva: fx.iva, factura: fx.factura }); };
-  const cuenta = realNum != null ? realNum : previstoNum || 0;
+  const guardar = () => { if (!valido || busy) return; onSave({ ...f, __foto: fotoNueva, __extras: tipo === "artista" && nuevo ? Object.entries(extras).map(([concepto, v]) => ({ concepto, previsto: v === "" ? null : parseImporte(v) })).filter(e => e.previsto > 0) : [], categoria: esHijo || tipo === "artista" ? "Artistas" : catFinal, previsto: previstoNum, real: realNum, personas: tipo === "personal" ? f.personas : null, precioHora: tipo === "personal" ? parseImporte(f.precioHora) : null, horas: tipo === "personal" ? parseImporte(f.horas) : null, iva: fx.iva, factura: fx.factura }); };
+  const sumaExtras = tipo === "artista" && nuevo ? Object.values(extras).reduce((t, v) => t + (v === "" ? 0 : parseImporte(v) || 0), 0) : 0;
+  const cuenta = r2((realNum != null ? realNum : previstoNum || 0) + sumaExtras);
   return (
     <Sheet title={titulo} onClose={onClose}
       footer={<div style={{ display: "flex", gap: 8 }}>
@@ -349,10 +365,20 @@ function GastoForm({ tipo, gasto, padre, socios, usadas, hijos, busy, ivaOn, onC
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: tipo === "personal" ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 6 }}>
-        {tipo !== "personal" && <Field l={tipo === "artista" ? "Caché previsto" : "Previsto"} mb={0}><MoneyInput value={f.previsto} onChange={(v) => set({ previsto: v })} /></Field>}
+        {tipo !== "personal" && <Field l={tipo === "artista" ? "Caché" : "Previsto"} mb={0}><MoneyInput value={f.previsto} onChange={(v) => set({ previsto: v })} /></Field>}
         <Field l={tipo === "personal" ? "Coste real (si ya lo sabes)" : "Real"} mb={0}><MoneyInput value={f.real} onChange={(v) => set({ real: v })} /></Field>
       </div>
       <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 16 }}>Importe que pagas, con el IVA incluido si lo lleva. Para el beneficio cuenta el real; mientras no lo haya, el previsto.</div>
+      {tipo === "artista" && nuevo && (
+        <div style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 14, padding: 12, marginBottom: 16 }}>
+          <div style={{ fontWeight: 800, marginBottom: 2 }}>Gastos del artista <span style={{ color: "var(--muted)", fontWeight: 600 }}>(opcional)</span></div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>Se guardan dentro del artista. Después puedes añadir más con «Añadir extra».</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
+            {[["Transporte", "Desplazamiento"], ["Alojamiento", "Hotel"], ["Dietas", "Dietas"], ["Hospitalidad (rider)", "Rider"]].map(([k, t]) => (
+              <Field key={k} l={t} mb={0}><MoneyInput value={extras[k]} onChange={(v) => setExtras(o => ({ ...o, [k]: v }))} /></Field>))}
+          </div>
+        </div>
+      )}
 
       <div style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 14, padding: 12, marginBottom: 16 }}>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
