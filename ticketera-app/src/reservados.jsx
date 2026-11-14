@@ -834,7 +834,7 @@ export function InformeReservados({ ev, res, sales, isMobile }) {
 export async function copiarReservados(desdeId, haciaId) {
   try {
     const { reservados } = await db.loadReservados(desdeId);
-    for (const r of reservados) await db.guardarReservado({ ...r, id: uid(), eventId: haciaId, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: 0, senalMetodo: "", senalSocio: "", promotorId: "", llegadaEn: null });
+    for (const r of reservados) await db.guardarReservado({ ...r, id: uid(), eventId: haciaId, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: 0, senalMetodo: "", senalSocio: "", promotorId: "", llegadaEn: null, pedido: null });
     return reservados.length;
   } catch { return 0; }
 }

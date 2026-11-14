@@ -474,6 +474,17 @@ export async function webNuevoEvento(nombre, inicio) {
   ok(await supabase.from("ticket_puntos").insert({ id: crypto.randomUUID(), evento_id: id, nombre: "Barra", archivado: false }));
   return id;
 }
+// Copiar a un evento ya creado la venta online de otro: ficha (textos, diseño, formulario) y tramos de precio.
+// Queda en borrador, sin fechas de venta y sin vendidas. Devuelve cuántos tramos se han copiado (o null si el origen no tenía venta online).
+export async function webCopiarDe(desdeId, evento) {
+  const { ficha, tramos } = await webCargar(desdeId);
+  if (!ficha) return null;
+  await webActivar(evento);
+  const { evento_id, owner_id, slug, contador, actualizado_en, estado, ...resto } = ficha;
+  await webGuardarFicha(evento.id, { ...resto, estado: "borrador", venta_inicio: null });
+  for (const t of tramos || []) await webGuardarTramo({ ...t, id: null, evento_id: evento.id, venta_inicio: null, venta_fin: null });
+  return (tramos || []).length;
+}
 // Duplicar: evento nuevo + ficha + tramos (sin ventas)
 export async function webDuplicar(evento, ficha, tramos, nombre) {
   const id = await webNuevoEvento(nombre, null);

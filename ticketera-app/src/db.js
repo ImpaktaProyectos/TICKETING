@@ -85,19 +85,25 @@ export async function ensureDefaultEvent() {
 }
 
 /* ===================== ESCRITURAS (admin/config) ===================== */
+// Guarda un evento nuevo con sus barras y productos (lanza error si algo falla; si fallan las barras, no deja el evento a medias)
+async function insertarEvento(ev) {
+  const r1 = await supabase.from("ticket_eventos").insert(evToDb(ev)); if (r1.error) throw r1.error;
+  if (!ev.puntos?.length) return;
+  const r2 = await supabase.from("ticket_puntos").insert(ev.puntos.map(p => ({ id: p.id, evento_id: ev.id, nombre: p.name, archivado: !!p.archivado, combos: p.combos || [], orden_modo: p.sortMode === "ventas" ? "ventas" : "manual", fondo_previsto: p.fondoPrevisto ?? null })));
+  if (r2.error) { await supabase.from("ticket_eventos").delete().eq("id", ev.id); throw r2.error; }
+  // Evento duplicado: también sus productos (con orden, colores, emojis, subtítulos…)
+  const prods = ev.puntos.flatMap(p => (p.products || []).map((x, i) => prodToDb(p.id, { ...x, orden: x.orden ?? i })));
+  if (prods.length) { const r3 = await supabase.from("ticket_productos").insert(prods); if (r3.error) { await supabase.from("ticket_eventos").delete().eq("id", ev.id); throw r3.error; } }
+}
+// Crear un evento desde la pantalla de inicio o el CRM: necesita conexión y avisa si falla
+export async function crearEvento(ev) {
+  if (!navigator.onLine) throw Object.assign(new Error("Sin conexión: para crear un evento hace falta internet"), { mostrar: true });
+  try { await insertarEvento(ev); } catch (e) { throw Object.assign(new Error("No se ha podido crear el evento"), { mostrar: true, causa: e }); }
+}
 export async function persistAction(action, ctx = {}) {
   try {
     switch (action.type) {
-      case "ADD_EVENT": {
-        const r1 = await supabase.from("ticket_eventos").insert(evToDb(action.event)); if (r1.error) throw r1.error;
-        if (action.event.puntos?.length) {
-          const r2 = await supabase.from("ticket_puntos").insert(action.event.puntos.map(p => ({ id: p.id, evento_id: action.event.id, nombre: p.name, archivado: !!p.archivado, combos: p.combos || [], orden_modo: p.sortMode === "ventas" ? "ventas" : "manual", fondo_previsto: p.fondoPrevisto ?? null }))); if (r2.error) throw r2.error;
-          // Evento duplicado: también sus productos (con orden, colores, emojis, subtítulos…)
-          const prods = action.event.puntos.flatMap(p => (p.products || []).map((x, i) => prodToDb(p.id, { ...x, orden: x.orden ?? i })));
-          if (prods.length) { const r3 = await supabase.from("ticket_productos").insert(prods); if (r3.error) throw r3.error; }
-        }
-        break;
-      }
+      case "ADD_EVENT": await insertarEvento(action.event); break;
       case "UPDATE_EVENT": await supabase.from("ticket_eventos").update(evPatchToDb(action.patch)).eq("id", action.id); break;
       case "ADD_PUNTO": await supabase.from("ticket_puntos").insert({ id: action.punto.id, evento_id: action.eventId, nombre: action.punto.name, archivado: false }); break;
       case "ARCHIVE_PUNTO": await supabase.from("ticket_puntos").update({ archivado: action.value }).eq("id", action.puntoId); break;

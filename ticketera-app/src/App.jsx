@@ -6,6 +6,8 @@ import * as db from "./db";
 import { secretoDe, estadoDe, comprobar as comprobarPin, crearHuella, problema as problemaPin, fuerza as fuerzaPin, disponible as cifradoDisponible } from "./pin";
 import { CierreNoche } from "./CierreNoche";
 import { Atajos } from "./Atajos";
+import { NuevoEvento } from "./NuevoEvento";
+import { eventoPorDefecto, estadoFecha, ordenarEventos } from "./eventos";
 import { CATS_GASTO, categoriaDe } from "./cierreNocheCalc";
 import { previstosParaCaja } from "./gastosPrevistos";
 import * as sd from "./socioDeudas";
@@ -55,7 +57,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.14d";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.14e";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -460,10 +462,11 @@ export default function App() {
         if (max) seedFolio(e.id, p.id, max);
       }));
     } catch {}
-    const first = merged.events.find(e => e.id === stateRef.current.currentEventId) || merged.events[0];
+    // Al abrir la app: el evento en curso o el próximo por fecha (no el primero de la lista). Si ya se eligió uno, se respeta.
+    const first = merged.events.find(e => e.id === stateRef.current.currentEventId) || eventoPorDefecto(merged.events) || merged.events[0];
     baseDispatch({ type: "HYDRATE", payload: {
       events: merged.events, sales: merged.sales, closures: data.closures || [], gastos: mergeGastos(data.gastos || []),
-      currentEventId: stateRef.current.currentEventId || first.id,
+      currentEventId: first.id,
       currentPuntoId: stateRef.current.currentPuntoId || (first.puntos.find(p => !p.archivado) || first.puntos[0])?.id,
     } });
   };
@@ -837,6 +840,9 @@ export default function App() {
     else await hydrate().catch(() => {});
   };
 
+  // Evento recién creado (inicio o CRM): se añade, queda elegido y se recarga del servidor para tenerlo todo al día
+  const eventoCreado = (e) => { baseDispatch({ type: "ADD_EVENT", event: e }); setTimeout(() => { hydrate().catch(() => {}); }, 1500); };
+
   // Vincular un gasto de caja ya hecho a un gasto previsto del CRM (o quitar el vínculo)
   const vincularGasto = async (g, crmId, nombre) => {
     try { const r = await db.vincularGastoCRM(g.id, crmId); baseDispatch({ type: "LINK_GASTO", id: g.id, crmGastoId: r }); }
@@ -1000,7 +1006,7 @@ export default function App() {
 
       {/* ===== LOGIN ===== */}
       {role === null && (
-        <RoleGate ev={ev} events={state.events} online={online} pending={pending} flash={flash} gastosCaja={evGastos}
+        <RoleGate ev={ev} events={state.events} online={online} pending={pending} flash={flash} gastosCaja={evGastos} onEventoCreado={eventoCreado}
           onMovimiento={(puntoId, importe, concepto, tipo, categoria, crmGastoId, extra) => registrarGasto(importe, concepto, tipo, categoria, crmGastoId, { ...extra, puntoId })}
           onSelectEvent={id => dispatch({ type: "SELECT_EVENT", id })}
           onRole={(r, puntoId, modo) => { if (puntoId) dispatch({ type: "SET_PUNTO", id: puntoId }); setRole(r); setView("pos"); const crmMode = modo === "crm" && r === "admin"; setAppMode(crmMode ? "crm" : "tpv");  }} />
@@ -1030,7 +1036,7 @@ export default function App() {
           <header style={S.cashierTop}>
             <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
               <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width="38" height="38" style={{ flexShrink: 0, display: "block" }} />
-              <div style={{ minWidth: 0 }}><div style={S.topTitle}>{ev.name}</div><div style={S.topSub}><span style={S.barTag}><Ic n="store" s={12} w={2.2} />{punto.name}</span>{dateFmt(ev.date)}</div></div>
+              <div style={{ minWidth: 0 }}><div style={S.topTitle}>{ev.name} {(() => { const x = estadoFecha(ev); return <span title="Momento del evento" style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: .5, color: x.c, border: `1px solid ${x.c}`, borderRadius: 999, padding: "1px 7px", verticalAlign: 3 }}>{x.t}</span>; })()}</div><div style={S.topSub}><span style={S.barTag}><Ic n="store" s={12} w={2.2} />{punto.name}</span>{dateFmt(ev.date)}</div></div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.topBtn}><Ic n="lock" s={16} />Salir</button></div>
           </header>
@@ -1050,7 +1056,7 @@ export default function App() {
       {/* ===== CRM (solo admin) ===== */}
       {inCRM && (
         <Suspense fallback={<div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: "var(--muted)" }}>Abriendo el CRM…</div>}>
-          <CRM events={state.events} sales={state.sales} gastosCaja={state.gastos || []} ev={ev} onSelectEvent={(id) => dispatch({ type: "SELECT_EVENT", id })} onExit={() => setAppMode("tpv")} flash={flash} />
+          <CRM onEventoCreado={eventoCreado} events={state.events} sales={state.sales} gastosCaja={state.gastos || []} ev={ev} onSelectEvent={(id) => dispatch({ type: "SELECT_EVENT", id })} onExit={() => setAppMode("tpv")} flash={flash} />
         </Suspense>
       )}
 
@@ -1059,7 +1065,7 @@ export default function App() {
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
           <header style={S.mTop}>
             <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width="32" height="32" style={{ flexShrink: 0, display: "block" }} />
-            <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={{ ...S.select, ...S.mSelect, flex: 1, minWidth: 0 }}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
+            <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={{ ...S.select, ...S.mSelect, flex: 1, minWidth: 0 }}>{ordenarEventos(state.events).map(e => <option key={e.id} value={e.id}>{e.name} · {estadoFecha(e).t.toLowerCase()}</option>)}</select>
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn} aria-label="Menú"><Ic n="menu" /></button>
           </header>
           <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
@@ -1095,7 +1101,7 @@ export default function App() {
               <span style={{ ...S.roleBadge, color: role === "admin" ? "var(--accent)" : "#60a5fa", background: role === "admin" ? "rgba(255,90,60,.12)" : "rgba(96,165,250,.12)" }}>{role === "admin" ? "Admin" : "Supervisor"}</span>
             </div>
             <div style={S.sideLabel}>Evento</div>
-            <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={S.select}>{state.events.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
+            <select value={ev.id} onChange={e => dispatch({ type: "SELECT_EVENT", id: e.target.value })} style={S.select}>{ordenarEventos(state.events).map(e => <option key={e.id} value={e.id}>{e.name} · {estadoFecha(e).t.toLowerCase()}</option>)}</select>
             <div style={{ ...S.sideLabel, marginTop: 20 }}>Menú</div>
             <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
               {navItems.map(n => <button key={n.id} onClick={() => goNav(n.id)} className="nav-btn" style={{ ...S.navBtn, ...(safeView === n.id ? S.navActive : {}) }}><span style={{ color: safeView === n.id ? "var(--accent)" : "var(--muted)", display: "flex" }}><Ic n={n.icon} /></span>{n.label}</button>)}
@@ -1112,7 +1118,7 @@ export default function App() {
           </aside>
           <main style={S.main}>
             <header style={S.top}>
-              <div style={{ minWidth: 0 }}><div style={S.topTitle}>{ev.name}</div><div style={S.topSub}><span style={S.barTag}><Ic n="store" s={12} w={2.2} />{punto.name}</span>{dateFmt(ev.date)}{ev.venue ? ` · ${ev.venue}` : ""}</div></div>
+              <div style={{ minWidth: 0 }}><div style={S.topTitle}>{ev.name} {(() => { const x = estadoFecha(ev); return <span title="Momento del evento" style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: .5, color: x.c, border: `1px solid ${x.c}`, borderRadius: 999, padding: "1px 7px", verticalAlign: 3 }}>{x.t}</span>; })()}</div><div style={S.topSub}><span style={S.barTag}><Ic n="store" s={12} w={2.2} />{punto.name}</span>{dateFmt(ev.date)}{ev.venue ? ` · ${ev.venue}` : ""}</div></div>
               <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                 <Stat label={`Tickets · ${punto.name}`} value={totals.count} accent="var(--text)" />
                 <button onClick={verFacturacion} style={S.topBtn}><span style={{ color: "var(--accent)", display: "flex" }}><Ic n="euro" s={17} /></span>Consultar facturación</button>
@@ -1428,7 +1434,8 @@ function MenuRow({ icon, label, onClick, tone, right, big }) {
 }
 
 /* ---------------------- Login ---------------------- */
-function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 0, flash, onMovimiento, gastosCaja = [] }) {
+function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 0, flash, onMovimiento, gastosCaja = [], onEventoCreado }) {
+  const [nuevoEv, setNuevoEv] = useState(null);   // null · "pin" · "abierto"
   const [atajos, setAtajos] = useState(null);   // null · "pin" · "abierto"
   const isMobile = useIsMobile();
   const [mode, setMode] = useState(null);            // null | cajero | validador | admin | supervisor | crm
@@ -1449,8 +1456,10 @@ function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 
   ];
   const estadoBarra = (p) => p.estado === "abierta" ? ["Abierta", "var(--green)"] : p.estado === "cerrada" ? ["Cerrada (Z hecho)", "var(--red)"] : ["En pruebas", "var(--amber)"];
   const hoy = new Date().toISOString().slice(0, 10);
-  const evOrden = [...events].sort((a, b) => { const fa = a.date < hoy, fb = b.date < hoy; if (fa !== fb) return fa ? 1 : -1; return fa ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date); });
-  const proximo = evOrden.find(e => e.date >= hoy)?.id;
+  const evOrden = ordenarEventos(events);
+  const proximo = eventoPorDefecto(events)?.id;
+  const est = estadoFecha(ev);
+  const sugerido = est.k === "pasado" && proximo && proximo !== ev.id ? events.find(e => e.id === proximo) : null;
 
   return (
     <div className="tg" role="main">
@@ -1470,12 +1479,14 @@ function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 
           <button type="button" className="tg-evento" onClick={() => setVerEventos(true)} aria-label={`Evento: ${ev.name}. Cambiar de evento`}>
             <span className="tg-ev-ico" aria-hidden="true">{ev.logo ? <img src={ev.logo} alt="" /> : <Ic n="store" s={22} />}</span>
             <span style={{ flex: 1, minWidth: 0 }}>
-              <span className="tg-ev-label">Evento</span>
+              <span className="tg-ev-label">Evento <span className="tg-ev-chip" style={{ color: est.c, borderColor: est.c }}>{est.t}</span></span>
               <span className="tg-ev-nombre">{ev.name}</span>
               <span className="tg-ev-meta">{cap1(fechaEv)}{horaEv ? ` · ${horaEv}` : ""}{ev.venue ? ` · ${ev.venue}` : ""}</span>
             </span>
             {events.length > 1 && <span className="tg-cambiar">Cambiar<Ic n="chev" s={14} /></span>}
           </button>
+          {sugerido && <button type="button" className="tg-aviso-ev" onClick={() => onSelectEvent(sugerido.id)}>⚠️ Este evento ya pasó. <b>Ir a {sugerido.name}</b> ({estadoFecha(sugerido).t.toLowerCase()})</button>}
+          <button type="button" className="tg-nuevo-ev" onClick={() => setNuevoEv("pin")}><Ic n="plus" s={15} w={2.4} />Nuevo evento</button>
           <div className="tg-datos">
             <span><b>{puntos.length}</b> {puntos.length === 1 ? "barra" : "barras"}</span>
             <span><b style={{ color: abiertas ? "var(--green)" : "var(--muted)" }}>{abiertas}</b> abiertas</span>
@@ -1528,6 +1539,8 @@ function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 
         {ev.id && <button type="button" onClick={() => setAtajos("pin")} className="tg-atajos" aria-label="Atajos rápidos: gastos, cambio y dinero de socios"><Ic n="list" s={15} w={2.2} />⚡ Atajos rápidos</button>}
         <span>TIXFAST · versión {APP_VERSION}</span>
       </footer>
+      {nuevoEv === "pin" && <PinModal secreto={secretoDe(ev, "admin")} onOk={() => setNuevoEv("abierto")} onClose={() => setNuevoEv(null)} label="PIN de administrador para crear un evento" />}
+      {nuevoEv === "abierto" && <NuevoEvento events={events} ev={ev} flash={flash} onCerrar={() => setNuevoEv(null)} onCreado={(e) => { setNuevoEv(null); onEventoCreado(e); }} />}
       {atajos === "pin" && <PinModal secreto={secretoDe(ev, "admin")} onOk={() => setAtajos("abierto")} onClose={() => setAtajos(null)} label="PIN de administrador para los atajos" />}
       {atajos === "abierto" && <Atajos ev={ev} gastosCaja={gastosCaja} flash={flash} onMovimiento={onMovimiento} onCerrar={() => setAtajos(null)} />}
 
@@ -1547,8 +1560,7 @@ function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 
                     <span style={{ display: "block", fontWeight: 900, fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</span>
                     <span style={{ display: "block", fontSize: 13, color: "var(--muted)", marginTop: 2 }}>{dateFmt(e.date)}{e.venue ? ` · ${e.venue}` : ""}</span>
                   </span>
-                  {e.id === proximo && !sel && <span style={{ fontSize: 11, fontWeight: 900, color: "var(--accent)", border: "1px solid var(--accent)", borderRadius: 999, padding: "2px 8px" }}>PRÓXIMO</span>}
-                  {pasado && <span style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)" }}>Pasado</span>}
+                  {(() => { const x = estadoFecha(e); return <span style={{ fontSize: 11, fontWeight: 900, color: x.c, border: `1px solid ${x.c}`, borderRadius: 999, padding: "2px 8px", flexShrink: 0, opacity: x.k === "pasado" ? .7 : 1 }}>{e.id === proximo && x.k !== "curso" && x.k !== "hoy" ? `PRÓXIMO · ${x.t}` : x.t}</span>; })()}
                   {sel && <Ic n="check" s={20} w={2.6} style={{ color: "var(--accent)" }} />}
                 </button>); })}
             </div>
@@ -1587,6 +1599,12 @@ const TG_CSS = `
 .tg-h1{margin:6px 0 18px;font-size:clamp(30px,6.4vw,52px);line-height:1.02;font-weight:900;letter-spacing:-.035em}
 .tg-evento{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:16px;border-radius:20px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(10px);transition:border-color .15s,background .15s}
 .tg-evento:hover{border-color:rgba(255,90,60,.5);background:rgba(255,255,255,.06)}
+.tg-ev-chip{display:inline-block;margin-left:8px;font-size:10.5px;font-weight:900;letter-spacing:.6px;border:1px solid;border-radius:999px;padding:1px 7px;vertical-align:1px}
+.tg-aviso-ev{display:block;width:100%;text-align:left;margin-top:10px;padding:11px 14px;border-radius:14px;border:1px solid rgba(255,180,0,.5);background:rgba(255,180,0,.1);color:var(--text);font-size:13.5px;cursor:pointer}
+.tg-aviso-ev b{color:var(--amber)}
+.tg-nuevo-ev{display:inline-flex;align-items:center;gap:6px;margin-top:10px;min-height:38px;padding:0 14px;border-radius:999px;border:1px dashed rgba(255,255,255,.25);background:transparent;color:var(--text);font-weight:800;font-size:13px;cursor:pointer}
+.tg-nuevo-ev:hover{border-color:var(--accent);color:var(--accent)}
+.tg-nuevo-ev:focus-visible,.tg-aviso-ev:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .tg-ev-ico{width:52px;height:52px;border-radius:14px;display:grid;place-items:center;flex-shrink:0;background:rgba(255,90,60,.14);color:var(--accent);overflow:hidden}
 .tg-ev-ico img{width:100%;height:100%;object-fit:cover}
 .tg-ev-label{display:block;font-size:11px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
