@@ -9,6 +9,7 @@ import { sbRRPP } from "./supabaseRRPP";
 import QrCodigo from "../qr/QrCodigo";
 import { eur, card, btn, Mensaje, Campo, Check, lbl, inpP, CSS_PUB } from "./comun";
 import { T, ORIGEN, enlaceDe, compartirEvento, TarjetaEvento, Ventas, VentaEfectivo, Hoja, Dato } from "./PanelRRPP";
+import { pagos } from "./pagosApi";
 
 const n2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 const suma = (xs, k) => n2(xs.reduce((s, x) => s + Number(x[k] || 0), 0));
@@ -305,6 +306,8 @@ function Panel({ d, cargar, email }) {
         {ef > 0 && <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 8 }}>El efectivo que cobraste se descuenta de tu comisión al liquidar.</div>}
       </section>
 
+      <MonederoStripe avisar={avisar} />
+
       <div role="tablist" style={{ display: "flex", gap: 6, background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 14, padding: 4, marginBottom: 14 }}>
         {[["eventos", "Eventos"], ["ventas", "Ventas"], ["cobros", "Cobros"]].map(([k, t]) => (
           <button key={k} role="tab" aria-selected={vista === k} onClick={() => setVista(k)} style={{ flex: 1, border: "none", borderRadius: 10, padding: "11px 6px", fontWeight: 900, fontSize: 15, cursor: "pointer", fontFamily: "inherit", background: vista === k ? "var(--c)" : "transparent", color: vista === k ? T.tinta : "var(--text)" }}>{t}</button>))}
@@ -371,4 +374,70 @@ function Cobros({ orgs, cobros, pf, onPerfil }) {
         : <div style={{ color: "var(--muted)", fontSize: 14, padding: "6px 10px 12px" }}>Aún no te han liquidado ningún evento.</div>}
     </div>
   </>);
+}
+
+/* ---------- Monedero en Stripe: cobro automático al acabar cada evento y retirada al banco ---------- */
+const ESTADO_REPARTO = { enviado: "En tu monedero", sin_monedero: "Te lo paga el organizador", nada: "Sin comisión", error: "Reintentando", preparado: "Enviando…" };
+function MonederoStripe({ avisar }) {
+  const [m, setM] = useState(undefined);
+  const [busy, setBusy] = useState("");
+  const cargar = async () => {
+    try { const r = await pagos(sbRRPP, "monedero", { tipo: "rrpp" }); setM(r?.ok ? r : r?.motivo === "sin_pasarela" ? null : "error"); }
+    catch { setM("error"); }
+  };
+  useEffect(() => {
+    cargar();
+    try { if (new URLSearchParams(window.location.search).get("monedero")) window.history.replaceState(null, "", "/rp"); } catch {}
+  }, []);
+  if (m === undefined || m === null) return null;   // sin pasarela todavía: no se enseña
+  if (m === "error") return <div style={{ ...card, marginBottom: 14, color: "var(--muted)", fontSize: 14 }}>No se ha podido cargar tu monedero. <button onClick={() => { setM(undefined); cargar(); }} style={{ background: "none", border: "none", color: "var(--c)", fontWeight: 800, cursor: "pointer", fontFamily: "inherit", padding: 0 }}>Reintentar</button></div>;
+  const alta = async () => {
+    setBusy("alta");
+    try { const r = await pagos(sbRRPP, "alta", { tipo: "rrpp" }); if (r?.url) { window.location.assign(r.url); return; } avisar(r?.motivo === "perfil" ? "Completa antes tu perfil" : "No se ha podido abrir el alta"); }
+    catch { avisar("No se ha podido abrir el alta"); }
+    setBusy("");
+  };
+  const retirar = async () => {
+    if (!window.confirm(`¿Pasar ${eur(m.saldo.disponible)} a tu banco?`)) return;
+    setBusy("retirar");
+    try {
+      const r = await pagos(sbRRPP, "retirar", { tipo: "rrpp" });
+      if (r?.ok) { avisar(`Enviado: ${eur(r.importe)}${r.llega_en ? ` · llega el ${new Date(r.llega_en).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}` : ""}`); await cargar(); }
+      else avisar(r?.motivo === "sin_saldo" ? "Aún no tienes saldo disponible" : r?.motivo === "alta_incompleta" ? "Termina tu alta en Stripe" : "No se ha podido enviar");
+    } catch { avisar("No se ha podido enviar"); }
+    setBusy("");
+  };
+  const c = m.cuenta, s = m.saldo || { disponible: 0, en_camino: 0 };
+  const pruebas = m.modo === "pruebas" && <span style={{ background: "rgba(255,180,0,.16)", border: "1px solid var(--line)", borderRadius: 8, padding: "2px 7px", fontSize: 11.5, fontWeight: 900, marginLeft: 8 }}>Modo pruebas</span>;
+  return (
+    <section aria-label="Cobro automático" style={{ ...card, marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", fontWeight: 900, fontSize: 16 }}>Cobro automático{pruebas}</div>
+      {!c ? <>
+        <div style={{ color: "var(--muted)", fontSize: 14, margin: "6px 0 12px", lineHeight: 1.5 }}>Activa tu monedero y, al acabar cada evento, tu comisión (menos el efectivo que cobraste) llega sola. Luego la pasas a tu banco cuando quieras. Stripe te pedirá tu DNI y tu cuenta bancaria una sola vez.</div>
+        <button onClick={alta} disabled={!!busy} style={{ ...btn("var(--c)", T.tinta), width: "100%", opacity: busy ? .6 : 1 }}>{busy ? "Abriendo…" : "Activar mi monedero"}</button>
+      </> : c.estado !== "activa" ? <>
+        <div style={{ color: "var(--muted)", fontSize: 14, margin: "6px 0 12px", lineHeight: 1.5 }}>{c.estado === "revision" ? "Stripe está revisando tus datos. Suele tardar unos minutos." : "Te falta terminar el alta en Stripe para poder cobrar."}</div>
+        <button onClick={alta} disabled={!!busy} style={{ ...btn(c.estado === "revision" ? "var(--card2)" : "var(--c)", c.estado === "revision" ? "var(--text)" : T.tinta), width: "100%", border: "1px solid var(--line)", opacity: busy ? .6 : 1 }}>{busy ? "Abriendo…" : c.estado === "revision" ? "Revisar mis datos en Stripe" : "Terminar el alta"}</button>
+      </> : <>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
+          <Dato t="Disponible" v={eur(s.disponible)} fuerte />
+          <Dato t="En camino" v={eur(s.en_camino)} />
+        </div>
+        <button onClick={retirar} disabled={!!busy || !(s.disponible > 0)} style={{ ...btn("var(--c)", T.tinta), width: "100%", marginTop: 10, opacity: busy || !(s.disponible > 0) ? .5 : 1 }}>{busy === "retirar" ? "Enviando…" : s.disponible > 0 ? `Pasar ${eur(s.disponible)} a mi banco` : "Pasar a mi banco"}</button>
+        <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 8 }}>{c.banco ? `A tu cuenta ${c.banco}. ` : ""}Llega en 1-2 días laborables. Lo que está «en camino» queda disponible en unos días.</div>
+      </>}
+      {(m.repartos?.length > 0 || m.retiradas?.length > 0) && <div style={{ marginTop: 12 }}>
+        {m.repartos.map(r => (
+          <div key={r.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "9px 0", borderTop: "1px solid var(--line)", fontSize: 14 }}>
+            <div style={{ minWidth: 0 }}><b>{r.evento}</b><div style={{ color: "var(--muted)", fontSize: 12.5, fontWeight: 700 }}>{ESTADO_REPARTO[r.estado] || r.estado}{r.detalle?.efectivo > 0 ? ` · descontado efectivo ${eur(r.detalle.efectivo)}` : ""}</div></div>
+            <b style={{ flexShrink: 0 }}>{eur(r.importe)}</b>
+          </div>))}
+        {m.retiradas.map(r => (
+          <div key={r.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "9px 0", borderTop: "1px solid var(--line)", fontSize: 14 }}>
+            <div><b>A tu banco</b><div style={{ color: "var(--muted)", fontSize: 12.5, fontWeight: 700 }}>{{ en_camino: "En camino", pagada: "Recibida", fallida: "Ha fallado", cancelada: "Cancelada" }[r.estado]}{r.llega_en ? ` · ${new Date(r.llega_en).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}` : ""}</div></div>
+            <b style={{ flexShrink: 0 }}>−{eur(r.importe)}</b>
+          </div>))}
+      </div>}
+    </section>
+  );
 }

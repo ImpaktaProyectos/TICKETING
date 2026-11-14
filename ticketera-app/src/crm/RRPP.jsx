@@ -9,6 +9,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
 import { C, Icon, Tile, Badge, Seg, Sheet, Field, money, r2, parseImporte } from "./ui";
+import { MonederoOrganizador } from "./Monedero";
 
 const ORIGEN = typeof window !== "undefined" ? window.location.origin : "";
 const telWa = (t) => { const d = String(t || "").replace(/\D/g, ""); return d.length === 9 ? "34" + d : d; };
@@ -95,6 +96,8 @@ export default function RRPP({ ev, isMobile, flash, onDatos }) {
         {[["Entradas de RRPP", String(tot.n), "por enlace y en efectivo"], ["Comisiones", money(tot.com), `${enEvento.length} RRPP en este evento`], ["Por liquidar", money(tot.pend), "comisión aún no pagada"], ["Efectivo en sus manos", money(tot.ef), "lo entregan al liquidar"]].map(([l, v, s]) => (
           <div key={l} style={C.card}><div style={{ fontSize: 12.5, color: "var(--muted)", fontWeight: 700 }}>{l}</div><div style={{ fontSize: isMobile ? 20 : 24, fontWeight: 900, letterSpacing: -.4, marginTop: 4 }}>{v}</div><div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 3 }}>{s}</div></div>))}
       </div>
+
+      <MonederoOrganizador flash={flash} />
 
       <section style={C.panel}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
