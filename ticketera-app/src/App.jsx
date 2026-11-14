@@ -57,7 +57,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.14j";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.14k";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -1436,7 +1436,7 @@ function MenuRow({ icon, label, onClick, tone, right, big }) {
 }
 
 /* ---------------------- Login ---------------------- */
-function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 0, flash, onMovimiento, gastosCaja = [], onEventoCreado }) {
+export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 0, flash, onMovimiento, gastosCaja = [], onEventoCreado }) {
   const [nuevoEv, setNuevoEv] = useState(null);   // null · "pin" · "abierto"
   const [atajos, setAtajos] = useState(null);   // null · "pin" · "abierto"
   const isMobile = useIsMobile();
@@ -1488,7 +1488,11 @@ function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 
             {events.length > 1 && <span className="tg-cambiar">Cambiar<Ic n="chev" s={14} /></span>}
           </button>
           {sugerido && <button type="button" className="tg-aviso-ev" onClick={() => onSelectEvent(sugerido.id)}>⚠️ Este evento ya pasó. <b>Ir a {sugerido.name}</b> ({estadoFecha(sugerido).t.toLowerCase()})</button>}
-          <button type="button" className="tg-nuevo-ev" onClick={() => setNuevoEv("pin")}><Ic n="plus" s={15} w={2.4} />Nuevo evento</button>
+          {/* Accesos rápidos, a la vista nada más entrar (antes los atajos estaban al final de la pantalla) */}
+          <div className="tg-accesos">
+            {ev.id && <button type="button" onClick={() => setAtajos("pin")} className="tg-atajos" aria-label="Atajos rápidos: gastos, cambio y dinero de socios">⚡ Atajos rápidos</button>}
+            <button type="button" className="tg-nuevo-ev" onClick={() => setNuevoEv("pin")}><Ic n="plus" s={15} w={2.4} />Nuevo evento</button>
+          </div>
           <div className="tg-datos">
             <span><b>{puntos.length}</b> {puntos.length === 1 ? "barra" : "barras"}</span>
             <span><b style={{ color: abiertas ? "var(--green)" : "var(--muted)" }}>{abiertas}</b> abiertas</span>
@@ -1538,7 +1542,6 @@ function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pending = 
       </div>
 
       <footer className="tg-pie">
-        {ev.id && <button type="button" onClick={() => setAtajos("pin")} className="tg-atajos" aria-label="Atajos rápidos: gastos, cambio y dinero de socios"><Ic n="list" s={15} w={2.2} />⚡ Atajos rápidos</button>}
         <span>TIXFAST · versión {APP_VERSION}</span>
       </footer>
       {nuevoEv === "pin" && <PinModal secreto={secretoDe(ev, "admin")} onOk={() => setNuevoEv("abierto")} onClose={() => setNuevoEv(null)} label="PIN de administrador para crear un evento" />}
@@ -1604,7 +1607,9 @@ const TG_CSS = `
 .tg-ev-chip{display:inline-block;margin-left:8px;font-size:10.5px;font-weight:900;letter-spacing:.6px;border:1px solid;border-radius:999px;padding:1px 7px;vertical-align:1px}
 .tg-aviso-ev{display:block;width:100%;text-align:left;margin-top:10px;padding:11px 14px;border-radius:14px;border:1px solid rgba(255,180,0,.5);background:rgba(255,180,0,.1);color:var(--text);font-size:13.5px;cursor:pointer}
 .tg-aviso-ev b{color:var(--amber)}
-.tg-nuevo-ev{display:inline-flex;align-items:center;gap:6px;margin-top:10px;min-height:38px;padding:0 14px;border-radius:999px;border:1px dashed rgba(255,255,255,.25);background:transparent;color:var(--text);font-weight:800;font-size:13px;cursor:pointer}
+.tg-accesos{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.tg-accesos .tg-atajos{border-color:rgba(255,180,0,.55);color:var(--text);background:rgba(255,180,0,.1)}
+.tg-nuevo-ev{display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:0 14px;border-radius:999px;border:1px dashed rgba(255,255,255,.25);background:transparent;color:var(--text);font-weight:800;font-size:13px;cursor:pointer}
 .tg-nuevo-ev:hover{border-color:var(--accent);color:var(--accent)}
 .tg-nuevo-ev:focus-visible,.tg-aviso-ev:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .tg-ev-ico{width:52px;height:52px;border-radius:14px;display:grid;place-items:center;flex-shrink:0;background:rgba(255,90,60,.14);color:var(--accent);overflow:hidden}
