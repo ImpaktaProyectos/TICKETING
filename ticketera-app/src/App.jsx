@@ -1,16 +1,17 @@
 import React, { useReducer, useState, useMemo, useEffect, useRef, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
-import { uid } from "./supabase";
+import { uid, supabase } from "./supabase";
 import { logout } from "./auth";
 import * as db from "./db";
 import { secretoDe, estadoDe, comprobar as comprobarPin, crearHuella, problema as problemaPin, fuerza as fuerzaPin, disponible as cifradoDisponible } from "./pin";
 import { CierreNoche } from "./CierreNoche";
 import { Atajos } from "./Atajos";
 import { NuevoEvento } from "./NuevoEvento";
-import { useAcceso, puede, avisoNuevoEvento, avisoNuevaBarra, hoyLocal, diasRestantes, esperarAltaTrasPago } from "./cuenta";
+import { useAcceso, puede, avisoNuevoEvento, avisoNuevaBarra, hoyLocal, diasRestantes, esperarAltaTrasPago, usePrecioSuscripcion, eurosTxt } from "./cuenta";
 import { Suscripcion } from "./Suscripcion";
 import { Capa } from "./Capa";
-import { Bloqueado } from "./Bloqueado";
+import { Escaparate } from "./Escaparate";
+const AdminPlataforma = lazy(() => import("./AdminPlataforma"));
 import { eventoPorDefecto, estadoFecha, ordenarEventos } from "./eventos";
 import { CATS_GASTO, categoriaDe } from "./cierreNocheCalc";
 import { previstosParaCaja } from "./gastosPrevistos";
@@ -61,7 +62,8 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.15c";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.15d";   // súbela al publicar cambios para verificar la actualización
+globalThis.TIXFAST_VERSION = APP_VERSION;
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -754,7 +756,7 @@ export default function App() {
   const guardarCfgRes = (cfg) => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { style: { ...(ev.style || {}), reservados: cfg } } });
   const lineaRes = <LineaReservados ev={ev} punto={punto} res={res} testMode={testMode} isMobile={isMobile} onElegir={(it) => abrirCobroRes(it)} onVerMapa={() => { if (role === "cajero") setResMapa(true); else setView("reservados"); }} />;
   const accApp = useAcceso();
-  const vistaRes = (extra = {}) => !puede(accApp, "reservados", ev, hoyLocal()) ? <Bloqueado funcion="reservados" plan={accApp?.plan_nombre} /> : <ReservadosVista ev={ev} punto={punto} role={role} res={res} sales={evSales} isMobile={isMobile} flash={flash} onGuardarCfg={guardarCfgRes} onCobrarTarifa={(t, r) => abrirCobroRes({ ...t, tipo: "tarifa" }, r.id)} onVentaSocio={(role === "admin" || role === "supervisor") ? (fijo) => setResSocio({ fijo }) : null} {...extra} />;
+  const vistaRes = (extra = {}) => <ReservadosVista ev={ev} punto={punto} role={role} res={res} sales={evSales} isMobile={isMobile} flash={flash} onGuardarCfg={guardarCfgRes} onCobrarTarifa={(t, r) => abrirCobroRes({ ...t, tipo: "tarifa" }, r.id)} onVentaSocio={(role === "admin" || role === "supervisor") ? (fijo) => setResSocio({ fijo }) : null} {...extra} />;
 
   const voidOne = async (sale, by) => { baseDispatch({ type: "VOID_ONE", saleId: sale.id, by }); const r = await db.anularVenta(sale.clientUuid || sale.id, by); if (r.offline) setPending(db.pendingCount()); };
 
@@ -1019,6 +1021,7 @@ export default function App() {
           onRole={(r, puntoId, modo) => { if (puntoId) dispatch({ type: "SET_PUNTO", id: puntoId }); setRole(r); setView("pos"); const crmMode = modo === "crm" && r === "admin"; setAppMode(crmMode ? "crm" : "tpv");  }} />
       )}
 
+      <Escaparate activo={!!role && role !== "validador" && !inCRM && !puede(accApp, "tpv", ev, hoyLocal())} libre="header, nav, aside">
       {/* ===== CAJERO ===== */}
       {role === "cajero" && (isMobile ? (
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -1053,11 +1056,12 @@ export default function App() {
         </div>
       ))}
 
-      {/* ===== SIN SUSCRIPCIÓN: el TPV no se abre (la ticketera sí, desde el CRM) ===== */}
-      {role && !inCRM && !puede(accApp, "tpv", ev, hoyLocal()) && (
+      </Escaparate>
+      {/* ===== SIN SUSCRIPCIÓN: el validador de tickets de barra no se abre ===== */}
+      {role === "validador" && !puede(accApp, "tpv", ev, hoyLocal()) && (
         <Capa><div style={{ position: "fixed", inset: 0, zIndex: 120, background: "var(--bg)", overflow: "auto", padding: "calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom))", boxSizing: "border-box" }}>
           <button onClick={exitToLogin} style={{ minHeight: 44, padding: "0 14px", borderRadius: 12, border: "1px solid var(--line)", background: "var(--surface2)", color: "var(--text)", fontWeight: 800, marginBottom: 14, cursor: "pointer" }}>← Volver al inicio</button>
-          <Suscripcion flash={flash} onTicketera={() => { setRole("admin"); setAppMode("crm"); }} />
+          <Suscripcion flash={flash} />
         </div></Capa>
       )}
 
@@ -1071,7 +1075,7 @@ export default function App() {
       {/* ===== CRM (solo admin) ===== */}
       {inCRM && (
         <Suspense fallback={<div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: "var(--muted)" }}>Abriendo el CRM…</div>}>
-          <CRM onEventoCreado={eventoCreado} events={state.events} sales={state.sales} gastosCaja={state.gastos || []} ev={ev} onSelectEvent={(id) => dispatch({ type: "SELECT_EVENT", id })} onExit={() => (puede(accApp, "tpv", ev, hoyLocal()) ? setAppMode("tpv") : exitToLogin())} flash={flash} />
+          <CRM onEventoCreado={eventoCreado} events={state.events} sales={state.sales} gastosCaja={state.gastos || []} ev={ev} onSelectEvent={(id) => dispatch({ type: "SELECT_EVENT", id })} onExit={() => setAppMode("tpv")} flash={flash} />
         </Suspense>
       )}
 
@@ -1156,7 +1160,7 @@ export default function App() {
 
       {/* ===== Menú móvil (hoja inferior) ===== */}
       {isMobile && menuOpen && (
-        <div style={S.sheetWrap} onClick={() => setMenuOpen(false)}>
+        <div data-libre style={S.sheetWrap} onClick={() => setMenuOpen(false)}>
           <div className="sheet-anim" style={S.sheet} onClick={e => e.stopPropagation()}>
             <div style={S.grab} />
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 10 }}>
@@ -1454,6 +1458,12 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
   const [atajos, setAtajos] = useState(null);   // null · "pin" · "abierto"
   const accGate = useAcceso();
   const sinTpv = !puede(accGate, "tpv", ev, hoyLocal());
+  const [verSusc, setVerSusc] = useState(false);
+  const precioSusc = usePrecioSuscripcion();
+  // Panel de administración de TIXFAST: solo si el servidor confirma que eres administrador
+  const [soyAdmin, setSoyAdmin] = useState(false);
+  const [panel, setPanel] = useState(false);
+  useEffect(() => { if (!online) return; supabase.rpc("ticket_soy_superadmin").then(({ data }) => setSoyAdmin(data === true), () => {}); }, [online]);
   // Al volver de Stripe: espera a que llegue el alta y avisa
   useEffect(() => { esperarAltaTrasPago().then(v => { if (v === "ok") flash?.("✓ Suscripción activada. ¡Bienvenido a TIXFAST!"); else if (v === "cancelada") flash?.("No se ha completado el alta. Puedes intentarlo cuando quieras.", "warn"); }); }, []);
   const isMobile = useIsMobile();
@@ -1507,7 +1517,7 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
           {sugerido && <button type="button" className="tg-aviso-ev" onClick={() => onSelectEvent(sugerido.id)}>⚠️ Este evento ya pasó. <b>Ir a {sugerido.name}</b> ({estadoFecha(sugerido).t.toLowerCase()})</button>}
           {/* Accesos rápidos, a la vista nada más entrar (antes los atajos estaban al final de la pantalla) */}
           <div className="tg-accesos">
-            {ev.id && !sinTpv && <button type="button" onClick={() => setAtajos("pin")} className="tg-atajos" aria-label="Atajos rápidos: gastos, cambio y dinero de socios">⚡ Atajos rápidos</button>}
+            {ev.id && <button type="button" onClick={() => (sinTpv ? setVerSusc(true) : setAtajos("pin"))} className="tg-atajos" aria-label="Atajos rápidos: gastos, cambio y dinero de socios">⚡ Atajos rápidos</button>}
             <button type="button" className="tg-nuevo-ev" onClick={() => setNuevoEv("pin")}><Ic n="plus" s={15} w={2.4} />Nuevo evento</button>
           </div>
           {accGate?.en_prueba && (() => { const d = diasRestantes(accGate); const prueba = true; return (
@@ -1523,8 +1533,17 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
         </section>
 
         <section className="tg-der" aria-label="Elige cómo entrar">
-          {sinTpv && mode !== "crm" && <Suscripcion flash={flash} onTicketera={() => setMode("crm")} />}
-          {!sinTpv && (mode === null || mode === "admin" || mode === "supervisor" || mode === "crm") && (<>
+          {sinTpv && mode === null && <div className="tg-susc">
+            <div style={{ fontWeight: 900, fontSize: 16 }}>Estás en vista previa</div>
+            <div style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 3, lineHeight: 1.45 }}>Puedes entrar en todo y verlo. Para vender y guardar, activa tu suscripción: 7 días gratis{precioSusc != null ? ` y luego ${eurosTxt(precioSusc)} al mes` : ""}. La venta de entradas online es gratis siempre.</div>
+            <button type="button" onClick={() => setVerSusc(true)} className="tg-susc-btn">Empezar prueba de 7 días</button>
+          </div>}
+          {verSusc && <Capa><div onClick={() => setVerSusc(false)} style={{ position: "fixed", inset: 0, zIndex: 140, background: "rgba(0,0,0,.6)", display: "grid", placeItems: "end center", overflow: "auto" }}>
+            <div role="dialog" aria-modal="true" aria-label="Suscripción" onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 540, maxHeight: "94dvh", overflow: "auto", overscrollBehavior: "contain", padding: "14px 12px calc(14px + env(safe-area-inset-bottom))", boxSizing: "border-box" }}>
+              <Suscripcion flash={flash} compacto />
+              <button onClick={() => setVerSusc(false)} style={{ width: "100%", minHeight: 48, marginTop: 10, borderRadius: 14, border: "1px solid var(--line)", background: "var(--surface2)", color: "var(--text)", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>Ahora no</button>
+            </div></div></Capa>}
+          {(mode === null || mode === "admin" || mode === "supervisor" || mode === "crm") && (<>
             <button type="button" className="tg-cajero" onClick={() => puntos.length === 1 ? entrarBarra("cajero", puntos[0].id) : setMode("cajero")}>
               <span className="tg-cajero-ico" aria-hidden="true"><Ic n="receipt" s={28} w={2.1} /></span>
               <span style={{ flex: 1, minWidth: 0 }}>
@@ -1544,7 +1563,7 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
             </div>
           </>)}
 
-          {!sinTpv && (mode === "cajero" || mode === "validador") && (
+          {(mode === "cajero" || mode === "validador") && (
             <div>
               <button type="button" className="tg-volver" onClick={() => setMode(null)}><Ic n="chev" s={14} style={{ transform: "rotate(180deg)" }} />Volver</button>
               <div className="tg-barras">
@@ -1566,7 +1585,9 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
 
       <footer className="tg-pie">
         <span>TIXFAST · versión {APP_VERSION}</span>
+        {soyAdmin && <button type="button" onClick={() => setPanel(true)} className="tg-panel">🛠️ Panel TIXFAST</button>}
       </footer>
+      {panel && <Suspense fallback={null}><AdminPlataforma onCerrar={() => setPanel(false)} /></Suspense>}
       {nuevoEv === "pin" && <PinModal secreto={secretoDe(ev, "admin")} onOk={() => setNuevoEv("abierto")} onClose={() => setNuevoEv(null)} label="PIN de administrador para crear un evento" />}
       {nuevoEv === "abierto" && <NuevoEvento events={events} ev={ev} flash={flash} onCerrar={() => setNuevoEv(null)} onCreado={(e) => { setNuevoEv(null); onEventoCreado(e); }} />}
       {atajos === "pin" && <PinModal secreto={secretoDe(ev, "admin")} onOk={() => setAtajos("abierto")} onClose={() => setAtajos(null)} label="PIN de administrador para los atajos" />}
@@ -1609,6 +1630,9 @@ const TG_CSS = `
 .tg{position:relative;min-height:100%;box-sizing:border-box;overflow:auto;display:flex;flex-direction:column;background:#08090d;color:var(--text);
   padding:calc(14px + env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom));isolation:isolate}
 .tg *{box-sizing:border-box}
+.tg-panel{margin-left:10px;min-height:40px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);font-weight:800;font-size:13px}
+.tg-susc{border:1px solid var(--accent);background:rgba(255,90,60,.08);border-radius:18px;padding:14px;margin-bottom:12px}
+.tg-susc-btn{width:100%;min-height:48px;margin-top:10px;border:none;border-radius:14px;background:var(--accent);color:#fff!important;font-weight:900;font-size:15.5px}
 .tg button{font:inherit;color:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .tg button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .tg-luz{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}

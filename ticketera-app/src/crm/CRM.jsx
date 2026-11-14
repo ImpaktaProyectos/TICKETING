@@ -22,7 +22,8 @@ import { aplicarCaja } from "../gastosPrevistos";
 import { NuevoEvento } from "../NuevoEvento";
 import { estadoFecha, ordenarEventos } from "../eventos";
 import { useAcceso, puede } from "../cuenta";
-import { Bloqueado, Candado } from "../Bloqueado";
+import { Candado } from "../Bloqueado";
+import { Escaparate } from "../Escaparate";
 
 // Pestañas que son funciones de pago (si el plan no las incluye, se ve el aviso en su lugar)
 // Entradas (la ticketera) es siempre gratuita; Ajustes también se puede abrir siempre.
@@ -53,8 +54,6 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
   const [nuevoEv, setNuevoEv] = useState(false);
   const isMobile = useIsMobile();
   const acc = useAcceso();
-  // Sin suscripción, el CRM abre directamente en la ticketera
-  useEffect(() => { if (tab === "dashboard" && !puede(acc, "crm", ev, hoy())) setTab("entradas"); }, [acc, ev?.id]);
   const [tab, setTab] = useState("dashboard");
   const [data, setData] = useState(null);      // { socios, participacion, ingresos, fuentes }
   const [error, setError] = useState(null);
@@ -82,7 +81,6 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
   };
   const aviso = (msg) => { const e = new Error(msg); e.mostrar = true; return e; };
   const bloq = (k) => !!FUNC_TAB[k] && !puede(acc, FUNC_TAB[k], ev, hoy());
-  const verPlan = () => abrirAjustes("cuenta");
   const abrirAjustes = (sec) => { if (tab !== "ajustes") setVolverA(tab); setAjSeccion(sec || "conexiones"); setTab("ajustes"); };
 
   // ---- Ticketera: sincronizar ventas (el servidor habla con Fourvenues) ----
@@ -219,6 +217,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
         )}
 
       <main style={{ flex: 1, overflow: "auto", padding: isMobile ? 12 : "26px 34px 40px", WebkitOverflowScrolling: "touch" }}>
+        <Escaparate activo={bloq(tab)}>
         <div style={{ maxWidth: 1180, margin: "0 auto" }}>
           {!isMobile && (
             <div style={{ marginBottom: 20 }}>
@@ -228,8 +227,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
           )}
           {error && tab !== "facturacion" && <div style={{ ...C.panel, borderColor: "var(--amber)", color: "var(--amber)", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}><span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon n="alert" s={18} />{error}</span><button onClick={cargar} style={C.ghost}>Reintentar</button></div>}
           {!data && !error && tab !== "facturacion" && <Esqueleto />}
-          {bloq(tab) && <Bloqueado funcion={FUNC_TAB[tab]} plan={acc?.plan_nombre} onVerPlan={verPlan} />}
-          {tab === "facturacion" && !bloq(tab) && <Suspense fallback={<div style={{ color: "var(--muted)", padding: 30, textAlign: "center" }}>Cargando facturación…</div>}><Facturacion flash={flash} /></Suspense>}
+          {tab === "facturacion" && <Suspense fallback={<div style={{ color: "var(--muted)", padding: 30, textAlign: "center" }}>Cargando facturación…</div>}><Facturacion flash={flash} /></Suspense>}
           {data && tab === "dashboard" && (
             <Dashboard ev={ev} events={events} sales={sales} gastosCaja={gastosCaja} ajustes={data.ajustes} onSelectEvent={onSelectEvent} refreshKey={data} />
           )}
@@ -253,13 +251,13 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
           {data && tab === "entradas" && (
             <Entradas ev={ev} events={events} onSelectEvent={onSelectEvent} flash={flash} ingresos={ingresos} barras={barras} onVentaEntradas={(i) => setEditVenta(i)} onEditarIngreso={(i) => setEditIng(i)} />
           )}
-          {data && tab === "prevision" && !bloq(tab) && (
+          {data && tab === "prevision" && (
             <Prevision ev={ev} events={events} ingresos={ingresos} gastos={gastosEv} G={G} F={F} ajustes={data.ajustes || {}}
               vinculo={vinculo} conexion={data.conexion} sincronizando={sincronizando} flash={flash}
               onSync={() => sincronizar(ev.id)} onIrGastos={() => setTab("gastos")}
               onGuardarDefecto={async (pv) => { await crm.saveAjustes({ ...(data.ajustes || {}), prevision: pv }); await cargar(); }} />
           )}
-          {data && tab === "stock" && !bloq(tab) && (
+          {data && tab === "stock" && (
             <Stock ev={ev} sales={sales} ajustes={data.ajustes || {}} flash={flash} onRecargarCRM={cargar}
               onGuardarAjustes={async (datos) => { await crm.saveAjustes(datos); await cargar(); }} />
           )}
@@ -296,6 +294,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
               onReparto={(lista) => run(() => crm.saveParticipacion(ev.id, lista), "Reparto guardado")} />
           )}
         </div>
+        </Escaparate>
       </main>
 
         {isMobile && (

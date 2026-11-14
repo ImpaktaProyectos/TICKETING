@@ -3,7 +3,7 @@
 // cambia el servidor (pasarela de pago o administración), nunca la app.
 // La base de datos es quien bloquea de verdad; aquí solo se avisa antes y se ocultan botones.
 // Regla de oro: si no se sabe el acceso (sin internet, base de datos sin actualizar), NO se bloquea nada.
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { supabase } from "./supabase";
 import { scopedKey } from "./db";
 
@@ -89,3 +89,14 @@ export async function esperarAltaTrasPago() {
   }
   return v;
 }
+
+// Precio mensual de la suscripción (sale de la base de datos, nunca del código)
+let PRECIO = null;
+export function usePrecioSuscripcion() {
+  const [p, setP] = useState(PRECIO);
+  useEffect(() => { if (PRECIO != null) return; let vivo = true;
+    supabase.from("ticket_planes").select("precio_mes").eq("id", "pro").maybeSingle().then(({ data }) => { if (data?.precio_mes != null) { PRECIO = Number(data.precio_mes); if (vivo) setP(PRECIO); } }, () => {});
+    return () => { vivo = false; }; }, []);
+  return p;
+}
+export const eurosTxt = (v) => Number(v).toLocaleString("es-ES", { style: "currency", currency: "EUR", minimumFractionDigits: Number.isInteger(Number(v)) ? 0 : 2 });

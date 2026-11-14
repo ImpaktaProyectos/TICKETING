@@ -36,14 +36,14 @@ grant select on public.ticket_planes to authenticated;
 insert into public.ticket_planes (id, nombre, precio_mes, limites, publico, orden) values
   ('fundador', 'Fundador', null, '{}'::jsonb, false, 0),
   ('sin_suscripcion', 'Sin suscripción', 0, '{"bloquea": ["tpv", "crm", "facturacion", "stock", "prevision", "reservados", "conexiones"]}'::jsonb, false, 1),
-  ('pro',      'TIXFAST',  null, '{}'::jsonb, true, 2)
+  ('pro',      'TIXFAST',  29.90, '{}'::jsonb, true, 2)
 on conflict (id) do nothing;
 
 create table if not exists public.ticket_cuentas (
   owner_id uuid primary key references auth.users(id) on delete cascade,
   nombre text check (nombre is null or length(nombre) <= 120),
   plan_id text not null default 'pro' references public.ticket_planes(id),
-  estado text not null default 'pendiente' check (estado in ('pendiente', 'prueba', 'activa', 'impagada', 'suspendida', 'cancelada')),
+  estado text not null default 'pendiente' check (estado in ('pendiente', 'prueba', 'activa', 'impagada', 'suspendida', 'cancelada', 'cortesia')),   -- cortesia = regalada por TIXFAST (hasta periodo_fin o sin fin)
   prueba_hasta timestamptz,
   prueba_usada boolean not null default false,     -- la prueba gratuita solo se da una vez
   periodo_fin timestamptz,
@@ -83,12 +83,14 @@ language sql stable security definer set search_path = '' as $$
     select c.*,
       case
         when c.estado = 'activa' then true
+        when c.estado = 'cortesia' then c.periodo_fin is null or c.periodo_fin > now()
         when c.estado = 'prueba' then coalesce(c.prueba_hasta + interval '1 day' > now(), false)   -- 1 día de margen por si el aviso de Stripe tarda
         when c.estado = 'impagada' then coalesce(c.periodo_fin, c.actualizada_en) + interval '7 days' > now()
         else false
       end as con_acceso,
       case
         when c.estado = 'prueba' then c.prueba_hasta
+        when c.estado = 'cortesia' then c.periodo_fin
         when c.estado = 'impagada' then coalesce(c.periodo_fin, c.actualizada_en) + interval '7 days'
         when c.estado in ('suspendida', 'cancelada') then coalesce(c.periodo_fin, c.actualizada_en)
       end as fin

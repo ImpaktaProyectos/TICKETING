@@ -149,6 +149,7 @@ Deno.serve(async (req) => {
     return json({ ok: false, motivo: "accion" }, 400);
   } catch (e) {
     console.error(b?.accion, (e as Error).message);
+    try { await admin.from("ticket_errores").insert({ owner_id: null, origen: "suscripcion", mensaje: `${b?.accion}: ${(e as Error).message}`.slice(0, 500) }); } catch { /* nada */ }
     return json({ ok: false, motivo: "error" }, 500);
   }
 });

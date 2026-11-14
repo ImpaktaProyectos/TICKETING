@@ -7,7 +7,7 @@ import { ajustesCon, TIPOS_IVA } from "./fiscal";
 import { Switch } from "./Ingresos";
 import { cargarCuenta, useAcceso, bloqueada, diasRestantes, sinSuscripcion, irAStripe, ESTADO_CUENTA } from "../cuenta";
 import { Suscripcion } from "../Suscripcion";
-import { Bloqueado } from "../Bloqueado";
+import { Escaparate } from "../Escaparate";
 
 const pctTxt = (v) => String(r2(v || 0)).replace(".", ",");
 const ESTADO_CX = {
@@ -44,10 +44,9 @@ export function Ajustes({ ev, events, ajustes, conexion, vinculos, busy, seccion
         { k: "fiscal", t: isMobile ? "Comisión e IVA" : "Comisiones e IVA", i: isMobile ? null : "percent" },
         { k: "cuenta", t: isMobile ? "Cuenta" : "Tu cuenta", i: isMobile ? null : "shield" },
       ]} />
-      {seccion === "conexiones" && !conexion && bloqueada(acc, "conexiones") && <Bloqueado funcion="conexiones" plan={acc?.plan_nombre} onVerPlan={() => setSeccion("cuenta")} />}
-      {seccion === "conexiones" && (conexion || !bloqueada(acc, "conexiones")) && <Conexiones {...{ ev, events, conexion, vinculos, busy, onGuardarClave, onProbar, onDesconectar, onCargarEventos, onVincular, onDesvincular, onSync, onImportar }} />}
-      {seccion === "categorias" && <Categorias ajustes={ajustes} busy={busy} onGuardar={onGuardarAjustes} onRenombrar={onRenombrar} />}
-      {seccion === "fiscal" && <Fiscal ajustes={ajustes} busy={busy} preview={preview} ev={ev} onGuardar={onGuardarAjustes} />}
+      {seccion === "conexiones" && <Escaparate activo={bloqueada(acc, "conexiones")}><Conexiones {...{ ev, events, conexion, vinculos, busy, onGuardarClave, onProbar, onDesconectar, onCargarEventos, onVincular, onDesvincular, onSync, onImportar }} /></Escaparate>}
+      {seccion === "categorias" && <Escaparate activo={bloqueada(acc, "crm")}><Categorias ajustes={ajustes} busy={busy} onGuardar={onGuardarAjustes} onRenombrar={onRenombrar} /></Escaparate>}
+      {seccion === "fiscal" && <Escaparate activo={bloqueada(acc, "crm")}><Fiscal ajustes={ajustes} busy={busy} preview={preview} ev={ev} onGuardar={onGuardarAjustes} /></Escaparate>}
       {seccion === "cuenta" && <Cuenta />}
     </div>
   );

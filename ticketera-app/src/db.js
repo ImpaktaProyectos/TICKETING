@@ -1,3 +1,4 @@
+import { registrarError } from "./errores";
 import { supabase, uid } from "./supabase";
 
 /* ===================== MAPEADORES BD <-> UI ===================== */
@@ -250,7 +251,7 @@ async function runItem(it) {
 const isServerError = (err) => !!(err && err.code && err.code !== "PGRST301" && !/fetch|network|timeout/i.test(err.message || ""));
 const FKEY = "ticketera_failed";
 export const failedCount = () => { try { return (JSON.parse(localStorage.getItem(scopedKey(FKEY)) || "[]") || []).length; } catch { return 0; } };
-const addFailed = (it, err) => { try { const f = JSON.parse(localStorage.getItem(scopedKey(FKEY)) || "[]"); f.push({ ...it, error: String(err?.message || err), failedAt: new Date().toISOString() }); localStorage.setItem(scopedKey(FKEY), JSON.stringify(f.slice(-500))); } catch {} };
+const addFailed = (it, err) => { registrarError("sincronizar", err, `operación: ${it?.op || it?.type || "?"}`); try { const f = JSON.parse(localStorage.getItem(scopedKey(FKEY)) || "[]"); f.push({ ...it, error: String(err?.message || err), failedAt: new Date().toISOString() }); localStorage.setItem(scopedKey(FKEY), JSON.stringify(f.slice(-500))); } catch {} };
 
 // Candado: una sola sincronización a la vez
 let syncing = null;

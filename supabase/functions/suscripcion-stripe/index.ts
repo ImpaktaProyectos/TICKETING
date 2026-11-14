@@ -65,6 +65,7 @@ Deno.serve(async (req) => {
     return ok();
   } catch (e) {
     console.error(ev.type, (e as Error).message);
+    try { await admin.from("ticket_errores").insert({ owner_id: null, origen: "stripe-suscripcion", mensaje: `${ev.type}: ${(e as Error).message}`.slice(0, 500) }); } catch { /* nada */ }
     return ok({ motivo: "error" }, 500);   // Stripe lo reintentará
   }
 });

@@ -2,13 +2,18 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import { RequireSession } from "./auth.jsx";
+import { registrarError } from "./errores";
+
+// Los fallos llegan al panel de administración de TIXFAST
+window.addEventListener("error", (e) => registrarError("pantalla", e.error || e.message));
+window.addEventListener("unhandledrejection", (e) => registrarError("promesa", e.reason));
 
 // Red de seguridad: si algo falla al dibujar, NO se queda en blanco.
 // Las ventas pendientes están guardadas en el dispositivo, así que no se pierde nada.
 class ErrorBoundary extends React.Component {
   constructor(p) { super(p); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
-  componentDidCatch(error, info) { console.error("TIXFAST error:", error, info); }
+  componentDidCatch(error, info) { console.error("TIXFAST error:", error, info); registrarError("pantalla_blanca", error, info?.componentStack); }
   render() {
     if (!this.state.error) return this.props.children;
     const box = { minHeight: "100dvh", display: "grid", placeItems: "center", background: "#0b0c10", color: "#eceef5", fontFamily: "Inter, -apple-system, sans-serif", padding: 24, textAlign: "center" };
