@@ -12,9 +12,14 @@ import { useCarrito, BarraCarrito, HojaCarrito, ElegirEntradas, CompraVarios } f
 import PaginaOrganizacion, { MasFiestas } from "./Microsite";
 import { codigoRP } from "./rrppEnlace";
 const PanelRRPP = React.lazy(() => import("./PanelRRPP"));
+const CuentaRRPP = React.lazy(() => import("./CuentaRRPP"));
 
 export default function Publico() {
-  const m = window.location.pathname.match(/^\/(e|o|mis-entradas|compra|rp)\/([^/?#]+)/);
+  const ruta = window.location.pathname;
+  // Portal de RRPP con cuenta: /rp (entrar o crear cuenta) y /rp/unirse/<token> (pedir colaborar con un organizador)
+  const unirse = ruta.match(/^\/rp\/unirse\/([0-9a-f-]{36})\/?$/i);
+  if (unirse || /^\/rp\/?$/.test(ruta)) return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><CuentaRRPP token={unirse ? unirse[1].toLowerCase() : null} /></React.Suspense>;
+  const m = ruta.match(/^\/(e|o|mis-entradas|compra|rp)\/([^/?#]+)/);
   if (!m) return <Mensaje titulo="Página no encontrada" />;
   const v = decodeURIComponent(m[2]);
   if (m[1] === "e") return <PaginaEvento slug={v.toLowerCase()} />;

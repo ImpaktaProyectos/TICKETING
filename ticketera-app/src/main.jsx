@@ -28,8 +28,8 @@ class ErrorBoundary extends React.Component {
 }
 
 // Páginas públicas de venta (/e/<evento>) y de entradas (/mis-entradas/<acceso>): sin sesión ni TPV
-const PUBLICA = /^\/(e|o|mis-entradas|compra|rp)\//.test(window.location.pathname);
-if (PUBLICA) guardarCodigoRP();   // ?rp=CODIGO del enlace de un RRPP
+const PUBLICA = /^\/(e|o|mis-entradas|compra|rp)\/|^\/rp$/.test(window.location.pathname);
+if (PUBLICA) guardarCodigoRP();   // limpia el código de RRPP que guardaba la versión anterior
 const Publico = React.lazy(() => import("./web/Publico.jsx"));
 
 ReactDOM.createRoot(document.getElementById("root")).render(

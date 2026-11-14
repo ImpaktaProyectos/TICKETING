@@ -1,22 +1,17 @@
 // ===================== Enlace de RRPP =====================
-// Quien entra por https://…/e/evento?rp=CODIGO deja el código guardado 30 días en este móvil.
-// Al comprar, el código viaja con el pedido y el servidor decide si vale (RRPP activo en ese evento).
-// Si entra por el enlace de otro RRPP, cuenta el último.
-const K = "tixfast_rp";
-const DIAS = 30;
+// La venta es del RRPP SOLO si se compra en la página de su enlace (https://…/e/evento?rp=CODIGO).
+// No se guarda nada: si alguien entra por un enlace de RRPP y compra más tarde por otro sitio,
+// la venta es de donde se compra al final. El servidor decide si el código vale (RRPP activo en ese evento).
+const VIEJO = "tixfast_rp";   // versión anterior: guardaba el código 30 días. Se borra.
 
 export function guardarCodigoRP() {
-  try {
-    const c = new URLSearchParams(window.location.search).get("rp");
-    const codigo = String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
-    if (codigo.length >= 3) localStorage.setItem(K, JSON.stringify({ c: codigo, t: Date.now() }));
-  } catch {}
+  try { localStorage.removeItem(VIEJO); } catch {}
 }
 
 export function codigoRP() {
   try {
-    const x = JSON.parse(localStorage.getItem(K) || "null");
-    if (!x?.c || Date.now() - Number(x.t || 0) > DIAS * 864e5) return undefined;
-    return x.c;
+    const c = new URLSearchParams(window.location.search).get("rp");
+    const codigo = String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
+    return codigo.length >= 3 ? codigo : undefined;
   } catch { return undefined; }
 }

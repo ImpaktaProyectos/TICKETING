@@ -5,7 +5,7 @@ import ReactDOM from "react-dom/client";
 import Publico from "./web/Publico.jsx";
 import { guardarCodigoRP } from "./web/rrppEnlace.js";
 
-guardarCodigoRP();   // ?rp=CODIGO del enlace de un RRPP
+guardarCodigoRP();   // limpia el código de RRPP que guardaba la versión anterior
 
 class Red extends React.Component {
   constructor(p) { super(p); this.state = { error: null }; }

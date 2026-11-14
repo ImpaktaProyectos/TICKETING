@@ -8,11 +8,16 @@ import { supabase } from "../supabase";
 import QrCodigo from "../qr/QrCodigo";
 import { eur, fecha, hora, cap, tema, Mensaje, card, btn, CAMPOS, ERRORES, Campo, Check, lbl, inpP, stepBtn, CSS_PUB } from "./comun";
 
-const T = tema({ color: "#ff5a3c" });
-const ORIGEN = typeof window !== "undefined" ? window.location.origin : "";
-const enlaceDe = (ev, codigo) => `${ORIGEN}/e/${ev.slug}?rp=${codigo}`;
+export const T = tema({ color: "#ff5a3c" });
+export const ORIGEN = typeof window !== "undefined" ? window.location.origin : "";
+export const enlaceDe = (ev, codigo) => `${ORIGEN}/e/${ev.slug}?rp=${codigo}`;
 const telWa = (t) => { const d = String(t || "").replace(/\D/g, ""); return d.length === 9 ? "34" + d : d; };
-const wa = (texto, tel) => `https://wa.me/${tel ? telWa(tel) : ""}?text=${encodeURIComponent(texto)}`;
+export const wa = (texto, tel) => `https://wa.me/${tel ? telWa(tel) : ""}?text=${encodeURIComponent(texto)}`;
+export async function compartirEvento(ev, codigo) {
+  const url = enlaceDe(ev, codigo), texto = `🎟️ Entradas para ${ev.nombre}${ev.fecha ? ` · ${fecha(ev.fecha, false)}` : ""}`;
+  if (navigator.share) { try { await navigator.share({ title: ev.nombre, text: texto, url }); return; } catch (e) { if (e?.name === "AbortError") return; } }
+  window.open(wa(`${texto}\n${url}`), "_blank", "noopener");
+}
 const num2 = (v) => (Number(v) || 0).toLocaleString("es-ES", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
 export function textoComision(c, tramos = []) {
@@ -51,11 +56,9 @@ export default function PanelRRPP({ acceso }) {
   const r = d.rrpp, eventos = d.eventos || [];
   const total = eventos.reduce((s, e) => s + Number(e.comision_total || 0), 0);
   const copiar = async (t, msg = "Enlace copiado") => { try { await navigator.clipboard.writeText(t); avisar(msg); } catch { avisar("No se ha podido copiar"); } };
-  const compartir = async (ev) => {
-    const url = enlaceDe(ev, r.codigo), texto = `🎟️ Entradas para ${ev.nombre}${ev.fecha ? ` · ${fecha(ev.fecha, false)}` : ""}`;
-    if (navigator.share) { try { await navigator.share({ title: ev.nombre, text: texto, url }); return; } catch (e) { if (e?.name === "AbortError") return; } }
-    window.open(wa(`${texto}\n${url}`), "_blank", "noopener");
-  };
+  const compartir = (ev) => compartirEvento(ev, r.codigo);
+  const venderRpc = (p) => supabase.rpc("rrpp_vender", { p_acceso: acceso, ...p });
+  const anular = (pedido) => supabase.rpc("rrpp_anular_venta", { p_acceso: acceso, p_pedido: pedido });
 
   return (
     <div style={{ ...T.vars, minHeight: "100dvh", background: "var(--bg)", color: "var(--text)", fontFamily: T.letra }}>
@@ -89,7 +92,7 @@ export default function PanelRRPP({ acceso }) {
           <TarjetaEvento key={ev.id} ev={ev} codigo={r.codigo} onCopiar={() => copiar(enlaceDe(ev, r.codigo))} onCompartir={() => compartir(ev)} onQr={() => setQr(ev)} onVender={() => setVender(ev)} />
         )) : <div style={{ ...card, color: "var(--muted)", textAlign: "center" }}>Todavía no tienes eventos asignados. Cuando el organizador publique uno, aparecerá aquí con tu enlace.</div>)}
 
-        {vista === "ventas" && <Ventas ventas={d.ventas || []} acceso={acceso} onCambio={cargar} avisar={avisar} copiar={copiar} />}
+        {vista === "ventas" && <Ventas ventas={d.ventas || []} anularVenta={anular} onCambio={cargar} avisar={avisar} copiar={copiar} />}
 
         <div style={{ color: "var(--muted)", fontSize: 12.5, textAlign: "center", marginTop: 22, lineHeight: 1.5 }}>
           Este enlace es personal: no lo compartas. Para vender, comparte tu enlace de cada evento.<br />Si lo pierdes, pide uno nuevo al organizador.
@@ -102,15 +105,16 @@ export default function PanelRRPP({ acceso }) {
         </div>
         <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 14, marginTop: 12 }}>Que lo escaneen con la cámara: compran con tu código {r.codigo}.</div>
       </Hoja>}
-      {vender && <VentaEfectivo ev={vender} acceso={acceso} onClose={() => setVender(null)} onHecho={() => { cargar(); }} avisar={avisar} />}
+      {vender && <VentaEfectivo ev={vender} vender={venderRpc} onClose={() => setVender(null)} onHecho={() => { cargar(); }} avisar={avisar} />}
       {aviso && <div role="status" style={{ position: "fixed", left: "50%", bottom: "calc(22px + env(safe-area-inset-bottom))", transform: "translateX(-50%)", background: "#15171c", color: "#fff", borderRadius: 12, padding: "11px 16px", fontWeight: 800, zIndex: 90, boxShadow: "0 10px 30px rgba(0,0,0,.4)" }}>{aviso}</div>}
     </div>
   );
 }
 
-function TarjetaEvento({ ev, codigo, onCopiar, onCompartir, onQr, onVender }) {
+export function TarjetaEvento({ ev, codigo, onCopiar, onCompartir, onQr, onVender }) {
   const tramos = ev.tramos || [];
   const aLaVenta = tramos.some(t => t.estado === "venta");
+  const puede = ev.vende !== false;
   const l = ev.liquidacion;
   const n = Number(ev.online || 0) + Number(ev.efectivo_n || 0);
   return (
@@ -135,21 +139,23 @@ function TarjetaEvento({ ev, codigo, onCopiar, onCompartir, onQr, onVender }) {
         <div style={{ marginTop: 2 }}>{Number(l.resultado) > 0 ? `Te pagan ${eur(l.resultado)}` : Number(l.resultado) < 0 ? `Entregas ${eur(-l.resultado)} al organizador` : "Cuentas a cero"}</div>
       </div>}
 
-      <div style={{ marginTop: 14, background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 12, padding: "10px 12px", fontSize: 13.5, fontWeight: 700, wordBreak: "break-all" }}>
-        {ORIGEN.replace(/^https?:\/\//, "")}/e/{ev.slug}?rp={codigo}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
-        <button onClick={onCompartir} style={{ ...btn("var(--c)", T.tinta), padding: "12px 6px", fontSize: 14.5 }}>Compartir</button>
-        <button onClick={onCopiar} style={{ ...btn("var(--card2)", "var(--text)"), padding: "12px 6px", fontSize: 14.5, border: "1px solid var(--line)" }}>Copiar</button>
-        <button onClick={onQr} style={{ ...btn("var(--card2)", "var(--text)"), padding: "12px 6px", fontSize: 14.5, border: "1px solid var(--line)" }}>Ver QR</button>
-      </div>
-      {ev.efectivo && aLaVenta && !l && <button onClick={onVender} style={{ ...btn("transparent", "var(--text)"), width: "100%", marginTop: 8, border: "2px solid var(--c)" }}>💶 Vender en efectivo</button>}
-      {!aLaVenta && <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 10 }}>{n ? "La venta de este evento está cerrada." : "Las entradas de este evento aún no están a la venta."}</div>}
+      {puede ? <>
+        <div style={{ marginTop: 14, background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 12, padding: "10px 12px", fontSize: 13.5, fontWeight: 700, wordBreak: "break-all" }}>
+          {ORIGEN.replace(/^https?:\/\//, "")}/e/{ev.slug}?rp={codigo}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
+          <button onClick={onCompartir} style={{ ...btn("var(--c)", T.tinta), padding: "12px 6px", fontSize: 14.5 }}>Compartir</button>
+          <button onClick={onCopiar} style={{ ...btn("var(--card2)", "var(--text)"), padding: "12px 6px", fontSize: 14.5, border: "1px solid var(--line)" }}>Copiar</button>
+          <button onClick={onQr} style={{ ...btn("var(--card2)", "var(--text)"), padding: "12px 6px", fontSize: 14.5, border: "1px solid var(--line)" }}>Ver QR</button>
+        </div>
+        {ev.efectivo && aLaVenta && !l && <button onClick={onVender} style={{ ...btn("transparent", "var(--text)"), width: "100%", marginTop: 8, border: "2px solid var(--c)" }}>💶 Vender en efectivo</button>}
+        {!aLaVenta && <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 10 }}>{n ? "La venta de este evento está cerrada." : "Las entradas de este evento aún no están a la venta."}</div>}
+      </> : <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 10 }}>Ya no vendes en este evento. Tus ventas y tu comisión siguen contando.</div>}
     </section>
   );
 }
 
-const Dato = ({ t, v, sub, fuerte }) => (
+export const Dato = ({ t, v, sub, fuerte }) => (
   <div style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 12, padding: "10px 10px" }}>
     <div style={{ fontSize: 11.5, color: "var(--muted)", fontWeight: 800 }}>{t}</div>
     <div style={{ fontSize: fuerte ? 18 : 20, fontWeight: 900, color: fuerte ? "var(--c)" : "var(--text)", marginTop: 2 }}>{v ?? 0}</div>
@@ -157,13 +163,13 @@ const Dato = ({ t, v, sub, fuerte }) => (
   </div>
 );
 
-function Ventas({ ventas, acceso, onCambio, avisar, copiar }) {
+export function Ventas({ ventas, anularVenta, onCambio, avisar, copiar }) {
   const [busy, setBusy] = useState("");
   const anular = async (v) => {
     if (!window.confirm(`¿Anular la venta de ${v.comprador} (${v.entradas} ${v.entradas === 1 ? "entrada" : "entradas"})? Las entradas dejarán de valer y tendrás que devolverle el dinero.`)) return;
     setBusy(v.acceso);
     try {
-      const { data, error } = await supabase.rpc("rrpp_anular_venta", { p_acceso: acceso, p_pedido: v.acceso });
+      const { data, error } = await anularVenta(v.acceso);
       if (error || !data?.ok) avisar(data?.motivo === "tarde" ? "Han pasado más de 15 minutos: pídeselo al organizador" : "No se ha podido anular");
       else { avisar("Venta anulada"); onCambio(); }
     } finally { setBusy(""); }
@@ -193,7 +199,7 @@ function Ventas({ ventas, acceso, onCambio, avisar, copiar }) {
   );
 }
 
-function Hoja({ titulo, onClose, children }) {
+export function Hoja({ titulo, onClose, children }) {
   useEffect(() => { const k = (e) => e.key === "Escape" && onClose(); window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, []);
   return createPortal(
     <div role="dialog" aria-modal="true" aria-label={titulo} onClick={onClose} style={{ ...T.vars, position: "fixed", inset: 0, zIndex: 70, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "flex-end", justifyContent: "center", fontFamily: T.letra }}>
@@ -208,7 +214,7 @@ function Hoja({ titulo, onClose, children }) {
 }
 
 /* ---------- Venta en efectivo: el RRPP cobra en mano y las entradas se emiten al momento ---------- */
-function VentaEfectivo({ ev, acceso, onClose, onHecho, avisar }) {
+export function VentaEfectivo({ ev, vender, onClose, onHecho, avisar }) {
   const tramos = (ev.tramos || []).filter(t => t.estado === "venta");
   const form = ev.formulario || {};
   const oblig = (k) => form[k] === "obligatorio";
@@ -244,8 +250,8 @@ function VentaEfectivo({ ev, acceso, onClose, onHecho, avisar }) {
       const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: !!edad };
       if (c.telefono.trim()) comprador.telefono = c.telefono.trim();
       extra.forEach(f => { comprador[f.k] = String(c[f.k] || "").trim(); });
-      const { data, error } = await supabase.rpc("rrpp_vender", {
-        p_acceso: acceso, p_slug: ev.slug, p_items: tramos.filter(t => cant[t.id] > 0).map(t => ({ tramo: t.id, cantidad: cant[t.id] })),
+      const { data, error } = await vender({
+        p_slug: ev.slug, p_items: tramos.filter(t => cant[t.id] > 0).map(t => ({ tramo: t.id, cantidad: cant[t.id] })),
         p_comprador: comprador, p_asistentes: plazas.map((p, i) => ({ tramo: p.tramo, nombre: nombres[i], dni: (as[i]?.dni || "").trim() })),
       });
       if (error) throw error;

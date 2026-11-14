@@ -61,6 +61,10 @@
       "destination": "/publico.html"
     },
     {
+      "source": "/rp",
+      "destination": "/publico.html"
+    },
+    {
       "source": "/rp/:acceso*",
       "destination": "/publico.html"
     }
