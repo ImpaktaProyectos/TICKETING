@@ -5,6 +5,7 @@ import { money, r2, fechaCorta, parseImporte, hoy, useIsMobile, C, Icon, Tile, B
 import { GRUPOS, grupoInfo, CATS_ING, GCATS, catsIngreso, catsGasto, esAuto, ICONOS_CAT, COLORES_CAT, TICKETERA_CAT } from "./categorias";
 import { ajustesCon, TIPOS_IVA } from "./fiscal";
 import { Switch } from "./Ingresos";
+import { cargarCuenta, ESTADO_CUENTA, LIMITES_TXT } from "../cuenta";
 
 const pctTxt = (v) => String(r2(v || 0)).replace(".", ",");
 const ESTADO_CX = {
@@ -38,10 +39,12 @@ export function Ajustes({ ev, events, ajustes, conexion, vinculos, busy, seccion
         { k: "conexiones", t: isMobile ? "Ticketera" : "Conexión con ticketera", i: isMobile ? null : "link" },
         { k: "categorias", t: "Categorías", i: isMobile ? null : "pos" },
         { k: "fiscal", t: isMobile ? "Comisión e IVA" : "Comisiones e IVA", i: isMobile ? null : "percent" },
+        { k: "cuenta", t: isMobile ? "Cuenta" : "Tu cuenta", i: isMobile ? null : "shield" },
       ]} />
       {seccion === "conexiones" && <Conexiones {...{ ev, events, conexion, vinculos, busy, onGuardarClave, onProbar, onDesconectar, onCargarEventos, onVincular, onDesvincular, onSync, onImportar }} />}
       {seccion === "categorias" && <Categorias ajustes={ajustes} busy={busy} onGuardar={onGuardarAjustes} onRenombrar={onRenombrar} />}
       {seccion === "fiscal" && <Fiscal ajustes={ajustes} busy={busy} preview={preview} ev={ev} onGuardar={onGuardarAjustes} />}
+      {seccion === "cuenta" && <Cuenta />}
     </div>
   );
 }
@@ -426,4 +429,25 @@ export function ImportarCSV({ ev, busy, onClose, onImportar }) {
       </>}
     </Sheet>
   );
+}
+
+/* ===================== TU CUENTA (plan y privacidad) ===================== */
+function Cuenta() {
+  const [c, setC] = useState(undefined);
+  useEffect(() => { let vivo = true; cargarCuenta().then(x => vivo && setC(x)).catch(() => vivo && setC(null)); return () => { vivo = false; }; }, []);
+  const est = c ? ESTADO_CUENTA[c.estado] || ESTADO_CUENTA.activa : null;
+  const lim = c ? Object.entries(c.plan?.limites || {}).filter(([k]) => LIMITES_TXT[k]) : [];
+  return (<>
+    <section style={C.panel}>
+      <Head i="shield" c="var(--accent)" t="Tu cuenta" sub="Tu espacio es privado: nadie más puede ver tus eventos, ventas ni cuentas." />
+      {c === undefined && <div style={{ color: "var(--muted)", fontSize: 14, padding: "8px 0" }}>Cargando…</div>}
+      {c === null && <div style={{ color: "var(--muted)", fontSize: 14, padding: "8px 0" }}>No se ha podido cargar la información de la cuenta. Revisa la conexión.</div>}
+      {c && <>
+        <div style={C.row}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800 }}>Correo</div><div style={{ fontSize: 13, color: "var(--muted)", overflowWrap: "anywhere" }}>{c.email || "—"}</div></div></div>
+        <div style={C.row}><div style={{ flex: 1 }}><div style={{ fontWeight: 800 }}>Plan</div><div style={{ fontSize: 13, color: "var(--muted)" }}>{c.plan?.precio_mes != null ? `${money(c.plan.precio_mes)} al mes` : "Sin cuota"}</div></div><Badge c="var(--accent)">{c.plan?.nombre || c.plan_id}</Badge></div>
+        <div style={C.row}><div style={{ flex: 1 }}><div style={{ fontWeight: 800 }}>Estado</div>{c.periodo_fin && <div style={{ fontSize: 13, color: "var(--muted)" }}>Hasta el {fechaCorta(c.periodo_fin.slice(0, 10))}</div>}</div><Badge c={est.c}>{est.t}</Badge></div>
+        <div style={{ ...C.row, borderBottom: "none" }}><div style={{ flex: 1 }}><div style={{ fontWeight: 800 }}>Límites</div><div style={{ fontSize: 13, color: "var(--muted)" }}>{lim.length ? lim.map(([k, v]) => `${v} ${LIMITES_TXT[k]}`).join(" · ") : "Sin límites: eventos y barras ilimitados"}</div></div></div>
+      </>}
+    </section>
+  </>);
 }

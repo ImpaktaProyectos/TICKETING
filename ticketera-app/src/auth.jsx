@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
-import { setUserScope, pendingCount } from "./db";
+import { setUserScope, pendingCount, limpiarCopiaLocal } from "./db";
 
 /* ============================================================
    SESIÓN
@@ -8,7 +8,8 @@ import { setUserScope, pendingCount } from "./db";
 // Sesión guardada en este equipo. Sin internet no se puede renovar el pase de acceso
 // (caduca cada hora), pero la cuenta sigue siendo la misma: la usamos para poder vender
 // offline y se renueva sola en cuanto vuelve la conexión.
-const SB_KEY = "sb-xnhcquehlyalwgqmdiov-auth-token";
+// Nombre de la sesión guardada: sale de la dirección del servidor (variables de entorno), nada fijo en el código
+const SB_KEY = (() => { try { return `sb-${new URL(import.meta.env.VITE_SUPABASE_URL).hostname.split(".")[0]}-auth-token`; } catch { return "sb-auth-token"; } })();
 function storedSession() {
   try { const s = JSON.parse(localStorage.getItem(SB_KEY) || "null"); return s && s.user && s.user.id && s.refresh_token ? s : null; } catch { return null; }
 }
@@ -56,6 +57,8 @@ export function RequireSession({ children }) {
 export const logout = () => {
   const n = pendingCount();
   if (n > 0 && !window.confirm(`Hay ${n} operaciones de esta cuenta SIN SUBIR a la nube. Se quedarán guardadas en este equipo y subirán cuando vuelvas a entrar con esta misma cuenta. ¿Cerrar sesión igualmente?`)) return;
+  // Al salir se borra de este equipo la copia de los datos de la cuenta (lo pendiente de subir se conserva)
+  limpiarCopiaLocal();
   return supabase.auth.signOut();
 };
 

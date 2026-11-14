@@ -98,7 +98,12 @@ async function insertarEvento(ev) {
 // Crear un evento desde la pantalla de inicio o el CRM: necesita conexión y avisa si falla
 export async function crearEvento(ev) {
   if (!navigator.onLine) throw Object.assign(new Error("Sin conexión: para crear un evento hace falta internet"), { mostrar: true });
-  try { await insertarEvento(ev); } catch (e) { throw Object.assign(new Error("No se ha podido crear el evento"), { mostrar: true, causa: e }); }
+  try { await insertarEvento(ev); }
+  catch (e) {
+    // Avisos del plan (límite de eventos, cuenta pausada): se enseñan tal cual
+    const m = String(e?.message || "");
+    throw Object.assign(new Error(m.startsWith("TIXFAST: ") ? m.slice(9) : "No se ha podido crear el evento"), { mostrar: true, causa: e });
+  }
 }
 export async function persistAction(action, ctx = {}) {
   try {
@@ -150,6 +155,17 @@ export function setUserScope(uid) {
         localStorage.removeItem(b);
       });
     }
+  } catch {}
+}
+// Al cerrar sesión: borra de este equipo la copia local de la cuenta (eventos, ventas, reservados…).
+// Se conserva solo lo que aún no se ha subido a la nube, para que suba al volver a entrar.
+export function limpiarCopiaLocal() {
+  if (!SCOPE) return;
+  try {
+    const fin = "__" + SCOPE, guardar = new Set(["ticketera_pending" + fin, "ticketera_failed" + fin]);
+    const borrar = [];
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.endsWith(fin) && !guardar.has(k)) borrar.push(k); }
+    borrar.forEach(k => localStorage.removeItem(k));
   } catch {}
 }
 const QKEY = "ticketera_pending";
