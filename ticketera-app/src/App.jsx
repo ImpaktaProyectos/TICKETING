@@ -57,7 +57,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.14k";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.14l";   // súbela al publicar cambios para verificar la actualización
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
 function useIsMobile(bp = 720) {
@@ -1477,7 +1477,7 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
       <div className="tg-main">
         <section className="tg-izq">
           <div className="tg-eyebrow">{mode === "cajero" || mode === "validador" ? "Paso 2 de 2" : "Bienvenido"}</div>
-          <h1 className="tg-h1">{mode === "cajero" ? "¿En qué barra trabajas?" : mode === "validador" ? "¿En qué barra validas?" : "¿Quién entra hoy?"}</h1>
+          <h1 className="tg-h1">{mode === "cajero" ? "¿En qué barra trabajas?" : mode === "validador" ? "¿En qué barra validas?" : "Estás trabajando en…"}</h1>
           <button type="button" className="tg-evento" onClick={() => setVerEventos(true)} aria-label={`Evento: ${ev.name}. Cambiar de evento`}>
             <span className="tg-ev-ico" aria-hidden="true">{ev.logo ? <img src={ev.logo} alt="" /> : <Ic n="store" s={22} />}</span>
             <span style={{ flex: 1, minWidth: 0 }}>
@@ -1602,8 +1602,9 @@ const TG_CSS = `
 @media (min-width:900px){.tg-main{grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:56px;align-items:center}}
 .tg-eyebrow{font-size:12px;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
 .tg-h1{margin:6px 0 18px;font-size:clamp(30px,6.4vw,52px);line-height:1.02;font-weight:900;letter-spacing:-.035em}
-.tg-evento{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:16px;border-radius:20px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(10px);transition:border-color .15s,background .15s}
-.tg-evento:hover{border-color:rgba(255,90,60,.5);background:rgba(255,255,255,.06)}
+.tg-evento{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:16px;border-radius:20px;background:linear-gradient(135deg,rgba(255,90,60,.16),rgba(255,90,60,.05));border:1.5px solid rgba(255,90,60,.75);box-shadow:0 0 0 1px rgba(255,90,60,.15),0 0 28px rgba(255,90,60,.35),0 0 64px rgba(255,90,60,.16);backdrop-filter:blur(10px);transition:border-color .15s,background .15s,box-shadow .15s}
+.tg-evento:hover{border-color:var(--accent);box-shadow:0 0 0 1px rgba(255,90,60,.25),0 0 34px rgba(255,90,60,.45),0 0 72px rgba(255,90,60,.2)}
+.tg-evento:focus-visible{outline:2px solid #fff;outline-offset:3px}
 .tg-ev-chip{display:inline-block;margin-left:8px;font-size:10.5px;font-weight:900;letter-spacing:.6px;border:1px solid;border-radius:999px;padding:1px 7px;vertical-align:1px}
 .tg-aviso-ev{display:block;width:100%;text-align:left;margin-top:10px;padding:11px 14px;border-radius:14px;border:1px solid rgba(255,180,0,.5);background:rgba(255,180,0,.1);color:var(--text);font-size:13.5px;cursor:pointer}
 .tg-aviso-ev b{color:var(--amber)}
@@ -1617,7 +1618,7 @@ const TG_CSS = `
 .tg-ev-label{display:block;font-size:11px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
 .tg-ev-nombre{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:clamp(18px,3.4vw,24px);font-weight:900;letter-spacing:-.02em;line-height:1.15;margin-top:2px;overflow:hidden;overflow-wrap:anywhere}
 .tg-ev-meta{display:block;font-size:13.5px;color:var(--muted);margin-top:3px;line-height:1.35}
-.tg-cambiar{display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:800;color:var(--text);padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.07);flex-shrink:0}
+.tg-cambiar{display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:900;color:#fff;padding:8px 11px;border-radius:10px;background:var(--accent);box-shadow:0 4px 14px rgba(255,90,60,.4);flex-shrink:0}
 .tg-cambiar svg{transform:rotate(0)}
 .tg-datos{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:14px;font-size:13px;color:var(--muted)}
 .tg-datos span{display:inline-flex;align-items:center;gap:5px}
