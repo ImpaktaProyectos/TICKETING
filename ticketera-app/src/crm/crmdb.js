@@ -552,9 +552,12 @@ export async function orgSubir(orgId, tipo, file) {
 }
 // Eventos con venta online de la cuenta (para asignarlos a una organización)
 export async function orgEventos() {
-  const { data, error } = await supabase.from("ticket_web_eventos").select("evento_id, slug, estado, modo, flyer_url, organizacion_id, ticket_eventos(nombre, fecha, inicio, fin)");
+  // Sin los eventos de la papelera (si la base aún no tiene papelera, se ven todos)
+  const q = (c) => supabase.from("ticket_web_eventos").select(`evento_id, slug, estado, modo, flyer_url, organizacion_id, ticket_eventos(nombre, fecha, inicio, fin${c})`);
+  let { data, error } = await q(", borrado_en");
+  if (error && /borrado_en/.test(error.message || "")) ({ data, error } = await q(""));
   if (error) throw error;
-  return (data || []).map(x => ({ ...x, nombre: x.ticket_eventos?.nombre, fecha: x.ticket_eventos?.fecha, inicio: x.ticket_eventos?.inicio, fin: x.ticket_eventos?.fin }))
+  return (data || []).filter(x => !x.ticket_eventos?.borrado_en).map(x => ({ ...x, nombre: x.ticket_eventos?.nombre, fecha: x.ticket_eventos?.fecha, inicio: x.ticket_eventos?.inicio, fin: x.ticket_eventos?.fin }))
     .sort((a, b) => String(b.inicio || b.fecha || "").localeCompare(String(a.inicio || a.fecha || "")));
 }
 export async function orgAsignarEvento(eventoId, orgId) { ok(await supabase.from("ticket_web_eventos").update({ organizacion_id: orgId }).eq("evento_id", eventoId)); }

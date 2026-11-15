@@ -4,6 +4,7 @@
 import React, { useEffect, useState } from "react";
 import { cargarCuenta, cargarOfertas, irAStripe, retener, cambiarPlan, resumenPlan, sinSuscripcion, diasRestantes, ESTADO_CUENTA, eurosTxt } from "./cuenta";
 import { Suscripcion } from "./Suscripcion";
+import { logout } from "./auth";
 
 const fechaEs = (iso) => iso ? new Date(iso).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }) : "";
 const K = {
@@ -64,6 +65,14 @@ export function TuCuenta({ inicial = null }) {
     {f?.suscripcion_pago_id && ["activa", "prueba", "impagada"].includes(f.estado) && paso && <Retencion paso={paso} setPaso={setPaso} busy={busy} hacer={hacer} />}
     {sin && !f?.suscripcion_pago_id && <Suscripcion flash={(t) => setMsg({ t, mal: true })} compacto />}
     {sin && f?.estado === "cancelada" && <Suscripcion flash={(t) => setMsg({ t, mal: true })} compacto oferta="recuperar" />}
+    <section style={K.panel}>
+      <div style={{ fontWeight: 800 }}>Cerrar sesión</div>
+      <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2, marginBottom: 10 }}>Sales de tu cuenta en este equipo. Para volver a entrar necesitarás tu correo y contraseña.</div>
+      <button onClick={() => { if (window.confirm("¿Cerrar sesión en este equipo?")) logout(); }} style={{ ...K.btn, color: "var(--red)", borderColor: "var(--red)", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 16.5L5.5 12 10 7.5M5.5 12H16" /></svg>
+        Cerrar sesión
+      </button>
+    </section>
   </div>);
 }
 

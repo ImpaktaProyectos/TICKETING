@@ -41,10 +41,10 @@ async function fetchAll(buildQuery, pageSize = 1000) {
 }
 
 export async function loadAll() {
-  const { data: eventos, error } = await supabase
-    .from("ticket_eventos")
-    .select("*, ticket_puntos(*, ticket_productos(*))")
-    .order("fecha", { ascending: true });
+  // Los eventos de la papelera no se cargan (si la base aún no tiene papelera, se cargan todos)
+  const base = () => supabase.from("ticket_eventos").select("*, ticket_puntos(*, ticket_productos(*))").order("fecha", { ascending: true });
+  let { data: eventos, error } = await base().is("borrado_en", null);
+  if (error && /borrado_en/.test(error.message || "")) ({ data: eventos, error } = await base());
   if (error) throw error;
   const eventIds = (eventos || []).map(e => e.id);
   let sales = [], closures = [], gastos = [];
@@ -84,6 +84,28 @@ export async function ensureDefaultEvent() {
   }));
   await supabase.from("ticket_puntos").insert({ id: ptId, evento_id: evId, nombre: "Taquilla", archivado: false });
 }
+
+/* ===================== PAPELERA DE EVENTOS =====================
+   Borrar un evento lo deja 30 días en la papelera (se puede rescatar); después desaparece solo. */
+export const DIAS_PAPELERA = 30;
+const errorPapelera = (e, txt) => {
+  const m = String(e?.message || "");
+  if (!navigator.onLine || /fetch|network/i.test(m)) return Object.assign(new Error("Sin conexión: hace falta internet"), { mostrar: true });
+  return Object.assign(new Error(m.startsWith("TIXFAST: ") ? m.slice(9) : txt), { mostrar: true, causa: e });
+};
+export async function loadPapelera() {
+  const { data, error } = await supabase.from("ticket_eventos").select("id, nombre, fecha, recinto, borrado_en").not("borrado_en", "is", null).order("borrado_en", { ascending: false });
+  if (error) return [];
+  return (data || []).map(e => ({ id: e.id, name: e.nombre, date: e.fecha, venue: e.recinto || "", borradoEn: e.borrado_en }));
+}
+async function rpcPapelera(fn, id, txt) {
+  if (!navigator.onLine) throw errorPapelera(null, txt);
+  const { error } = await supabase.rpc(fn, { p_evento: id });
+  if (error) throw errorPapelera(error, txt);
+}
+export const borrarEvento = (id) => rpcPapelera("ticket_evento_borrar", id, "No se ha podido borrar el evento");
+export const restaurarEvento = (id) => rpcPapelera("ticket_evento_restaurar", id, "No se ha podido rescatar el evento");
+export const eliminarEvento = (id) => rpcPapelera("ticket_evento_eliminar", id, "No se ha podido eliminar el evento");
 
 /* ===================== ESCRITURAS (admin/config) ===================== */
 // Guarda un evento nuevo con sus barras y productos (lanza error si algo falla; si fallan las barras, no deja el evento a medias)

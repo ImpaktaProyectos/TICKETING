@@ -66,7 +66,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.18c";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.19a";   // súbela al publicar cambios para verificar la actualización
 globalThis.TIXFAST_VERSION = APP_VERSION;
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
@@ -940,6 +940,29 @@ export default function App() {
     } catch (e) { flash("Error al resetear", "warn"); }
   };
 
+  // Borrar un evento: va a la papelera 30 días (se puede rescatar). Necesita internet.
+  const borrarEvento = async (e) => {
+    try { await db.borrarEvento(e.id); }
+    catch (err) { flash(err?.mostrar ? err.message : "No se ha podido borrar el evento", "warn"); return false; }
+    await hydrate().catch(() => {});
+    flash(`🗑️ «${e.name}» está en la papelera. Puedes rescatarlo durante ${db.DIAS_PAPELERA} días desde Evento › Eventos borrados.`);
+    return true;
+  };
+  const restaurarEvento = async (e) => {
+    try { await db.restaurarEvento(e.id); }
+    catch (err) { flash(err?.mostrar ? err.message : "No se ha podido rescatar el evento", "warn"); return false; }
+    await hydrate().catch(() => {});
+    baseDispatch({ type: "SELECT_EVENT", id: e.id });
+    flash(`↺ «${e.name}» rescatado: vuelve a estar como lo dejaste`);
+    return true;
+  };
+  const eliminarEvento = async (e) => {
+    try { await db.eliminarEvento(e.id); }
+    catch (err) { flash(err?.mostrar ? err.message : "No se ha podido eliminar el evento", "warn"); return false; }
+    flash(`«${e.name}» eliminado para siempre`);
+    return true;
+  };
+
   // Fondo de caja: obligatorio antes de vender cuando la venta avanzada está activa
   // Fondo de caja: se confirma al abrir cada barra (y tras cada cierre Z). Se puede desactivar en el evento.
   const [opening, setOpening] = useState(false);          // pantalla "Iniciar venta" (fondo del cajón)
@@ -1104,7 +1127,7 @@ export default function App() {
             {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
             {safeView === "reservados" && vistaRes({ onCerrar: () => setView("pos"), enBarra: true })}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
-            {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
+            {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} onBorrar={borrarEvento} onRestaurar={restaurarEvento} onEliminar={eliminarEvento} dispatch={dispatch} flash={flash} />}
             {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
             {safeView === "reports" && <CierreNoche ev={ev} evSales={evSales} evGastos={evGastos} res={res} role={role} flash={flash} />}
             {safeView === "reports" && <InformeReservados ev={ev} res={res} sales={evSales} isMobile={isMobile} />}
@@ -1153,7 +1176,7 @@ export default function App() {
               {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
               {safeView === "reservados" && vistaRes({ onCerrar: () => setView("pos") })}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
-              {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} dispatch={dispatch} flash={flash} />}
+              {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} onBorrar={borrarEvento} onRestaurar={restaurarEvento} onEliminar={eliminarEvento} dispatch={dispatch} flash={flash} />}
               {safeView === "history" && <Historico state={state} flash={flash} onOpenEvent={(id) => { dispatch({ type: "SELECT_EVENT", id }); setView("pos"); }} />}
             {safeView === "reports" && <CierreNoche ev={ev} evSales={evSales} evGastos={evGastos} res={res} role={role} flash={flash} />}
             {safeView === "reports" && <InformeReservados ev={ev} res={res} sales={evSales} isMobile={isMobile} />}
@@ -1435,6 +1458,7 @@ const IC = {
   plus: "M12 5v14M5 12h14",
   users: "M9 11a3.5 3.5 0 1 0 0-7a3.5 3.5 0 1 0 0 7M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 6.5M18 13.5a6.5 6.5 0 0 1 3.5 6.5",
   edit: "M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16zM13.5 6.5l4 4",
+  trash: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6",
   qr: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2M14 18h2v2M18 18h2v2h-2",
 };
 const II = { display: "inline-block", verticalAlign: "-3px", marginRight: 6 };   // icono en línea con texto
@@ -2588,11 +2612,12 @@ function TemplateDesigner({ ev, dispatch, flash }) {
 /* ============================================================
    EVENT CONFIG
    ============================================================ */
-function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash }) {
+function EventConfig({ state, ev, punto, evSales, role, onReset, onBorrar, onRestaurar, onEliminar, dispatch, flash }) {
   const acc = useAcceso();
   const isMobile = useIsMobile();
   const isAdmin = role === "admin";
   const [confirmReset, setConfirmReset] = useState(0); // 0 no, 1 primer aviso, 2 aviso final
+  const [borrando, setBorrando] = useState(null);       // evento que se va a borrar (pide escribir BORRAR)
   const [draft, setDraft] = useState({ name: "", subtitle: "", price: "", emoji: "🎟️", color: PALETTE[0] });
   const [newEvent, setNewEvent] = useState(null);
   const neOpen = !!newEvent;
@@ -2754,8 +2779,12 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
             <div style={{ fontWeight: 800, marginBottom: 6, color: "var(--red)" }}><Ic n="alert" s={15} style={II} />Zona peligrosa</div>
             <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>Resetear borra TODAS las ventas y cierres de “{ev.name}”. Ideal para limpiar las pruebas antes del evento. No se puede deshacer.</div>
             <button onClick={() => setConfirmReset(1)} style={{ ...S.btnGhost, width: "100%", color: "var(--red)", borderColor: "var(--red)" }}>Resetear estadísticas</button>
+            <div style={{ fontSize: 12, color: "var(--muted)", margin: "14px 0 10px", paddingTop: 12, borderTop: "1px solid var(--line)" }}>Borrar quita “{ev.name}” de la app y apaga su web y sus reservas online. Queda {db.DIAS_PAPELERA} días en <b>Eventos borrados</b> por si quieres rescatarlo.</div>
+            <button onClick={() => setBorrando(ev)} style={{ ...S.btnGhost, width: "100%", color: "var(--red)", borderColor: "var(--red)" }}><Ic n="trash" s={15} style={II} />Borrar evento</button>
           </div>
         )}
+        {isAdmin && <Papelera key={ev.id} onRestaurar={onRestaurar} onEliminar={onEliminar} />}
+        {borrando && <BorrarEvento ev={borrando} onCerrar={() => setBorrando(null)} onBorrar={async () => { const ok = await onBorrar(borrando); if (ok) setBorrando(null); return ok; }} />}
         {newEvent && (
           <div id="nuevo-evento" style={{ ...S.panel, marginTop: 16, border: "1px solid var(--accent)" }}>
             <div style={{ fontWeight: 800, marginBottom: 10 }}>{newEvent.copyFrom ? "Duplicar evento" : "Crear evento nuevo"}</div>
@@ -2977,6 +3006,70 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
     </>
   );
 }
+
+/* ============================================================
+   BORRAR EVENTO (con palabra de seguridad) Y PAPELERA
+   ============================================================ */
+const PALABRA_BORRAR = "BORRAR";
+function BorrarEvento({ ev, onCerrar, onBorrar }) {
+  const [txt, setTxt] = useState("");
+  const [busy, setBusy] = useState(false);
+  const listo = txt.trim().toUpperCase() === PALABRA_BORRAR;
+  const ir = async () => { if (!listo || busy) return; setBusy(true); const ok = await onBorrar(); if (!ok) setBusy(false); };
+  return (
+    <Capa>
+      <div style={S.overlay} onClick={() => !busy && onCerrar()}>
+        <div role="dialog" aria-modal="true" aria-labelledby="borrar-ev-t" style={{ ...S.pinCard, width: 380, maxWidth: "calc(100vw - 32px)", boxSizing: "border-box", border: "2px solid var(--red)", padding: 22 }} onClick={e => e.stopPropagation()}>
+          <div style={{ display: "flex", justifyContent: "center", color: "var(--red)" }}><Ic n="trash" s={38} /></div>
+          <div id="borrar-ev-t" style={{ fontWeight: 900, fontSize: 18, margin: "8px 0", textAlign: "center", overflowWrap: "anywhere" }}>¿Borrar «{ev.name}»?</div>
+          <ul style={{ color: "var(--muted)", fontSize: 13.5, lineHeight: 1.45, margin: "0 0 14px", paddingLeft: 18 }}>
+            <li>Desaparece del TPV y del CRM, con sus barras, ventas y cierres.</li>
+            <li>Su web de entradas y la reserva online dejan de verse.</li>
+            <li>Queda <b style={{ color: "var(--text)" }}>{db.DIAS_PAPELERA} días</b> en <b style={{ color: "var(--text)" }}>Eventos borrados</b> por si te arrepientes. Después se borra para siempre.</li>
+          </ul>
+          <label style={{ display: "block", fontSize: 13.5, fontWeight: 700, marginBottom: 6 }}>Para confirmar, escribe <b style={{ color: "var(--red)" }}>{PALABRA_BORRAR}</b>:</label>
+          <input autoFocus value={txt} onChange={e => setTxt(e.target.value)} onKeyDown={e => { if (e.key === "Enter") ir(); }} autoCapitalize="characters" autoComplete="off" autoCorrect="off" spellCheck={false}
+            placeholder={PALABRA_BORRAR} aria-label={`Escribe ${PALABRA_BORRAR} para confirmar`} style={{ ...S.input, fontSize: 16, minHeight: 48, boxSizing: "border-box", borderColor: listo ? "var(--red)" : "var(--line)" }} />
+          <button disabled={!listo || busy} onClick={ir} style={{ ...S.btnPrimary, minHeight: 48, marginTop: 12, background: "var(--red)", opacity: listo && !busy ? 1 : .45, cursor: listo && !busy ? "pointer" : "default" }}>{busy ? "Borrando…" : "Borrar evento"}</button>
+          <button disabled={busy} onClick={onCerrar} style={{ ...S.btnGhost, width: "100%", minHeight: 48, marginTop: 8 }}>Cancelar</button>
+        </div>
+      </div>
+    </Capa>
+  );
+}
+
+// Eventos borrados: se pueden rescatar durante 30 días (o eliminar ya para siempre)
+function Papelera({ onRestaurar, onEliminar }) {
+  const [lista, setLista] = useState(null);
+  const [abierta, setAbierta] = useState(false);
+  const [busy, setBusy] = useState(null);
+  const cargar = () => db.loadPapelera().then(setLista).catch(() => setLista([]));
+  useEffect(() => { cargar(); }, []);
+  if (!lista || !lista.length) return null;
+  const quedan = (e) => Math.max(0, db.DIAS_PAPELERA - Math.floor((Date.now() - new Date(e.borradoEn).getTime()) / 86400000));
+  const hacer = async (e, fn) => { setBusy(e.id); await fn(e); setBusy(null); cargar(); };
+  return (
+    <div style={{ ...S.panel, marginTop: 16 }}>
+      <button onClick={() => setAbierta(!abierta)} aria-expanded={abierta} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 44, background: "transparent", border: "none", color: "var(--text)", padding: 0, cursor: "pointer", textAlign: "left", font: "inherit" }}>
+        <Ic n="trash" s={18} />
+        <span style={{ flex: 1, minWidth: 0 }}><b>Eventos borrados ({lista.length})</b><span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>Puedes rescatarlos durante {db.DIAS_PAPELERA} días.</span></span>
+        <Ic n={abierta ? "up" : "down"} s={18} />
+      </button>
+      {abierta && lista.map(e => { const d = quedan(e); return (
+        <div key={e.id} style={{ borderTop: "1px solid var(--line)", padding: "10px 0", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 180px", minWidth: 0 }}>
+            <div style={{ fontWeight: 800, overflowWrap: "anywhere" }}>{e.name}</div>
+            <div style={{ fontSize: 12, color: d <= 3 ? "var(--amber)" : "var(--muted)" }}>{e.date ? fechaCorta(e.date) + " · " : ""}{d === 0 ? "se borra hoy" : d === 1 ? "queda 1 día" : `quedan ${d} días`}</div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flex: "1 1 auto", justifyContent: "flex-end" }}>
+            <button disabled={!!busy} onClick={() => hacer(e, onRestaurar)} style={{ ...S.btnGhost, minHeight: 44, padding: "0 14px", color: "var(--green)", borderColor: "var(--green)" }}><Ic n="undo" s={15} style={II} />{busy === e.id ? "…" : "Rescatar"}</button>
+            <button disabled={!!busy} onClick={() => { if (window.confirm(`¿Eliminar «${e.name}» para siempre? Ya no se podrá rescatar.`)) hacer(e, onEliminar); }} style={{ ...S.btnGhost, minHeight: 44, padding: "0 12px", color: "var(--red)", borderColor: "var(--line)" }} aria-label={`Eliminar ${e.name} para siempre`}>Eliminar ya</button>
+          </div>
+        </div>); })}
+    </div>
+  );
+}
+const fechaCorta = (d) => { try { return new Date(d + "T12:00").toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" }); } catch { return d; } };
 
 /* ============================================================
    REPORTS
