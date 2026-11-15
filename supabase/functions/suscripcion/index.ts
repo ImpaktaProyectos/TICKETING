@@ -44,11 +44,16 @@ async function stripe(metodo: "GET" | "POST", ruta: string, params: Record<strin
   if (!r.ok) throw new Error(d?.error?.message || `Stripe ${r.status}`);
   return d;
 }
+// Solo se vuelve a páginas de TIXFAST: dominios propios, nunca uno que mande quien llama
+const DOMINIOS = ["somostixfast.vercel.app", "tixfast.app"];
 function origenValido(o: unknown) {
   try {
     const u = new URL(String(o));
     if (u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1")) return u.origin;
-    if (u.protocol === "https:" && (u.hostname.endsWith(".vercel.app") || u.hostname.includes("tixfast"))) return u.origin;
+    if (u.protocol !== "https:") return null;
+    const extra = (Deno.env.get("SITE_URL") || "").trim();
+    if (extra) { try { if (new URL(extra).hostname === u.hostname) return u.origin; } catch { /* nada */ } }
+    if (DOMINIOS.some((d) => u.hostname === d || u.hostname.endsWith(`.${d}`))) return u.origin;
   } catch { /* nada */ }
   return null;
 }

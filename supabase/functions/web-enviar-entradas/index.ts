@@ -12,7 +12,7 @@ const CORS = {
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Solo se enlaza a dominios de la app (nunca a uno que mande quien llama)
-const ORIGEN_OK = /^https:\/\/([a-z0-9-]+\.)*(vercel\.app|tixfast\.app)$/i;
+const ORIGEN_OK = /^https:\/\/(somostixfast\.vercel\.app|([a-z0-9-]+\.)*tixfast\.app)$/i;
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 // «inicio» se guarda como hora local sin zona (2026-12-12T23:30): se muestra tal cual (UTC = sin desplazar)
 const fecha = (v: string | null) => { if (!v) return ""; const local = v.length <= 16; const d = new Date(local ? v + (v.length <= 10 ? "T12:00" : "") + "Z" : v); if (isNaN(+d)) return ""; return d.toLocaleString("es-ES", { weekday: "long", day: "numeric", month: "long", hour: v.length > 10 ? "2-digit" : undefined, minute: v.length > 10 ? "2-digit" : undefined, timeZone: local ? "UTC" : "Europe/Madrid" }); };
