@@ -67,6 +67,10 @@
     {
       "source": "/b/:token*",
       "destination": "/publico.html"
+    },
+    {
+      "source": "/p/:token*",
+      "destination": "/publico.html"
     }
   ]
 }

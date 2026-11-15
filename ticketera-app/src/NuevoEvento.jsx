@@ -10,6 +10,7 @@ import { uid } from "./supabase";
 import * as db from "./db";
 import { copiaDeEvento, ordenarEventos, estadoFecha } from "./eventos";
 import { useAcceso, bloqueada, avisoNuevoEvento } from "./cuenta";
+import { MODALIDADES, esMultipuesto } from "./multipuesto/modelo";
 
 const aIso = (v) => { if (!v) return ""; const d = new Date(v); return isNaN(d) ? "" : d.toISOString(); };
 const fecha = (d) => { try { return new Date(d + "T12:00").toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" }); } catch { return d; } };
@@ -24,11 +25,11 @@ const K = {
 
 export function NuevoEvento({ events, ev, flash, onCreado, onCerrar }) {
   const ordenados = useMemo(() => ordenarEventos(events), [events]);
-  const [x, setX] = useState({ nombre: "", inicio: "", fin: "", recinto: ev?.venue || "", desde: ev?.id || "", barras: true, reservados: true, online: true });
+  const [x, setX] = useState({ nombre: "", inicio: "", fin: "", recinto: ev?.venue || "", desde: ev?.id || "", barras: true, reservados: true, online: true, modalidad: esMultipuesto(ev) ? "multipuesto" : "estandar" });
   const [busy, setBusy] = useState(false);
   const acc = useAcceso();
   const avisoLimite = avisoNuevoEvento(acc, events);
-  const sinRes = bloqueada(acc, "reservados"), sinOnline = bloqueada(acc, "entradas_online");
+  const sinRes = bloqueada(acc, "reservados"), sinOnline = bloqueada(acc, "entradas_online"), sinMulti = bloqueada(acc, "multipuesto");
   const set = (k, v) => setX(o => ({ ...o, [k]: v }));
   const src = events.find(e => e.id === x.desde) || null;
   const nProd = src ? src.puntos.filter(p => !p.archivado).reduce((t, p) => t + (p.products || []).length, 0) : 0;
@@ -43,6 +44,10 @@ export function NuevoEvento({ events, ev, flash, onCreado, onCerrar }) {
     const datos = { name: x.nombre.trim().toUpperCase().slice(0, 80), date: x.inicio.slice(0, 10), startsAt: x.inicio, endsAt: aIso(x.fin), venue: x.recinto.trim() };
     const nuevo = src ? copiaDeEvento(src, datos, uid, { barras: x.barras, reservados: x.reservados })
       : { id: uid(), ...datos, template: "festival", paper: 80, footer: "", logo: "", showEventName: true, showDate: true, showTime: true, showPrice: true, anularPin: false, closed: false, style: {}, qrClave: "", puntos: [{ id: uid(), name: "Barra", archivado: false, fondo: null, fondoPrevisto: null, sortMode: "manual", estado: "prueba", products: [], combos: [] }] };
+    // Modalidad: Multipuesto lleva siempre los tickets con QR (es lo que canjean los puestos)
+    const mp = x.modalidad === "multipuesto" && !sinMulti;
+    nuevo.style = { ...(nuevo.style || {}), modalidad: mp ? "multipuesto" : "estandar", ...(mp ? { qrDesde: Date.now() } : {}) };
+    if (mp) nuevo.qrActivo = true;
     try { await db.crearEvento(nuevo); }
     catch (e) { flash(e?.mostrar ? e.message : "No se ha podido crear el evento", "warn"); setBusy(false); return; }
     // Lo demás se copia después (si algo falla, el evento ya existe y se avisa)
@@ -72,6 +77,14 @@ export function NuevoEvento({ events, ev, flash, onCreado, onCerrar }) {
         {x.fin && x.inicio && new Date(x.fin) <= new Date(x.inicio) && <div style={{ fontSize: 12.5, color: "var(--red)", marginTop: 6 }}>La hora de fin es anterior al inicio (si acaba de madrugada, es el día siguiente).</div>}
         <label style={K.label} htmlFor="ne-rec">Recinto</label>
         <input id="ne-rec" value={x.recinto} maxLength={120} onChange={e => set("recinto", e.target.value)} placeholder="Sala, ciudad…" style={K.input} />
+
+        <div style={K.label}>Modalidad</div>
+        <div role="radiogroup" aria-label="Modalidad del evento" style={{ display: "grid", gap: 6 }}>
+          {Object.entries(MODALIDADES).map(([k, m]) => { const bloq = k === "multipuesto" && sinMulti; return (
+            <label key={k} style={{ ...K.check(x.modalidad === k), opacity: bloq ? .55 : 1, cursor: bloq ? "not-allowed" : "pointer" }}>
+              <input type="radio" name="ne-modalidad" checked={x.modalidad === k} disabled={bloq} onChange={() => set("modalidad", k)} style={{ marginTop: 3 }} />
+              <span><b>{m.t}</b>{bloq && <span style={{ fontSize: 12, color: "var(--amber)" }}> · no incluido en tu plan</span>}<span style={{ display: "block", fontSize: 12.5, color: "var(--muted)" }}>{m.d}</span></span></label>); })}
+        </div>
 
         <label style={K.label} htmlFor="ne-desde">Copiar la configuración de</label>
         <select id="ne-desde" value={x.desde} onChange={e => set("desde", e.target.value)} style={K.input}>

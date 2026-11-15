@@ -22,6 +22,7 @@ export const CATALOGO = {
   tpv: { t: "El TPV", corto: "TPV", grupo: "noche", d: "Venta en barra, tickets, caja, cierres Z y cierre de la noche" },
   reservados: { t: "Los reservados VIP", corto: "Reservados VIP", grupo: "noche", d: "Mesas, tarifas, botellas, plano de la sala y cobro en taquilla" },
   reserva_online: { t: "La reserva online de mesas", corto: "Reserva online de mesas", grupo: "noche", d: "El cliente elige mesa en el plano y paga el adelanto desde el móvil" },
+  multipuesto: { t: "La modalidad Multipuesto", corto: "Multipuesto (food trucks y puestos)", grupo: "noche", d: "Varios proveedores canjean con su móvil los tickets que vende la organización, con su comisión y liquidación" },
   crm: { t: "El CRM", corto: "CRM", grupo: "crm", d: "Panel, ingresos, gastos, socios y liquidación de cada evento" },
   facturacion: { t: "La facturación", corto: "Facturación", grupo: "crm", d: "Facturas, gastos con foto y facturas que se repiten" },
   stock: { t: "El control de stock", corto: "Stock", grupo: "crm", d: "Almacén, recetas, albaranes y recuentos" },
@@ -33,6 +34,7 @@ export const FUNCIONES = Object.fromEntries(Object.entries(CATALOGO).map(([k, v]
 export const LIMITES = {
   eventos: { t: "Eventos a la vez", uno: "evento a la vez", varios: "eventos a la vez", min: 1, d: "Eventos abiertos (ni cerrados ni ya pasados)" },
   barras_por_evento: { t: "Puntos de venta por evento", uno: "punto de venta por evento", varios: "puntos de venta por evento", min: 1, d: "Barras y taquillas de cada evento" },
+  puestos_por_evento: { t: "Puestos por evento", uno: "puesto por evento", varios: "puestos por evento", min: 0, d: "Food trucks o proveedores de un evento Multipuesto" },
   planos: { t: "Planos guardados", uno: "plano guardado", varios: "planos guardados", min: 0, d: "Planos de sala en «Mis planos» para usar en otros eventos" },
   socios: { t: "Socios", uno: "socio", varios: "socios", min: 0, d: "Socios activos del CRM" },
   facturas_mes: { t: "Facturas al mes", uno: "factura emitida al mes", varios: "facturas emitidas al mes", min: 0, d: "Facturas emitidas cada mes (las recibidas no cuentan)" },

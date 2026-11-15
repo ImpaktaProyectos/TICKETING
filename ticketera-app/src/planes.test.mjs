@@ -69,7 +69,7 @@ t("formulario de plan: ida y vuelta sin perder nada", () => {
   const { errores, datos } = formularioAPlan(f);
   assert.deepEqual(errores, []);
   assert.equal(datos.precio_mes, 19.9);
-  assert.deepEqual(datos.limites, { eventos: null, barras_por_evento: 3, planos: null, socios: null, facturas_mes: null });
+  assert.deepEqual(datos.limites, { eventos: null, barras_por_evento: 3, puestos_por_evento: null, planos: null, socios: null, facturas_mes: null });
   assert.equal(datos.incluye.length, Object.keys(CATALOGO).length - 2);
   assert.equal(formularioAPlan({ ...f, precio: "1.234,50" }).datos.precio_mes, 1234.5);
 });

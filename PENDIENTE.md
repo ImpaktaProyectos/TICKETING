@@ -25,6 +25,10 @@ refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las fun
 - [ ] Publicar `suscripcion`, `suscripcion-stripe`, `admin-plataforma` y `crecimiento`.
 - [ ] Configurar los planes en Panel TIXFAST › Planes (estrategia recomendada en PLANES_Y_PERMISOS.md).
 
+## 2c. Multipuesto (ver MULTIPUESTO.md)
+- [ ] Aplicar `20261118090000_ticket_multipuesto.sql` (después de la de planes) y publicar la app (ruta `/p/`).
+- [ ] Prueba real: evento Multipuesto, 2 puestos, venta en caja y canje desde dos móviles.
+
 ## 3. Decisiones tuyas
 - [ ] ¿Obligamos a cambiar los PIN de fábrica (1234 / 0000) en el primer uso?
 - [ ] Planes, precios y permisos (Panel TIXFAST › Planes).

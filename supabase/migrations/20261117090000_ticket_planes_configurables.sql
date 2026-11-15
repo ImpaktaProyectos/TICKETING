@@ -7,8 +7,8 @@
 --     {"bloquea": ["facturacion", …], "barras_por_evento": 3, "planos": 2, …}
 --   (mismo formato de siempre: lo que no está en «bloquea» va incluido; límite ausente = sin límite).
 -- · Catálogo (debe coincidir con CATALOGO de ticketera-app/src/planes.js):
---     funciones: tpv, reservados, reserva_online, crm, facturacion, stock, prevision, conexiones
---     límites:   eventos (a la vez), barras_por_evento, planos (guardados), socios, facturas_mes
+--     funciones: tpv, reservados, reserva_online, multipuesto, crm, facturacion, stock, prevision, conexiones
+--     límites:   eventos (a la vez), barras_por_evento, puestos_por_evento, planos (guardados), socios, facturas_mes
 -- · La TICKETERA (entradas online, organizaciones, RRPP, validación) sigue siendo siempre gratuita.
 -- · Planes del sistema (no se borran): «fundador» (todo, sin cuota) y «sin_suscripcion»
 --   (lo que tiene quien no paga; sus permisos también se pueden ajustar desde el panel).
@@ -40,6 +40,9 @@ update public.ticket_planes p set stripe_product_id = c.valor
 -- «sin_suscripcion» bloquea también la reserva online (antes iba dentro de «reservados»)
 update public.ticket_planes set limites = jsonb_set(limites, '{bloquea}', (limites -> 'bloquea') || '["reserva_online"]'::jsonb)
   where id = 'sin_suscripcion' and not coalesce(limites -> 'bloquea' ? 'reserva_online', false);
+-- «sin_suscripcion» tampoco tiene la modalidad Multipuesto (proveedores que canjean los tickets)
+update public.ticket_planes set limites = jsonb_set(limites, '{bloquea}', (limites -> 'bloquea') || '["multipuesto"]'::jsonb)
+  where id = 'sin_suscripcion' and not coalesce(limites -> 'bloquea' ? 'multipuesto', false);
 
 -- ---------- Catálogo y validación ----------
 create or replace function public.ticket_catalogo()
@@ -47,10 +50,12 @@ returns jsonb language sql immutable set search_path = '' as $$
   select jsonb_build_object(
     'funciones', jsonb_build_object(
       'tpv', 'El TPV', 'reservados', 'Los reservados VIP', 'reserva_online', 'La reserva online de mesas',
+      'multipuesto', 'La modalidad Multipuesto',
       'crm', 'El CRM', 'facturacion', 'La facturación', 'stock', 'El control de stock',
       'prevision', 'La previsión', 'conexiones', 'La conexión con ticketeras'),
     'limites', jsonb_build_object(
-      'eventos', 'eventos a la vez', 'barras_por_evento', 'puntos de venta por evento', 'planos', 'planos guardados',
+      'eventos', 'eventos a la vez', 'barras_por_evento', 'puntos de venta por evento', 'puestos_por_evento', 'puestos por evento',
+      'planos', 'planos guardados',
       'socios', 'socios', 'facturas_mes', 'facturas emitidas al mes'));
 $$;
 revoke all on function public.ticket_catalogo() from public, anon;
@@ -128,6 +133,9 @@ begin
     select count(*) into n from public.ticket_puntos p where p.evento_id = ev_id and not coalesce(p.archivado, false);
   elsif k = 'eventos' then
     select count(*) into n from public.ticket_eventos e where e.owner_id = new.owner_id and not coalesce(e.cerrada, false) and coalesce(e.fecha, current_date) >= current_date - 1;
+  elsif k = 'puestos_por_evento' then
+    ev_id := nullif(to_jsonb(new) ->> 'evento_id', '')::uuid;
+    select count(*) into n from public.ticket_puestos p where p.evento_id = ev_id;
   elsif k = 'socios' then
     select count(*) into n from public.ticket_crm_socios s where s.owner_id = new.owner_id and coalesce(s.activo, true);
   elsif k = 'facturas_mes' then
@@ -256,7 +264,7 @@ declare
   v_destacado boolean := coalesce((p ->> 'destacado')::boolean, false);
   v_orden int := nullif(p ->> 'orden', '')::int;
   v_lim jsonb := '{}'::jsonb; v_bloquea jsonb; k text; n int; antes jsonb; base text; i int := 1; nuevo boolean;
-  minimos jsonb := '{"eventos": 1, "barras_por_evento": 1, "planos": 0, "socios": 0, "facturas_mes": 0}';
+  minimos jsonb := '{"eventos": 1, "barras_por_evento": 1, "puestos_por_evento": 0, "planos": 0, "socios": 0, "facturas_mes": 0}';
 begin
   perform public.ticket_exigir_superadmin();
   if length(v_nombre) < 2 or length(v_nombre) > 40 then raise exception using errcode = 'P0001', message = 'TIXFAST: el nombre debe tener entre 2 y 40 letras.'; end if;

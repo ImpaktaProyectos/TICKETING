@@ -22,6 +22,9 @@ import { nextFolios, prefijoDePunto, peekFolio, getDeviceTag, resetFolios, seedF
 import QrCodigo from "./qr/QrCodigo";
 import { crearToken } from "./qr/token";
 import InformeQR from "./qr/InformeQR";
+import { esMultipuesto, MODALIDADES } from "./multipuesto/modelo";
+const Puestos = React.lazy(() => import("./multipuesto/Puestos").then(m => ({ default: m.Puestos })));
+const InformePuestos = React.lazy(() => import("./multipuesto/InformePuestos"));
 // Modo CRM: código aparte que solo se descarga al abrirlo (el TPV no pesa más ni arranca más lento)
 // El CRM se descarga aparte (el TPV arranca antes), pero se adelanta en segundo plano para que abra al momento:
 // al quedar el equipo libre tras arrancar, al entrar como administrador y al tocar el botón del CRM.
@@ -63,7 +66,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.17a";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.18a";   // súbela al publicar cambios para verificar la actualización
 globalThis.TIXFAST_VERSION = APP_VERSION;
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
@@ -413,7 +416,8 @@ export default function App() {
   // ===== Tickets con QR de un solo uso =====
   // Si el evento lo tiene activado, cada ticket impreso lleva su QR firmado (se firma aquí, sin internet).
   // Con QR, "un ticket = un producto": la venta ×3 imprime 3 tickets, cada uno con su código.
-  const qrDe = (product) => !!(ev.qrActivo && ev.qrClave && product && product.qr !== false);
+  // En un evento Multipuesto todo lleva QR: es lo que canjean los puestos
+  const qrDe = (product) => !!(ev.qrActivo && ev.qrClave && product && (product.qr !== false || esMultipuesto(ev)));
   const firmar = (ventaUuid, product, idx = 0, prueba = false) => { try { return crearToken({ clave: ev.qrClave, ventaUuid, idx, productoId: product?.id, prueba }); } catch { return null; } };
   const qrPrueba = (product, idx = 0) => qrDe(product) ? firmar(uid(), product, idx, true) : null;
   const imprimirPrueba = (product, qty = 1) => {
@@ -2770,6 +2774,24 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, dispatch, flash
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}><button style={S.btnPrimary} onClick={createEvent}>{newEvent.copyFrom ? "Duplicar" : "Crear"}</button><button style={S.btnGhost} onClick={() => setNewEvent(null)}>Cancelar</button></div>
           </div>
         )}
+        <h3 style={{ ...S.h3, marginTop: 22 }}>Modalidad del evento</h3>
+        <div style={S.panel}>
+          <div style={{ display: "grid", gap: 8 }}>
+            {Object.entries(MODALIDADES).map(([k, m]) => { const on = (esMultipuesto(ev) ? "multipuesto" : "estandar") === k; const fijo = evSales.some(x => !x.voided); return (
+              <button key={k} type="button" role="radio" aria-checked={on} disabled={fijo && !on} onClick={() => {
+                if (on) return;
+                if (k === "multipuesto" && !window.confirm("¿Pasar a Multipuesto? Tus cajas venderán tickets con QR y los puestos que añadas los canjearán con su móvil.")) return;
+                dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: k === "multipuesto" ? { qrActivo: true, style: { ...(ev.style || {}), modalidad: "multipuesto", qrDesde: ev.style?.qrDesde || Date.now() } } : { style: { ...(ev.style || {}), modalidad: "estandar" } } });
+                flash(k === "multipuesto" ? "Evento Multipuesto: añade los puestos aquí abajo" : "Evento estándar");
+              }} style={{ textAlign: "left", padding: "12px 14px", minHeight: 52, borderRadius: 12, border: `1px solid ${on ? "var(--accent)" : "var(--line)"}`, background: on ? "color-mix(in srgb, var(--accent) 10%, transparent)" : "var(--surface2)", color: "var(--text)", cursor: fijo && !on ? "not-allowed" : "pointer", opacity: fijo && !on ? .5 : 1, font: "inherit" }}>
+                <b>{m.t}</b><span style={{ display: "block", fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>{m.d}</span></button>); })}
+          </div>
+          {evSales.some(x => !x.voided) && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>La modalidad ya no se puede cambiar: el evento tiene ventas.</div>}
+        </div>
+        {esMultipuesto(ev) && <>
+          <h3 style={{ ...S.h3, marginTop: 22 }}>Puestos (food trucks, casetas…)</h3>
+          <React.Suspense fallback={<div style={{ color: "var(--muted)" }}>Cargando…</div>}><Puestos ev={ev} flash={flash} /></React.Suspense>
+        </>}
         <h3 style={{ ...S.h3, marginTop: 22 }}>Puntos de venta ({ev.puntos.filter(p => !p.archivado).length} activos)</h3>
         <div style={S.panel}>
           <div style={{ display: "flex", gap: 8 }}><input style={S.input} placeholder="Nuevo punto (ej. Barra VIP)" value={newPunto} onChange={e => setNewPunto(e.target.value)} onKeyDown={e => e.key === "Enter" && addPunto()} /><button onClick={addPunto} style={{ ...S.btnPrimary, width: "auto", padding: "0 18px" }}>+</button></div>
@@ -3418,6 +3440,7 @@ function Reports({ ev, evSales, evGastos = [], cierres = [], onRevertirZ, onVinc
         onElegir={async (p) => { const ok = await onVincular(vinculando, p.id, p.nombre); if (ok) { setVinculando(null); cargarPrevistos(); } }} />}
 
       {ev.qrActivo && <InformeQR ev={ev} evSales={evSales} />}
+      {esMultipuesto(ev) && <React.Suspense fallback={null}><InformePuestos ev={ev} evSales={evSales} /></React.Suspense>}
 
       {/* Gastos / retiradas de caja (no cambian la facturación; se restan de lo que debe haber) */}
       {evGastos.length > 0 && (
