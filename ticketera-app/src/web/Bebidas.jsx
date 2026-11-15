@@ -3,6 +3,7 @@
 // con su precio si lo hay). Solo ve su mesa, el evento y las listas: nada más. Sus botellas se
 // vuelcan directamente en el pedido del reservado y puede cambiarlas por el mismo enlace hasta
 // el día siguiente al evento.
+import { Icono } from "../iconos";
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
 
@@ -55,7 +56,7 @@ export default function PaginaBebidas({ token }) {
   if (d === null) return <div className="bb-page"><style>{CSS}</style><div style={{ margin: "auto", color: "var(--muted)", fontWeight: 700 }}>Cargando…</div></div>;
   if (d === false) return (<div className="bb-page"><style>{CSS}</style>
     <div className="bb-card" style={{ margin: "auto", textAlign: "center" }}>
-      <div style={{ fontSize: 40 }}>🤔</div>
+      <div style={{ width: 64, height: 64, borderRadius: 64, margin: "0 auto", display: "grid", placeItems: "center", background: "rgba(255,180,0,.12)", color: "var(--amber)" }}><Icono n="ayuda" s={32} /></div>
       <div style={{ fontWeight: 900, fontSize: 20, marginTop: 6 }}>Este enlace no funciona</div>
       <div style={{ color: "var(--muted)", fontSize: 14.5, marginTop: 6, lineHeight: 1.5 }}>Puede que haya caducado o que el evento ya haya pasado. Pide uno nuevo a quien te lo envió.</div>
     </div></div>);
@@ -68,10 +69,10 @@ export default function PaginaBebidas({ token }) {
 
       {hecho ? (
         <div style={{ background: "var(--surface)", border: "1px solid rgba(34,211,166,.5)", borderRadius: 18, padding: 18, marginTop: 18 }}>
-          <div style={{ fontSize: 34 }}>🥂</div>
+          <div style={{ width: 56, height: 56, borderRadius: 56, display: "grid", placeItems: "center", background: "rgba(34,211,166,.14)", border: "2px solid var(--green)", color: "var(--green)" }}><Icono n="copa" s={28} /></div>
           <div style={{ fontWeight: 900, fontSize: 20, marginTop: 4 }}>{d.cliente ? `¡Listo, ${d.cliente}!` : "¡Listo!"} Bebidas apuntadas</div>
           <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
-            {resumen.map((t, i) => <div key={i} style={{ background: "var(--surface2)", borderRadius: 10, padding: "9px 12px", fontSize: 14.5, fontWeight: 700 }}>🍾 {t}</div>)}
+            {resumen.map((t, i) => <div key={i} style={{ background: "var(--surface2)", borderRadius: 10, padding: "9px 12px", fontSize: 14.5, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icono n="botella" s={16} />{t}</div>)}
           </div>
           {extras > 0 && d.precio_extra != null && <div style={{ color: "var(--amber)", fontSize: 13.5, fontWeight: 700, marginTop: 10 }}>{extras} {extras === 1 ? "botella extra" : "botellas extra"} · {eur(extras * d.precio_extra)} (se paga en el local)</div>}
           <div style={{ color: "var(--muted)", fontSize: 13.5, marginTop: 12, lineHeight: 1.5 }}>Todo estará preparado en vuestra mesa. Si cambiáis de idea, vuelve a abrir este mismo enlace.</div>
@@ -92,9 +93,9 @@ export default function PaginaBebidas({ token }) {
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                 <select className="bb-sel" value={b.bebida} aria-label={`Bebida ${i + 1}`} onChange={e => setBotellas(x => x.map((y, j) => j === i ? { ...y, bebida: e.target.value } : y))}>
-                  <option value="">🍾 Bebida…</option>{(d.bebidas || []).map(v => <option key={v}>{v}</option>)}</select>
+                  <option value="">Bebida…</option>{(d.bebidas || []).map(v => <option key={v}>{v}</option>)}</select>
                 <select className="bb-sel" value={b.mezcla} aria-label={`Mezcla ${i + 1}`} onChange={e => setBotellas(x => x.map((y, j) => j === i ? { ...y, mezcla: e.target.value } : y))}>
-                  <option value="">🥤 Mezcla…</option>{(d.mezclas || []).map(v => <option key={v}>{v}</option>)}</select>
+                  <option value="">Mezcla…</option>{(d.mezclas || []).map(v => <option key={v}>{v}</option>)}</select>
               </div>
             </div>))}
           {botellas.length < maxBot && <button className="bb-sec" onClick={() => setBotellas(x => [...x, { bebida: "", mezcla: "" }])}>+ Añadir botella extra{d.precio_extra != null ? ` · ${eur(d.precio_extra)}` : ""}</button>}

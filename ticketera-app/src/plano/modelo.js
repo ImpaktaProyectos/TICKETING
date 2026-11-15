@@ -7,27 +7,28 @@ export const CUADRICULA = 0.25;   // ajuste al mover/redimensionar (25 cm)
 export const MIN_SALA = 4, MAX_SALA = 300;
 
 // Catálogo: lo que se puede encontrar en una sala, una fiesta de pueblo o un festival
+// «icono»: nombre de un icono propio de src/iconos.jsx (nunca emojis)
 export const TIPOS = {
-  mesa:      { t: "Mesa VIP",          g: "Reservados", w: 1.8, h: 1.8, icono: "🛋️", reservable: true, formas: ["redonda", "cuadrada", "sofa", "palco"] },
-  escenario: { t: "Escenario",         g: "Música",     w: 8,   h: 4,   icono: "🎤", color: "#a855f7", alto: 1 },
-  cabina:    { t: "Cabina DJ",         g: "Música",     w: 3,   h: 1.6, icono: "🎧", color: "#ff5a3c", alto: 1.1 },
-  pista:     { t: "Pista de baile",    g: "Música",     w: 10,  h: 8,   icono: "🪩", color: "#3b82f6", alto: 0 },
-  altavoz:   { t: "Altavoz",           g: "Música",     w: 0.8, h: 0.8, icono: "🔊", color: "#838aa0", alto: 1.6 },
-  pantalla:  { t: "Pantalla",          g: "Música",     w: 4,   h: 0.3, icono: "📺", color: "#14b8a6", alto: 2 },
-  barra:     { t: "Barra",             g: "Servicio",   w: 6,   h: 1.2, icono: "🍸", color: "#ffb400", alto: 1.1 },
-  taquilla:  { t: "Taquilla",          g: "Servicio",   w: 2.5, h: 1.2, icono: "🎟️", color: "#ec4899", alto: 1.1 },
-  guardarropa: { t: "Guardarropa",     g: "Servicio",   w: 3,   h: 1.5, icono: "🧥", color: "#838aa0", alto: 1 },
-  aseos:     { t: "Aseos",             g: "Servicio",   w: 4,   h: 3,   icono: "🚻", color: "#838aa0", alto: 2.4 },
-  entrada:   { t: "Entrada",           g: "Paso",       w: 2.5, h: 0.5, icono: "🚪", color: "#22d3a6", alto: 0 },
-  salida:    { t: "Salida emergencia", g: "Paso",       w: 2,   h: 0.5, icono: "🟩", color: "#22d3a6", alto: 0 },
-  escalera:  { t: "Escalera",          g: "Paso",       w: 2,   h: 3.5, icono: "🪜", color: "#838aa0", alto: 0.5 },
-  pared:     { t: "Pared",             g: "Estructura", w: 4,   h: 0.25, icono: "▬", color: "#5b6274", alto: 2.6 },
-  columna:   { t: "Columna",           g: "Estructura", w: 0.6, h: 0.6, icono: "◼", color: "#5b6274", alto: 2.6 },
-  carpa:     { t: "Carpa",             g: "Estructura", w: 14,  h: 10,  icono: "⛺", color: "#ffb400", alto: 0 },
-  zona:      { t: "Zona",              g: "Estructura", w: 6,   h: 4,   icono: "⬚", color: "#a855f7", alto: 0 },
-  arbol:     { t: "Árbol",             g: "Exterior",   w: 1.4, h: 1.4, icono: "🌳", color: "#22d3a6", alto: 2 },
-  foodtruck: { t: "Food truck",        g: "Exterior",   w: 5,   h: 2.2, icono: "🚚", color: "#ff5a3c", alto: 2 },
-  texto:     { t: "Texto",             g: "Estructura", w: 3,   h: 0.8, icono: "🔤", color: "#eceef5", alto: 0 },
+  mesa:      { t: "Mesa VIP",          g: "Reservados", w: 1.8, h: 1.8, icono: "mesa", reservable: true, formas: ["redonda", "cuadrada", "sofa", "palco"] },
+  escenario: { t: "Escenario",         g: "Música",     w: 8,   h: 4,   icono: "micro", color: "#a855f7", alto: 1 },
+  cabina:    { t: "Cabina DJ",         g: "Música",     w: 3,   h: 1.6, icono: "auriculares", color: "#ff5a3c", alto: 1.1 },
+  pista:     { t: "Pista de baile",    g: "Música",     w: 10,  h: 8,   icono: "pista", color: "#3b82f6", alto: 0 },
+  altavoz:   { t: "Altavoz",           g: "Música",     w: 0.8, h: 0.8, icono: "altavoz", color: "#838aa0", alto: 1.6 },
+  pantalla:  { t: "Pantalla",          g: "Música",     w: 4,   h: 0.3, icono: "pantalla", color: "#14b8a6", alto: 2 },
+  barra:     { t: "Barra",             g: "Servicio",   w: 6,   h: 1.2, icono: "copa", color: "#ffb400", alto: 1.1 },
+  taquilla:  { t: "Taquilla",          g: "Servicio",   w: 2.5, h: 1.2, icono: "ticket", color: "#ec4899", alto: 1.1 },
+  guardarropa: { t: "Guardarropa",     g: "Servicio",   w: 3,   h: 1.5, icono: "percha", color: "#838aa0", alto: 1 },
+  aseos:     { t: "Aseos",             g: "Servicio",   w: 4,   h: 3,   icono: "aseos", color: "#838aa0", alto: 2.4 },
+  entrada:   { t: "Entrada",           g: "Paso",       w: 2.5, h: 0.5, icono: "puerta", color: "#22d3a6", alto: 0 },
+  salida:    { t: "Salida emergencia", g: "Paso",       w: 2,   h: 0.5, icono: "salida", color: "#22d3a6", alto: 0 },
+  escalera:  { t: "Escalera",          g: "Paso",       w: 2,   h: 3.5, icono: "escalera", color: "#838aa0", alto: 0.5 },
+  pared:     { t: "Pared",             g: "Estructura", w: 4,   h: 0.25, icono: "pared", color: "#5b6274", alto: 2.6 },
+  columna:   { t: "Columna",           g: "Estructura", w: 0.6, h: 0.6, icono: "columna", color: "#5b6274", alto: 2.6 },
+  carpa:     { t: "Carpa",             g: "Estructura", w: 14,  h: 10,  icono: "carpa", color: "#ffb400", alto: 0 },
+  zona:      { t: "Zona",              g: "Estructura", w: 6,   h: 4,   icono: "zona", color: "#a855f7", alto: 0 },
+  arbol:     { t: "Árbol",             g: "Exterior",   w: 1.4, h: 1.4, icono: "arbol", color: "#22d3a6", alto: 2 },
+  foodtruck: { t: "Food truck",        g: "Exterior",   w: 5,   h: 2.2, icono: "camion", color: "#ff5a3c", alto: 2 },
+  texto:     { t: "Texto",             g: "Estructura", w: 3,   h: 0.8, icono: "texto", color: "#eceef5", alto: 0 },
 };
 export const GRUPOS_TIPOS = ["Reservados", "Música", "Servicio", "Paso", "Estructura", "Exterior"];
 // Los que van debajo de todo (suelos y zonas), para que no tapen las mesas

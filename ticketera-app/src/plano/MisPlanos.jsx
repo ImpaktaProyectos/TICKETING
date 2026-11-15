@@ -1,6 +1,7 @@
 // ===================== MIS PLANOS (hoja dentro del editor) =====================
 // Guardar el plano actual con un nombre («Sala Aula 69», «Carpa San Juan»…), cargar uno guardado
 // en este evento, renombrar o borrar. El número de planos guardados depende del plan.
+import { Icono } from "../iconos";
 import React, { useEffect, useState } from "react";
 import { Capa } from "../Capa";
 import { supabase } from "../supabase";
@@ -31,12 +32,12 @@ export function MisPlanos({ planoActual, reservados, nombreSugerido = "", onCarg
   const guardar = () => {
     if (!nombre.trim()) { setMsg({ t: "Ponle un nombre al plano.", mal: true }); return; }
     if (existente && !window.confirm(`Ya tienes «${existente.nombre}». ¿Sustituirlo por este plano?`)) return;
-    hacer(() => guardarPlano(nombre, planoActual, reservados, existente?.id || null), existente ? `✓ «${nombre.trim()}» actualizado` : `✓ Guardado en Mis planos`);
+    hacer(() => guardarPlano(nombre, planoActual, reservados, existente?.id || null), existente ? `«${nombre.trim()}» actualizado` : "Guardado en Mis planos");
   };
   const subir = async () => {
     if (!window.confirm(`¿Pasar a ${superior.nombre} por ${euros(superior.precio_mes)} al mes? Este mes solo se cobra la diferencia.`)) return;
     setBusy(true); setMsg(null);
-    try { await cambiarPlan(superior.id); setMsg({ t: `✓ Ya tienes ${superior.nombre}: guarda todos los planos que quieras.` }); }
+    try { await cambiarPlan(superior.id); setMsg({ t: `Ya tienes ${superior.nombre}: guarda todos los planos que quieras.` }); }
     catch (e) { setMsg({ t: e?.mostrar ? e.message : "No se ha podido cambiar de plan", mal: true }); }
     setBusy(false);
   };
@@ -46,9 +47,9 @@ export function MisPlanos({ planoActual, reservados, nombreSugerido = "", onCarg
       <div role="dialog" aria-modal="true" aria-label="Mis planos" onClick={e => e.stopPropagation()} data-scroll
         style={{ width: "100%", maxWidth: 560, maxHeight: "92dvh", overflow: "auto", overscrollBehavior: "contain", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "22px 22px 0 0", padding: "16px 16px calc(18px + env(safe-area-inset-bottom))", boxSizing: "border-box" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ flex: 1 }}><div style={{ fontWeight: 900, fontSize: 19 }}>📚 Mis planos</div>
+          <div style={{ flex: 1 }}><div style={{ fontWeight: 900, fontSize: 19, display: "flex", alignItems: "center", gap: 8 }}><Icono n="tarjetas" s={19} />Mis planos</div>
             <div style={{ fontSize: 13, color: "var(--muted)" }}>Guardados en tu cuenta para usarlos en otros eventos.{limite != null && lista ? ` ${lista.length} de ${limite}.` : ""}</div></div>
-          <button type="button" onClick={onCerrar} disabled={busy} aria-label="Cerrar" style={{ ...K.btn, width: 44, padding: 0 }}>✕</button>
+          <button type="button" onClick={onCerrar} disabled={busy} aria-label="Cerrar" style={{ ...K.btn, width: 44, padding: 0, display: "grid", placeItems: "center" }}><Icono n="cerrar" s={17} /></button>
         </div>
 
         {planoActual && <div style={{ marginTop: 14, padding: 12, borderRadius: 14, border: "1px solid var(--line)", background: "var(--surface2)" }}>
@@ -62,7 +63,7 @@ export function MisPlanos({ planoActual, reservados, nombreSugerido = "", onCarg
             : <button type="button" disabled={busy} onClick={guardar} style={{ ...K.btn, width: "100%", marginTop: 8, background: "var(--accent)", border: "none", color: "#fff" }}>{existente ? `Sustituir «${existente.nombre}»` : "Guardar en Mis planos"}</button>}
         </div>}
 
-        {msg && <div role="status" style={{ marginTop: 10, fontSize: 14, fontWeight: 700, color: msg.mal ? "var(--red)" : "var(--green)" }}>{msg.t}</div>}
+        {msg && <div role="status" style={{ marginTop: 10, fontSize: 14, fontWeight: 700, color: msg.mal ? "var(--red)" : "var(--green)", display: "flex", alignItems: "center", gap: 6 }}><Icono n={msg.mal ? "aviso" : "ok"} s={16} />{msg.t}</div>}
 
         <div style={{ fontWeight: 800, marginTop: 16, marginBottom: 6 }}>Planos guardados</div>
         {lista === null && <div style={{ color: "var(--muted)", fontSize: 14 }}>Cargando…</div>}
@@ -72,7 +73,7 @@ export function MisPlanos({ planoActual, reservados, nombreSugerido = "", onCarg
             <div key={x.id} style={{ border: "1px solid var(--line)", borderRadius: 14, padding: 12 }}>
               {editando?.id === x.id
                 ? <div style={{ display: "flex", gap: 8 }}><input value={editando.nombre} maxLength={60} autoFocus onChange={e => setEditando({ ...editando, nombre: e.target.value })} style={{ ...K.input, flex: 1 }} aria-label="Nuevo nombre" />
-                    <button type="button" disabled={busy} onClick={() => hacer(() => renombrarPlano(x.id, editando.nombre), "✓ Renombrado").then(() => setEditando(null))} style={K.btn}>OK</button></div>
+                    <button type="button" disabled={busy} onClick={() => hacer(() => renombrarPlano(x.id, editando.nombre), "Renombrado").then(() => setEditando(null))} style={K.btn}>OK</button></div>
                 : <div style={{ fontWeight: 900, fontSize: 16 }}>{x.nombre}</div>}
               <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>{String(x.plano.ancho).replace(".", ",")} × {String(x.plano.largo).replace(".", ",")} m · {mesas} {mesas === 1 ? "mesa" : "mesas"} · {cuando(x.actualizado_en)}</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>

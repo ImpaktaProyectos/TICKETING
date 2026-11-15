@@ -3,6 +3,7 @@
 // (/o/<organización>) y las páginas de sus eventos (/e/<evento>). Se paga todo de una vez:
 // un formulario, una compra (web_comprar_varios: todo o nada) y un «Mis entradas».
 // Los precios que se ven aquí son orientativos: el total lo calcula siempre el servidor.
+import { Icono } from "../iconos";
 import { avisosDe } from "./avisos";
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -90,7 +91,7 @@ export function Hoja({ titulo, onClose, children, pie, previa, T }) {
       <div onClick={e => e.stopPropagation()} className="pub-hoja" style={{ width: "100%", maxWidth: 560, maxHeight: "90dvh", display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--text)", borderRadius: "24px 24px 0 0", border: "1px solid var(--line)", boxShadow: "0 -20px 60px rgba(0,0,0,.4)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 18px 10px" }}>
           <div style={{ flex: 1, fontWeight: 900, fontSize: 20 }}>{titulo}</div>
-          <button onClick={onClose} aria-label="Cerrar" style={{ ...stepBtn, width: 40, height: 40, fontSize: 18 }}>✕</button>
+          <button onClick={onClose} aria-label="Cerrar" style={{ ...stepBtn, width: 44, height: 44, display: "grid", placeItems: "center" }}><Icono n="cerrar" s={18} /></button>
         </div>
         <div style={{ overflow: "auto", padding: "0 18px 12px", flex: 1 }}>{children}</div>
         {pie && <div style={{ padding: "12px 18px calc(14px + env(safe-area-inset-bottom))", borderTop: "1px solid var(--line)" }}>{pie}</div>}

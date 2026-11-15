@@ -6,6 +6,10 @@
 // Vista "2d" (plano) o "3d" (perspectiva con volumen).
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { TIPOS, capa, normalizar, COLOR_ESTADO } from "./modelo";
+import { RUTAS } from "../iconos";
+
+// Icono propio dentro del plano (en metros): centrado en (x, y) con lado «s»
+const IcoPlano = ({ n, x, y, s, color }) => RUTAS[n] ? <svg x={x - s / 2} y={y - s / 2} width={s} height={s} viewBox="0 0 24 24" overflow="visible" pointerEvents="none"><path d={RUTAS[n]} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></svg> : null;
 
 const MARGEN = 1.4;   // metros alrededor de la sala para las cotas
 const TEMA_APP = { suelo: "#14161d", fondo: "#0b0c10", pared: "#5b6274", linea: "rgba(255,255,255,.06)", texto: "#eceef5", muted: "#838aa0", acento: "#ff5a3c", libre: "#22d3a6", ocupada: "#5b6274" };
@@ -182,11 +186,18 @@ function Elemento({ e, g, tema, sel, editable, onPointerDown, onClick }) {
       {e.tipo === "salida" && <rect x={e.x} y={e.y} width={e.w} height={e.h} fill="#22d3a6" opacity={0.75} />}
       {e.tipo !== "pared" && e.tipo !== "columna" && <g transform={`rotate(${-(e.rot || 0)} ${cx} ${cy})`} pointerEvents="none">
         {grande
-          ? <text x={e.tipo === "pista" ? cx : e.x + 0.35} y={e.tipo === "pista" ? cy + tam * 0.35 : e.y + tam + 0.25} textAnchor={e.tipo === "pista" ? "middle" : "start"} fontSize={tam * (e.tipo === "pista" ? 1.4 : 1)} fontWeight={900} fill={col} opacity={0.95}>{T.icono} {etiqueta}</text>
+          ? (e.tipo === "pista"
+            ? <><IcoPlano n={T.icono} x={cx} y={cy - tam * 0.9} s={tam * 1.7} color={col} />
+                <text x={cx} y={cy + tam * 1.05} textAnchor="middle" fontSize={tam * 1.25} fontWeight={900} fill={col} opacity={0.95}>{etiqueta}</text></>
+            : <><IcoPlano n={T.icono} x={e.x + 0.35 + tam * 0.5} y={e.y + 0.25 + tam * 0.62} s={tam * 1.05} color={col} />
+                <text x={e.x + 0.45 + tam * 1.15} y={e.y + tam + 0.25} textAnchor="start" fontSize={tam} fontWeight={900} fill={col} opacity={0.95}>{etiqueta}</text></>)
           : Math.min(e.w, e.h) >= 0.9 || e.w >= 2.2
-            ? <><text x={cx} y={cy - (e.h >= 1.2 ? tam * 0.25 : -tam * 0.35)} textAnchor="middle" fontSize={tam * (e.h >= 1.2 ? 1.25 : 1)} >{e.h >= 1.2 ? T.icono : ""}</text>
-                <text x={cx} y={cy + (e.h >= 1.2 ? tam * 1.05 : tam * 0.35)} textAnchor="middle" fontSize={tam * 0.8} fontWeight={800} fill={tema.texto}>{e.h >= 1.2 ? etiqueta : `${T.icono} ${etiqueta}`}</text></>
-            : <text x={cx} y={cy + tam * 0.35} textAnchor="middle" fontSize={tam}>{T.icono}</text>}
+            ? (e.h >= 1.2
+              ? <><IcoPlano n={T.icono} x={cx} y={cy - tam * 0.6} s={tam * 1.25} color={col} />
+                  <text x={cx} y={cy + tam * 1.05} textAnchor="middle" fontSize={tam * 0.8} fontWeight={800} fill={tema.texto}>{etiqueta}</text></>
+              : <><IcoPlano n={T.icono} x={cx - etiqueta.length * tam * 0.24 - tam * 0.45} y={cy} s={tam * 0.85} color={col} />
+                  <text x={cx + tam * 0.3} y={cy + tam * 0.3} textAnchor="middle" fontSize={tam * 0.8} fontWeight={800} fill={tema.texto}>{etiqueta}</text></>)
+            : <IcoPlano n={T.icono} x={cx} y={cy} s={tam * 1.1} color={col} />}
       </g>}
       {sel && <Forma e={e} relleno="none" borde={tema.acento} grosor={0.05} />}
     </g>

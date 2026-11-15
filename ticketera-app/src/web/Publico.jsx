@@ -13,6 +13,8 @@ export { textoQR } from "./comun";
 import { useCarrito, BarraCarrito, HojaCarrito, ElegirEntradas, CompraVarios } from "./Carrito";
 import PaginaOrganizacion, { MasFiestas } from "./Microsite";
 const PaginaReservas = React.lazy(() => import("./Reservas"));
+const WidgetReservas = React.lazy(() => import("./Reservas").then(m => ({ default: m.WidgetReservas })));
+import { Icono } from "../iconos";
 const PaginaBebidas = React.lazy(() => import("./Bebidas"));
 
 export default function Publico() {
@@ -144,7 +146,7 @@ export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, pre
             offset={offset} top={t.id === topId} onFin={onRecargar} onN={(n) => ponerN(t, n)} />)}
           {enVenta.length === 0 && tramos.length > 0 && <div style={{ ...card, marginTop: 8, fontWeight: 700 }}>Ahora mismo no hay entradas a la venta.</div>}
           {av.confianza && <div style={{ display: "flex", gap: "6px 14px", flexWrap: "wrap", justifyContent: "center", fontSize: 12.5, color: "var(--muted)", fontWeight: 700, marginTop: 6 }}>
-            <span>✓ Entrada nominativa con QR</span><span>✓ QR de un solo uso</span><span>✓ Al momento en tu móvil y tu correo</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icono n="ok" s={14} w={2.4} />Entrada nominativa con QR</span><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icono n="ok" s={14} w={2.4} />QR de un solo uso</span><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icono n="ok" s={14} w={2.4} />Al momento en tu móvil y tu correo</span>
           </div>}
         </>) : paso === "varios" ? <CompraVarios org={org} carrito={carrito} T={T} onVolver={() => setPaso("elegir")} />
         : <Formulario ev={ev} tramos={tramos} cant={cant} total={total} T={T} onVolver={() => setPaso("elegir")} onExito={() => conCarrito && carrito.quitarEvento(ev.slug)} />}
@@ -265,6 +267,7 @@ export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, pre
       <style>{CSS_PUB}</style>
       {T.d.fondoFlyer && ev.flyer_url && plantilla !== "inmersiva" && <div aria-hidden="true" style={{ position: previa ? "absolute" : "fixed", inset: -40, backgroundImage: `url("${ev.flyer_url}")`, backgroundSize: "cover", backgroundPosition: "center", filter: "blur(40px) saturate(1.3)", opacity: T.osc ? .35 : .22, transform: "scale(1.1)", zIndex: 0 }} />}
       <div className="pub-cont" style={{ position: "relative", zIndex: 1 }}>{cuerpo}</div>
+      {!previa && <SeccionReservados slug={ev.slug} T={T} />}
 
       {/* Barra fija: total y continuar, o el botón de comprar mientras las entradas no se ven */}
       {conCarrito && paso === "elegir" && carrito.n > 0 ? <BarraCarrito carrito={carrito} T={T} onAbrir={() => setHoja("carrito")} />
@@ -290,6 +293,58 @@ export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, pre
         onContinuar={() => { setHoja(null); setPaso(carrito.eventos.length === 1 && carrito.eventos[0] === ev.slug ? "datos" : "varios"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
       {hoja?.evento && <ElegirEntradas slug={hoja.evento} carrito={carrito} T={T} onClose={() => setHoja(null)} />}
     </div>
+  );
+}
+/* ---------- Reservados VIP dentro del portal de entradas ---------- */
+// Abajo del todo de la página del evento, plegado: mesas libres y precio desde. Al desplegarlo,
+// el plano en directo y todo el flujo de reserva (pack, botellas, datos y pago del adelanto).
+// Solo aparece si el organizador tiene activada la reserva online de este evento.
+function SeccionReservados({ slug, T }) {
+  const [token, setToken] = useState(null);
+  const [resumen, setResumen] = useState(null);
+  const cancelada = useMemo(() => new URLSearchParams(window.location.search).get("reserva_cancelada"), []);
+  const [abierto, setAbierto] = useState(() => !!cancelada || window.location.hash === "#reservados");
+  const ref = useRef(null);
+  useEffect(() => {
+    let vivo = true;
+    supabase.rpc("reservas_de_evento", { p_slug: slug }).then(async ({ data }) => {
+      if (!vivo || !data) return;
+      setToken(data);
+      const { data: d } = await supabase.rpc("reservas_publico", { p_token: data });
+      if (!vivo || !d) return;
+      const precios = (d.tarifas || []).map(t => Number(t.precio)).filter(n => n > 0);
+      setResumen({ libres: (d.mesas || []).filter(m => m.libre).length, desde: precios.length ? Math.min(...precios) : null, adelanto: Number(d.online?.adelanto_pct) || 0 });
+    }, () => {});
+    return () => { vivo = false; };
+  }, [slug]);
+  // Volviendo de una reserva sin pagar, o con el enlace #reservados: se abre y se baja hasta aquí
+  useEffect(() => { if (token && abierto) setTimeout(() => ref.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 350); }, [token]);
+  if (!token) return null;
+  const sub = resumen ? (resumen.libres ? `${resumen.libres} ${resumen.libres === 1 ? "mesa disponible" : "mesas disponibles"}` : "Todas las mesas reservadas") + (resumen.desde != null ? ` · desde ${eur(resumen.desde)}` : "") : "Plano de la sala, mesas y botellas";
+  const punto = (i, t) => <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, color: "#b9bfcc", background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.08)", borderRadius: 999, padding: "6px 11px" }}><Icono n={i} s={14} />{t}</span>;
+  return (
+    <section ref={ref} id="reservados" aria-label="Reservados VIP" style={{ position: "relative", zIndex: 1, maxWidth: 1120, margin: "0 auto", marginTop: "calc(24px - 130px - env(safe-area-inset-bottom))", padding: "0 16px calc(140px + env(safe-area-inset-bottom))", scrollMarginTop: 12 }}>
+      <div style={{ background: "#0d0f15", color: "#f3f4f8", border: "1px solid rgba(255,255,255,.1)", borderRadius: 22, overflow: "hidden", boxShadow: "0 24px 60px -30px rgba(0,0,0,.6)", fontFamily: T.letra }}>
+        <button type="button" onClick={() => setAbierto(v => !v)} aria-expanded={abierto} aria-controls="reservados-panel"
+          style={{ width: "100%", display: "flex", alignItems: "center", gap: 14, padding: "18px 16px", background: "none", border: "none", color: "inherit", font: "inherit", textAlign: "left", cursor: "pointer", minHeight: 76 }}>
+          <span aria-hidden="true" style={{ width: 50, height: 50, borderRadius: 15, display: "grid", placeItems: "center", background: T.d.color, color: T.tinta, flexShrink: 0, boxShadow: `0 10px 26px -10px ${T.d.color}` }}><Icono n="estrella" s={24} w={2.1} /></span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: "block", fontSize: 11.5, fontWeight: 900, letterSpacing: 1.2, textTransform: "uppercase", color: T.d.color }}>Zona VIP</span>
+            <span style={{ display: "block", fontWeight: 900, fontSize: 20, lineHeight: 1.15 }}>Reserva tu mesa</span>
+            <span style={{ display: "block", fontSize: 13.5, color: "#9aa1b4", fontWeight: 600, marginTop: 3 }}>{sub}</span>
+          </span>
+          <span aria-hidden="true" style={{ width: 44, height: 44, borderRadius: 12, display: "grid", placeItems: "center", border: "1px solid rgba(255,255,255,.12)", color: "#c9ced9", transform: abierto ? "rotate(180deg)" : "none", transition: "transform .25s" }}><Icono n="abajo" s={20} w={2.3} /></span>
+        </button>
+        {!abierto && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "0 16px 18px" }}>
+          {punto("mapa", "Plano en directo")}{punto("botella", "Elige tus botellas")}{resumen?.adelanto > 0 ? punto("candado", `Asegúrala con el ${resumen.adelanto} %`) : punto("ok", "Confirmación al momento")}
+        </div>}
+        {abierto && <div id="reservados-panel" style={{ padding: "4px 14px 18px", borderTop: "1px solid rgba(255,255,255,.08)" }}>
+          <React.Suspense fallback={<div style={{ color: "#9aa1b4", padding: "18px 4px", fontWeight: 700 }}>Cargando el plano…</div>}>
+            <div style={{ paddingTop: 14 }}><WidgetReservas token={token} slug={slug} color={T.d.color} cancelada={cancelada} /></div>
+          </React.Suspense>
+        </div>}
+      </div>
+    </section>
   );
 }
 /* ---------- Datos y compra ---------- */

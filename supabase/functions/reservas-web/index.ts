@@ -59,6 +59,8 @@ async function revisar(p: any) {
 async function reservar(b: any) {
   const origen = origenValido(b.origen); if (!origen) return json({ ok: false, motivo: "origen" });
   const token = String(b.token || ""), mesa = String(b.mesa || "");
+  // Reserva hecha desde el portal de entradas del evento: al pagar o cancelar se vuelve allí
+  const slug = /^[a-z0-9][a-z0-9-]{0,79}$/.test(String(b.slug || "")) ? String(b.slug) : "";
   if (!UUID.test(token) || !UUID.test(mesa)) return json({ ok: false, motivo: "datos" }, 400);
   const cliente = { nombre: String(b.cliente?.nombre || "").slice(0, 120), telefono: String(b.cliente?.telefono || "").slice(0, 40), email: String(b.cliente?.email || "").slice(0, 160) };
   const botellas = Array.isArray(b.botellas) ? b.botellas.slice(0, 40).map((x: any) => ({ bebida: String(x?.bebida || "").slice(0, 60), mezcla: String(x?.mezcla || "").slice(0, 60) })) : [];
@@ -93,8 +95,8 @@ async function reservar(b: any) {
       payment_intent_data: { application_fee_amount: cents(r.gastos), transfer_data: { destination: destino }, description: `Reserva ${r.codigo} · ${r.mesa} · ${r.evento}`.slice(0, 200),
         metadata: { tixfast: "reserva", pedido: r.id, codigo: r.codigo } },
       metadata: { tixfast: "reserva", reserva: r.id },
-      success_url: `${origen}/r/${token}?reserva=${r.acceso}`,
-      cancel_url: `${origen}/r/${token}?cancelada=${r.acceso}`,
+      success_url: `${origen}/r/${token}?reserva=${r.acceso}${slug ? `&e=${slug}` : ""}`,
+      cancel_url: slug ? `${origen}/e/${slug}?reserva_cancelada=${r.acceso}#reservados` : `${origen}/r/${token}?cancelada=${r.acceso}`,
     }, `reserva-${r.id}`);
     await admin.from("ticket_reserva_pedidos").update({ sesion_id: s.id }).eq("id", r.id);
     return json({ ok: true, url: s.url, acceso: r.acceso });

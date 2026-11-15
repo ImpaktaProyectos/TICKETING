@@ -1,5 +1,6 @@
 // ===================== PIEZAS COMUNES DE LAS PÁGINAS PÚBLICAS =====================
 // Página del evento, microsite de la organización, carrito y «Mis entradas».
+import { Icono } from "../iconos";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { base32, hexToBytes, QR_PREFIJO } from "../qr/token";
@@ -82,7 +83,7 @@ export function Galeria({ fotos, alto = "clamp(220px, 46cqw, 420px)", grande }) 
           <img src={fotos[zoom]} alt="" style={{ maxWidth: "100%", maxHeight: "86vh", objectFit: "contain", borderRadius: 12 }} />
           <button onClick={(e) => { e.stopPropagation(); setZoom((zoom - 1 + fotos.length) % fotos.length); }} aria-label="Foto anterior" style={{ ...flecha, left: 12 }}>‹</button>
           <button onClick={(e) => { e.stopPropagation(); setZoom((zoom + 1) % fotos.length); }} aria-label="Foto siguiente" style={{ ...flecha, right: 12 }}>›</button>
-          <button onClick={() => setZoom(null)} aria-label="Cerrar" style={{ ...flecha, top: 30, right: 14, transform: "none" }}>✕</button>
+          <button onClick={() => setZoom(null)} aria-label="Cerrar" style={{ ...flecha, top: 30, right: 14, transform: "none", display: "grid", placeItems: "center" }}><Icono n="cerrar" s={20} /></button>
         </div>, document.body)}
     </section>
   );
@@ -114,7 +115,7 @@ export function Tramo({ t, sig, avisos, n, T, onN, offset = 0, top = false, onFi
     <div style={{ ...card, marginBottom: 10, display: "flex", flexDirection: "column", gap: 10, opacity: venta ? 1 : .6, borderColor: n ? "var(--c)" : "var(--line)", boxShadow: n ? "0 0 0 1px var(--c)" : "none" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          {top && venta && <div style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "color-mix(in srgb, var(--c) 18%, transparent)", color: "var(--c)", borderRadius: 30, padding: "3px 10px", fontWeight: 900, fontSize: 12, marginBottom: 6 }}>★ El más elegido</div>}
+          {top && venta && <div style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "color-mix(in srgb, var(--c) 18%, transparent)", color: "var(--c)", borderRadius: 30, padding: "3px 10px", fontWeight: 900, fontSize: 12, marginBottom: 6, display: "inline-flex", alignItems: "center", gap: 5 }}><Icono n="estrella" s={12} w={2.4} />El más elegido</div>}
           <div style={{ fontWeight: 900, fontSize: 18, textDecoration: t.estado === "agotado" ? "line-through" : "none" }}>{t.nombre}</div>
           {t.descripcion && <div style={{ color: "var(--muted)", fontSize: 14, marginTop: 2 }}>{t.descripcion}</div>}
           {t.copas > 0 && <div style={{ color: "var(--muted)", fontSize: 14, marginTop: 2 }}>Incluye {t.copas} {t.copas === 1 ? "copa" : "copas"}</div>}
@@ -161,7 +162,7 @@ export function RelojTramo({ hasta, offset = 0, onFin }) {
   const s = Math.floor(ms / 1000), d = Math.floor(s / 86400), p = (x) => String(x).padStart(2, "0");
   const txt = `${d ? `${d} d ` : ""}${p(Math.floor(s % 86400 / 3600))}:${p(Math.floor(s % 3600 / 60))}:${p(s % 60)}`;
   return <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 800 }}>
-    <span aria-hidden="true">⏱</span><span>Este precio acaba en <b style={{ color: "var(--c)", fontVariantNumeric: "tabular-nums" }}>{txt}</b></span>
+    <span aria-hidden="true" style={{ display: "grid", color: "var(--c)" }}><Icono n="reloj" s={17} /></span><span>Este precio acaba en <b style={{ color: "var(--c)", fontVariantNumeric: "tabular-nums" }}>{txt}</b></span>
   </div>;
 }
 const haceTxt = (s) => (s < 90 ? "ahora mismo" : s < 3600 ? `hace ${Math.round(s / 60)} min` : s < 86400 ? `hace ${Math.round(s / 3600)} h` : "ayer");
@@ -190,7 +191,7 @@ export function AvisosCompra({ social, servidor, offset = 0, T }) {
   return (
     <div role="status" aria-live="polite" className="pub-noti" onClick={() => setActual(null)}
       style={{ position: "fixed", zIndex: 25, left: 12, bottom: "calc(96px + env(safe-area-inset-bottom))", maxWidth: "min(340px, calc(100vw - 24px))", display: "flex", alignItems: "center", gap: 10, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 14, padding: "10px 14px", boxShadow: "0 16px 40px -12px rgba(0,0,0,.5)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", cursor: "pointer", fontSize: 13.5 }}>
-      <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: 10, display: "grid", placeItems: "center", background: "var(--c)", color: T?.tinta || "#fff", fontWeight: 900, flexShrink: 0 }}>✓</span>
+      <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: 10, display: "grid", placeItems: "center", background: "var(--c)", color: T?.tinta || "#fff", fontWeight: 900, flexShrink: 0 }}><Icono n="ok" s={17} w={2.6} /></span>
       <span style={{ lineHeight: 1.3 }}><b>Alguien{actual.ciudad ? ` de ${actual.ciudad}` : ""}</b> ha comprado {actual.n} {actual.n === 1 ? "entrada" : "entradas"}{actual.tramo ? ` · ${actual.tramo}` : ""}<br /><span style={{ color: "var(--muted)", fontSize: 12.5 }}>{haceTxt(s)}</span></span>
     </div>
   );
@@ -198,15 +199,15 @@ export function AvisosCompra({ social, servidor, offset = 0, T }) {
 // Franja de datos reales encima de las entradas: vendidas en 24 h, total y cuenta atrás al evento
 export function PruebaSocial({ ev, avisos, offset = 0 }) {
   const so = ev.social || {}; const items = [];
-  if (avisos.vendidas24 && so.h24 >= 5) items.push(["🔥", <><b>{so.h24}</b> entradas vendidas en las últimas 24 h</>]);
+  if (avisos.vendidas24 && so.h24 >= 5) items.push(["fuego", <><b>{so.h24}</b> entradas vendidas en las últimas 24 h</>]);
   const min = parseInt(avisos.minTotal, 10);
-  if (avisos.totalVendidas && so.total >= (Number.isFinite(min) ? min : 50)) items.push(["👥", <>Ya van <b>{so.total}</b> personas con entrada</>]);
+  if (avisos.totalVendidas && so.total >= (Number.isFinite(min) ? min : 50)) items.push(["personas", <>Ya van <b>{so.total}</b> personas con entrada</>]);
   const ini = new Date(ev.inicio || (ev.fecha ? ev.fecha + "T22:00" : "")).getTime(), falta = ini - (Date.now() + offset);
   if (avisos.cuentaEvento && falta > 0 && falta < 31 * 864e5) { const d = Math.floor(falta / 864e5), h = Math.floor(falta % 864e5 / 36e5);
-    items.push(["⏳", d >= 1 ? <>Faltan <b>{d} {d === 1 ? "día" : "días"}</b>{d < 3 && h ? ` y ${h} h` : ""}</> : <>¡Es <b>hoy</b>! Faltan {h ? `${h} h` : "minutos"}</>]); }
+    items.push(["reloj", d >= 1 ? <>Faltan <b>{d} {d === 1 ? "día" : "días"}</b>{d < 3 && h ? ` y ${h} h` : ""}</> : <>¡Es <b>hoy</b>! Faltan {h ? `${h} h` : "minutos"}</>]); }
   if (!items.length) return null;
   return <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-    {items.map(([i, t], k) => <div key={k} style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 12, padding: "9px 12px", fontSize: 14 }}><span aria-hidden="true">{i}</span><span>{t}</span></div>)}
+    {items.map(([i, t], k) => <div key={k} style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 12, padding: "9px 12px", fontSize: 14 }}><span aria-hidden="true" style={{ color: "var(--c)", display: "grid", flexShrink: 0 }}><Icono n={i} s={18} /></span><span>{t}</span></div>)}
   </div>;
 }
 

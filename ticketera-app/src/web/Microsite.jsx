@@ -3,6 +3,7 @@
 // todos sus eventos a la venta, galería, ediciones pasadas, sobre nosotros, reservados, ubicación,
 // preguntas frecuentes y redes. Se compra de varios eventos a la vez con un solo carrito.
 // El FOMO sale siempre de datos reales del servidor (nunca inventados).
+import { Icono } from "../iconos";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "../supabase";
@@ -131,7 +132,7 @@ export function Microsite({ o, offset = 0, previa = false }) {
             {secciones.some(s => s.k === "ubicacion") && d.ubicacion.direccion && <button onClick={() => ir("ubicacion")} className="org-navlink">Ubicación</button>}
           </span></span>
           <button onClick={() => ir("eventos")} style={{ ...btn(T.d.color, T.tinta), padding: "10px 16px", fontSize: 14.5, borderRadius: T.club ? 0 : 30 }}>Entradas</button>
-          {carrito.n > 0 && <button onClick={() => setHoja("carrito")} aria-label={`Carrito: ${carrito.n} entradas`} style={{ ...btn("var(--card2)", "var(--text)"), padding: "10px 12px", borderRadius: T.club ? 0 : 30, border: "1px solid var(--line)", fontSize: 14 }}>🛒 {carrito.n}</button>}
+          {carrito.n > 0 && <button onClick={() => setHoja("carrito")} aria-label={`Carrito: ${carrito.n} entradas`} style={{ ...btn("var(--card2)", "var(--text)"), padding: "10px 12px", borderRadius: T.club ? 0 : 30, border: "1px solid var(--line)", fontSize: 14, gap: 6 }}><Icono n="carrito" s={17} />{carrito.n}</button>}
         </div>
       </nav>
 
@@ -209,7 +210,7 @@ function Cinta({ eventos, T }) {
   const fila = [...txt, ...txt, ...txt, ...txt];
   return (
     <div className="org-cinta" style={{ background: T.club ? "var(--c)" : "transparent", color: T.club ? T.tinta : "var(--text)" }} aria-hidden="true">
-      <div className="org-cinta-pista">{fila.map((t, k) => <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 22 }}><span>{t}</span><span style={{ color: T.club ? T.tinta : "var(--c)" }}>✦</span></span>)}</div>
+      <div className="org-cinta-pista">{fila.map((t, k) => <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 22 }}><span>{t}</span><span style={{ color: T.club ? T.tinta : "var(--c)", display: "grid" }}><Icono n="estrella" s={13} w={2.2} /></span></span>)}</div>
     </div>
   );
 }
@@ -265,7 +266,7 @@ function TarjetaEvento({ e, T, d, ahora, grande, onEntradas, previa, enCarrito }
             {e.en_venta && e.desde != null ? <><div style={{ fontSize: 11.5, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>Desde</div><div style={{ fontSize: 22, fontWeight: 900, color: "var(--c)" }}>{Number(e.desde) ? eur(e.desde) : "Gratis"}</div></>
               : <div style={{ fontWeight: 900, color: "var(--muted)" }}>{agotado ? "Sin entradas" : lanzamiento || e.proximo ? "Próximamente" : "Venta cerrada"}</div>}
           </div>
-          {e.en_venta && <button onClick={() => onEntradas(e)} style={{ ...btn(enCarrito ? "var(--card2)" : T.d.color, enCarrito ? "var(--text)" : T.tinta), padding: "13px 18px", borderRadius: T.club ? 0 : 14, border: enCarrito ? "1px solid var(--c)" : "none" }}>{enCarrito ? `✓ ${enCarrito} en el carrito` : "+ Entradas"}</button>}
+          {e.en_venta && <button onClick={() => onEntradas(e)} style={{ ...btn(enCarrito ? "var(--card2)" : T.d.color, enCarrito ? "var(--text)" : T.tinta), padding: "13px 18px", borderRadius: T.club ? 0 : 14, border: enCarrito ? "1px solid var(--c)" : "none" }}>{enCarrito ? <><Icono n="ok" s={15} w={2.5} />{enCarrito} en el carrito</> : "+ Entradas"}</button>}
         </div>
       </div>
     </article>
@@ -291,7 +292,7 @@ function Visor({ fotos, i, onI, onClose }) {
       <img src={fotos[i]} alt="" style={{ maxWidth: "100%", maxHeight: "88vh", objectFit: "contain", borderRadius: 10 }} />
       <button onClick={(e) => { e.stopPropagation(); onI((i - 1 + fotos.length) % fotos.length); }} aria-label="Foto anterior" style={{ ...f, left: 12 }}>‹</button>
       <button onClick={(e) => { e.stopPropagation(); onI((i + 1) % fotos.length); }} aria-label="Foto siguiente" style={{ ...f, right: 12 }}>›</button>
-      <button onClick={onClose} aria-label="Cerrar" style={{ ...f, top: 30, right: 14, transform: "none", fontSize: 20 }}>✕</button>
+      <button onClick={onClose} aria-label="Cerrar" style={{ ...f, top: 30, right: 14, transform: "none", display: "grid", placeItems: "center" }}><Icono n="cerrar" s={20} /></button>
       <div style={{ position: "absolute", bottom: 20, color: "#fff", fontWeight: 800, opacity: .8 }}>{i + 1} / {fotos.length}</div>
     </div>, document.body);
 }
@@ -495,7 +496,7 @@ export function MasFiestas({ org, actual, T, carrito, onEntradas }) {
                 <div style={{ fontWeight: 900, lineHeight: 1.15, overflowWrap: "anywhere" }}>{e.nombre}</div>
                 <div style={{ color: "var(--muted)", fontSize: 13, fontWeight: 700, marginTop: 3 }}>{cap(fecha(ini, false))}</div>
               </a>
-              {e.en_venta ? <button onClick={() => onEntradas(e.slug)} style={{ ...btn(n ? "transparent" : T.d.color, n ? "var(--text)" : T.tinta), marginTop: "auto", padding: "11px 12px", fontSize: 14.5, border: n ? "1px solid var(--c)" : "none" }}>{n ? `✓ ${n} en el carrito` : `+ Entradas${e.desde != null ? ` · ${Number(e.desde) ? eur(e.desde) : "gratis"}` : ""}`}</button>
+              {e.en_venta ? <button onClick={() => onEntradas(e.slug)} style={{ ...btn(n ? "transparent" : T.d.color, n ? "var(--text)" : T.tinta), marginTop: "auto", padding: "11px 12px", fontSize: 14.5, border: n ? "1px solid var(--c)" : "none" }}>{n ? <><Icono n="ok" s={15} w={2.5} />{n} en el carrito</> : `+ Entradas${e.desde != null ? ` · ${Number(e.desde) ? eur(e.desde) : "gratis"}` : ""}`}</button>
                 : <div style={{ marginTop: "auto", fontWeight: 800, color: "var(--muted)", fontSize: 14 }}>Próximamente</div>}
             </div>
           </div>); })}

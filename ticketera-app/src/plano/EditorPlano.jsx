@@ -4,6 +4,7 @@
 // tirador redondo para girar, tirador cuadrado para cambiar el tamaño. Deshacer y rehacer.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Capa } from "../Capa";
+import { Icono } from "../iconos";
 import { Plano } from "./Plano";
 import { TIPOS, GRUPOS_TIPOS, normalizar, crear, mover, redimensionar, girar, duplicar, sinColocar, colocarReservados, plantilla, ajustar, enlazar, MIN_SALA, MAX_SALA } from "./modelo";
 import { MisPlanos } from "./MisPlanos";
@@ -110,8 +111,8 @@ export function EditorPlano({ plano: inicial, reservados, isMobile, nombreSugeri
       </div>
       <div style={K.lbl}>Empezar con una plantilla</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 8 }}>
-        {[["sala", "🪩", "Sala / disco"], ["pueblo", "⛺", "Fiesta de pueblo"], ["festival", "🎪", "Festival"]].map(([k, i, t]) =>
-          <button key={k} type="button" onClick={() => usarPlantilla(k)} style={K.pieza}><span style={{ fontSize: 22 }}>{i}</span>{t}</button>)}
+        {[["sala", "pista", "Sala / disco"], ["pueblo", "carpa", "Fiesta de pueblo"], ["festival", "micro", "Festival"]].map(([k, i, t]) =>
+          <button key={k} type="button" onClick={() => usarPlantilla(k)} style={K.pieza}><span style={{ display: "grid", color: "var(--accent)" }}><Icono n={i} s={24} /></span>{t}</button>)}
       </div>
       {faltan.length > 0 && <button type="button" onClick={() => aplicar(colocarReservados(p, reservados))} style={{ ...K.btn, width: "100%", marginTop: 12, borderColor: "var(--accent)", color: "var(--accent)" }}>Colocar los {faltan.length} reservados que faltan</button>}
       {p.elementos.length > 0 && <button type="button" onClick={() => { if (window.confirm("¿Vaciar el plano? (puedes deshacer)")) { aplicar({ ...p, elementos: [] }); setSel(null); } }} style={{ ...K.btn, width: "100%", marginTop: 8, color: "var(--muted)" }}>Vaciar el plano</button>}
@@ -121,20 +122,20 @@ export function EditorPlano({ plano: inicial, reservados, isMobile, nombreSugeri
     <div>
       <div style={K.lbl}>Mesas VIP</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))", gap: 8 }}>
-        <button type="button" onClick={nuevaMesa} style={{ ...K.pieza, borderColor: "var(--accent)" }}><span style={{ fontSize: 22 }}>➕</span>Nueva mesa</button>
-        {faltan.map(r => <button key={r.id} type="button" onClick={() => anadir("mesa", { reservadoId: r.id, ref: r.nombre, ...(r.tamano === "grande" ? { w: 2.6, h: 2, forma: "sofa" } : {}) })} style={K.pieza}><span style={{ fontSize: 20 }}>🛋️</span>Colocar {r.nombre}</button>)}
+        <button type="button" onClick={nuevaMesa} style={{ ...K.pieza, borderColor: "var(--accent)" }}><span style={{ display: "grid", color: "var(--accent)" }}><Icono n="mesa" s={24} /></span>Nueva mesa</button>
+        {faltan.map(r => <button key={r.id} type="button" onClick={() => anadir("mesa", { reservadoId: r.id, ref: r.nombre, ...(r.tamano === "grande" ? { w: 2.6, h: 2, forma: "sofa" } : {}) })} style={K.pieza}><span style={{ display: "grid", color: "var(--muted)" }}><Icono n="mesa" s={22} /></span>Colocar {r.nombre}</button>)}
       </div>
       {GRUPOS_TIPOS.filter(g => g !== "Reservados").map(g => <div key={g}>
         <div style={K.lbl}>{g}</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))", gap: 8 }}>
-          {Object.entries(TIPOS).filter(([, T]) => T.g === g).map(([k, T]) => <button key={k} type="button" onClick={() => anadir(k)} style={K.pieza}><span style={{ fontSize: 22 }}>{T.icono}</span>{T.t}</button>)}
+          {Object.entries(TIPOS).filter(([, T]) => T.g === g).map(([k, T]) => <button key={k} type="button" onClick={() => anadir(k)} style={K.pieza}><span style={{ display: "grid", color: T.color || "var(--accent)" }}><Icono n={T.icono} s={24} /></span>{T.t}</button>)}
         </div>
       </div>)}
     </div>
   );
   const PanelElemento = () => { const e = elegido; if (!e) return <div style={{ color: "var(--muted)", fontSize: 14, padding: "14px 0" }}>Toca algo del plano para cambiarlo.</div>; const T = TIPOS[e.tipo]; const r = (reservados || []).find(x => x.id === e.reservadoId); return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}><span style={{ fontSize: 24 }}>{T.icono}</span><b style={{ fontSize: 16, flex: 1 }}>{e.tipo === "mesa" ? (r ? r.nombre : "Mesa sin vincular") : (e.texto || T.t)}</b></div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}><span style={{ display: "grid", color: T.color || "var(--accent)" }}><Icono n={T.icono} s={24} /></span><b style={{ fontSize: 16, flex: 1 }}>{e.tipo === "mesa" ? (r ? r.nombre : "Mesa sin vincular") : (e.texto || T.t)}</b></div>
       {e.tipo === "mesa" ? <>
         <div style={K.lbl}>Reservado</div>
         <select value={e.reservadoId || ""} onChange={ev => { const v = ev.target.value; const rr = (reservados || []).find(y => y.id === v); cambiarEl(e.id, x => ({ ...x, reservadoId: v || undefined, ref: rr ? rr.nombre : undefined })); }} style={K.input}>
@@ -160,7 +161,7 @@ export function EditorPlano({ plano: inicial, reservados, isMobile, nombreSugeri
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 14 }}>
         <button type="button" onClick={() => { const d = duplicar(e); aplicar({ ...p, elementos: [...p.elementos, d] }); setSel(d.id); }} style={K.btn}>⧉ Duplicar</button>
-        <button type="button" onClick={borrar} style={{ ...K.btn, color: "var(--red)" }}>🗑 Quitar</button>
+        <button type="button" onClick={borrar} style={{ ...K.btn, color: "var(--red)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}><Icono n="cerrar" s={16} />Quitar</button>
       </div>
       {e.tipo === "mesa" && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 8 }}>Quitar la mesa del plano no borra el reservado ni sus reservas.</div>}
     </div>); };
@@ -168,15 +169,15 @@ export function EditorPlano({ plano: inicial, reservados, isMobile, nombreSugeri
   // ---------- Sin plano todavía: elegir cómo empezar ----------
   if (!p) return (<Capa><div style={{ position: "fixed", inset: 0, zIndex: 150, background: "rgba(0,0,0,.65)", display: "grid", placeItems: "center", padding: 12 }}>
     <div role="dialog" aria-modal="true" aria-label="Diseñar el plano" style={{ width: "100%", maxWidth: 560, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 20, padding: 18, boxSizing: "border-box" }}>
-      <div style={{ fontWeight: 900, fontSize: 20 }}>🗺️ Diseña el plano de tu evento</div>
+      <div style={{ fontWeight: 900, fontSize: 20 }}><Icono n="mapa" s={20} style={{ display: "inline-block", verticalAlign: "-3px", marginRight: 6 }} />Diseña el plano de tu evento</div>
       <div style={{ color: "var(--muted)", fontSize: 14, marginTop: 4 }}>Elige cómo empezar. Luego podrás mover, girar y cambiar el tamaño de todo.</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 10, marginTop: 14 }}>
-        {[["sala", "🪩", "Sala / discoteca", "Cabina, pista, barra y zona VIP"], ["pueblo", "⛺", "Fiesta de pueblo", "Carpa, escenario y barras"], ["festival", "🎪", "Festival", "Escenario, front stage y VIP"], ["vacio", "📐", "En blanco", "Solo las medidas de la sala"]].map(([k, i, t, sub]) =>
+        {[["sala", "pista", "Sala / discoteca", "Cabina, pista, barra y zona VIP"], ["pueblo", "carpa", "Fiesta de pueblo", "Carpa, escenario y barras"], ["festival", "micro", "Festival", "Escenario, front stage y VIP"], ["vacio", "zona", "En blanco", "Solo las medidas de la sala"]].map(([k, i, t, sub]) =>
           <button key={k} type="button" onClick={() => { const pl = k === "vacio" ? normalizar({ ancho: 20, largo: 14, elementos: [] }) : plantilla(k); const nuevo = colocarReservados(pl, reservados); pRef.current = nuevo; setP(nuevo); cambiado.current = true; setPanel(k === "vacio" ? "sala" : "anadir"); }}
-            style={{ ...K.pieza, minHeight: 110, alignItems: "flex-start", textAlign: "left", padding: 12, gap: 4 }}><span style={{ fontSize: 28 }}>{i}</span><b style={{ fontSize: 15 }}>{t}</b><span style={{ color: "var(--muted)", fontWeight: 600 }}>{sub}</span></button>)}
+            style={{ ...K.pieza, minHeight: 110, alignItems: "flex-start", textAlign: "left", padding: 12, gap: 4 }}><span style={{ display: "grid", color: "var(--accent)", marginBottom: 2 }}><Icono n={i} s={28} /></span><b style={{ fontSize: 15 }}>{t}</b><span style={{ color: "var(--muted)", fontWeight: 600 }}>{sub}</span></button>)}
       </div>
       <button type="button" onClick={() => setVerPlanos(true)} style={{ ...K.btn, width: "100%", marginTop: 10, minHeight: 52, display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
-        <span style={{ fontSize: 24 }}>📚</span><span style={{ flex: 1 }}>Usar uno de Mis planos<br /><span style={{ fontWeight: 600, color: "var(--muted)", fontSize: 12.5 }}>Los que guardaste de otras salas o eventos</span></span><span aria-hidden>›</span></button>
+        <span style={{ display: "grid", color: "var(--accent)" }}><Icono n="tarjetas" s={24} /></span><span style={{ flex: 1 }}>Usar uno de Mis planos<br /><span style={{ fontWeight: 600, color: "var(--muted)", fontSize: 12.5 }}>Los que guardaste de otras salas o eventos</span></span><span aria-hidden>›</span></button>
       <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 10 }}>Tus reservados se colocan solos en el plano; luego los mueves a su sitio.</div>
       <button type="button" onClick={onCerrar} style={{ ...K.btn, width: "100%", marginTop: 12 }}>Cancelar</button>
     </div></div>
@@ -186,15 +187,15 @@ export function EditorPlano({ plano: inicial, reservados, isMobile, nombreSugeri
   // Se llaman como funciones (no como componentes) para que los campos no pierdan el foco al escribir
   const panelActual = panel === "sala" ? PanelSala() : panel === "elemento" ? PanelElemento() : PanelAnadir();
   const pestanas = <div role="tablist" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 6 }}>
-    {[["anadir", "➕ Añadir"], ["elemento", "✏️ Elemento"], ["sala", "📐 Sala"]].map(([k, t]) => <button key={k} role="tab" aria-selected={panel === k} type="button" onClick={() => setPanel(k)} style={{ ...K.btn, minHeight: 40, padding: 0, borderColor: panel === k ? "var(--accent)" : "var(--line)", color: panel === k ? "var(--accent)" : "var(--text)" }}>{t}</button>)}
+    {[["anadir", "Añadir"], ["elemento", "Elemento"], ["sala", "Sala"]].map(([k, t]) => <button key={k} role="tab" aria-selected={panel === k} type="button" onClick={() => setPanel(k)} style={{ ...K.btn, minHeight: 40, padding: 0, borderColor: panel === k ? "var(--accent)" : "var(--line)", color: panel === k ? "var(--accent)" : "var(--text)" }}>{t}</button>)}
   </div>;
   return (<Capa>
     <div style={{ position: "fixed", inset: 0, zIndex: 150, background: "var(--bg)", display: "flex", flexDirection: "column" }}>
       <header style={{ display: "flex", alignItems: "center", gap: 8, padding: "calc(8px + env(safe-area-inset-top)) 12px 8px", borderBottom: "1px solid var(--line)", background: "var(--surface)", flexWrap: "wrap" }}>
-        <div style={{ flex: 1, minWidth: 120 }}><div style={{ fontWeight: 900, fontSize: 16 }}>🗺️ Plano de la sala</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{String(p.ancho).replace(".", ",")} × {String(p.largo).replace(".", ",")} m · {p.elementos.length} elementos</div></div>
+        <div style={{ flex: 1, minWidth: 120 }}><div style={{ fontWeight: 900, fontSize: 16 }}><Icono n="mapa" s={16} style={{ display: "inline-block", verticalAlign: "-3px", marginRight: 6 }} />Plano de la sala</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{String(p.ancho).replace(".", ",")} × {String(p.largo).replace(".", ",")} m · {p.elementos.length} elementos</div></div>
         <button type="button" onClick={deshacer} disabled={!hist.atras.length} aria-label="Deshacer" style={{ ...K.btn, width: 44, padding: 0, opacity: hist.atras.length ? 1 : .4 }}>↶</button>
         <button type="button" onClick={rehacer} disabled={!hist.adelante.length} aria-label="Rehacer" style={{ ...K.btn, width: 44, padding: 0, opacity: hist.adelante.length ? 1 : .4 }}>↷</button>
-        <button type="button" onClick={() => setVerPlanos(true)} aria-label="Mis planos" title="Guardar o cargar planos de tu cuenta" style={K.btn}>📚{isMobile ? "" : " Mis planos"}</button>
+        <button type="button" onClick={() => setVerPlanos(true)} aria-label="Mis planos" title="Guardar o cargar planos de tu cuenta" style={{ ...K.btn, display: "inline-flex", alignItems: "center", gap: 6 }}><Icono n="tarjetas" s={17} />{isMobile ? "" : "Mis planos"}</button>
         <button type="button" onClick={cerrar} style={K.btn}>Cerrar</button>
         <button type="button" onClick={guardar} disabled={guardando} style={{ ...K.btn, background: "var(--accent)", border: "none", color: "#fff" }}>{guardando ? "Guardando…" : "Guardar"}</button>
       </header>
