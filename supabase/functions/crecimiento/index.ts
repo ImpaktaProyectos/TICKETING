@@ -19,7 +19,7 @@ async function ejecutar() {
   const [{ data: cand, error }, { data: cfg }, { data: plan }] = await Promise.all([
     admin.rpc("crecimiento_candidatos"),
     admin.from("ticket_crecimiento_config").select("ajustes").eq("id", 1).single(),
-    admin.from("ticket_planes").select("precio_mes").eq("id", "pro").single(),
+    admin.from("ticket_planes").select("precio_mes").eq("publico", true).eq("archivado", false).eq("sistema", false).gt("precio_mes", 0).order("destacado", { ascending: false }).order("precio_mes").limit(1).maybeSingle(),
   ]);
   if (error) throw error;
   const config = cfg?.ajustes || {};

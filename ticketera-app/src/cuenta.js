@@ -52,11 +52,35 @@ export async function cargarCuenta() {
   const { data: u } = await supabase.auth.getUser();
   const email = u?.user?.email || "";
   const acc = await refrescarAcceso(true);
-  const { data: ficha } = await supabase.from("ticket_cuentas").select("plan_id, estado, prueba_hasta, prueba_usada, periodo_fin, cancela_al_final, cliente_pago_id, suscripcion_pago_id").maybeSingle();
-  const { data: pro } = await supabase.from("ticket_planes").select("nombre, precio_mes").eq("id", "pro").maybeSingle();
-  if (!acc) return { email, acc: { plan_id: "fundador", plan_nombre: "Fundador", estado: "activa", limites: {} }, ficha: null, precio: null };
-  return { email, acc, ficha: ficha || null, precio: pro?.precio_mes != null ? Number(pro.precio_mes) : null };
+  const [{ data: ficha }, planes] = await Promise.all([
+    supabase.from("ticket_cuentas").select("plan_id, estado, prueba_hasta, prueba_usada, periodo_fin, cancela_al_final, cliente_pago_id, suscripcion_pago_id").maybeSingle(),
+    cargarPlanes(true),
+  ]);
+  // Precio y nombre del plan contratado (aunque ya no esté a la venta)
+  let plan = (planes || []).find(p => p.id === ficha?.plan_id) || null;
+  if (!plan && ficha?.plan_id) { const { data } = await supabase.from("ticket_planes").select("id, nombre, precio_mes, dias_prueba, limites").eq("id", ficha.plan_id).maybeSingle(); plan = data || null; }
+  if (!acc) return { email, acc: { plan_id: "fundador", plan_nombre: "Fundador", estado: "activa", limites: {} }, ficha: null, precio: null, plan: null, planes: planes || [] };
+  return { email, acc, ficha: ficha || null, plan, planes: planes || [], precio: plan?.precio_mes != null ? Number(plan.precio_mes) : precioDesde(planes) };
 }
+
+// Planes que se pueden contratar (los crea y edita el Panel TIXFAST). Se recuerdan 10 minutos.
+let PLANES = null, planesEn = 0, planesCarga = null;
+export async function cargarPlanes(forzar = false) {
+  if (!forzar && PLANES && Date.now() - planesEn < 600000) return PLANES;
+  if (planesCarga) return planesCarga;
+  planesCarga = supabase.rpc("ticket_planes_disponibles").then(({ data, error }) => {
+    planesCarga = null;
+    if (error) return PLANES;
+    PLANES = Array.isArray(data) ? data : []; planesEn = Date.now(); return PLANES;
+  }, () => { planesCarga = null; return PLANES; });
+  return planesCarga;
+}
+export function usePlanes() {
+  const [p, setP] = useState(PLANES);
+  useEffect(() => { let vivo = true; cargarPlanes().then(x => { if (vivo && x) setP(x); }); return () => { vivo = false; }; }, []);
+  return p;
+}
+export const precioDesde = (planes) => { const v = (planes || []).map(p => Number(p.precio_mes)).filter(n => n > 0); return v.length ? Math.min(...v) : null; };
 
 // Ir a Stripe: «alta» (suscribirse, con prueba de 7 días la primera vez) o «portal» (tarjeta, facturas, cancelar)
 const MOTIVOS = {
@@ -79,7 +103,7 @@ export async function retener(opcion, datos = {}) {
   await refrescarAcceso(true);
   return data;
 }
-// Subir de nivel (TIXFAST → Premium / Empresa) con la suscripción en marcha: Stripe cobra solo la diferencia del mes
+// Cambiar de plan con la suscripción en marcha: Stripe cobra (o abona) solo la diferencia del mes
 export async function cambiarPlan(plan) {
   if (!navigator.onLine) throw Object.assign(new Error("Sin conexión: inténtalo con internet."), { mostrar: true });
   const { data, error } = await supabase.functions.invoke("suscripcion", { body: { accion: "cambiar_plan", plan, origen: window.location.origin } });
@@ -115,13 +139,8 @@ export async function esperarAltaTrasPago() {
   return v;
 }
 
-// Precio mensual de la suscripción (sale de la base de datos, nunca del código)
-let PRECIO = null;
+// Precio «desde» de la suscripción (el plan más barato que se puede contratar; sale de la base de datos)
 export function usePrecioSuscripcion() {
-  const [p, setP] = useState(PRECIO);
-  useEffect(() => { if (PRECIO != null) return; let vivo = true;
-    supabase.from("ticket_planes").select("precio_mes").eq("id", "pro").maybeSingle().then(({ data }) => { if (data?.precio_mes != null) { PRECIO = Number(data.precio_mes); if (vivo) setP(PRECIO); } }, () => {});
-    return () => { vivo = false; }; }, []);
-  return p;
+  return precioDesde(usePlanes());
 }
 export const eurosTxt = (v) => Number(v).toLocaleString("es-ES", { style: "currency", currency: "EUR", minimumFractionDigits: Number.isInteger(Number(v)) ? 0 : 2 });

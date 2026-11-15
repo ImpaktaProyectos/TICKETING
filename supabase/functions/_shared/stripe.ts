@@ -41,3 +41,40 @@ export async function pausar(sub: string, meses: number) {
   const vuelve = Math.floor(Date.now() / 1000) + Math.round(meses * 30.44 * 86400);
   return await stripe("POST", `subscriptions/${sub}`, { pause_collection: { behavior: "void", resumes_at: vuelve }, cancel_at_period_end: "false" });
 }
+
+// ---------- Planes de suscripción: producto y precio en Stripe ----------
+// Cada plan de ticket_planes tiene su producto en Stripe (stripe_product_id) y un precio mensual
+// (stripe_price_id). Los precios de Stripe no se pueden cambiar: si cambia el importe se crea uno
+// nuevo, se pone como precio por defecto del producto y el anterior se desactiva (las suscripciones
+// en marcha siguen con el suyo). Se puede llamar las veces que haga falta: no duplica nada.
+const cents = (n: number) => Math.round(Number(n) * 100);
+export async function sincronizarPlan(db: any, planId: string) {
+  const { data: plan, error } = await db.from("ticket_planes").select("*").eq("id", planId).single();
+  if (error || !plan) throw new Error("Plan no encontrado");
+  if (plan.sistema) throw new Error("Los planes del sistema no van a Stripe");
+  const datos = {
+    name: `${plan.nombre} · suscripción mensual`,
+    description: plan.descripcion || "TPV, reservados y CRM para tus eventos.",
+    active: plan.archivado ? "false" : "true",
+    metadata: { tixfast_plan: plan.id },
+  };
+  let producto = plan.stripe_product_id as string | null;
+  if (producto) {
+    try { await stripe("POST", `products/${producto}`, datos); }
+    catch (e) { if ((e as any).status === 404) producto = null; else throw e; }   // borrado a mano en Stripe: se crea otro
+  }
+  if (!producto) producto = (await stripe("POST", "products", datos, `tixfast-producto-${plan.id}-${Date.now()}`)).id as string;
+  let precio = plan.stripe_price_id as string | null;
+  const importe = plan.precio_mes != null ? Number(plan.precio_mes) : null;
+  if (importe != null && importe > 0 && (!precio || Number(plan.stripe_price_importe) !== importe)) {
+    const anterior = precio;
+    const pr = await stripe("POST", "prices", { product: producto, currency: "eur", unit_amount: cents(importe), recurring: { interval: "month" },
+      nickname: `${plan.nombre} ${importe} €/mes`, metadata: { tixfast_plan: plan.id } }, `tixfast-precio-${plan.id}-${producto}-${cents(importe)}`);
+    precio = pr.id as string;
+    await stripe("POST", `products/${producto}`, { default_price: precio });
+    if (anterior && anterior !== precio) { try { await stripe("POST", `prices/${anterior}`, { active: "false" }); } catch { /* ya no existe */ } }
+  }
+  await db.from("ticket_planes").update({ stripe_product_id: producto, stripe_price_id: precio, stripe_price_importe: precio ? importe : null,
+    stripe_sincronizado_en: new Date().toISOString() }).eq("id", plan.id);
+  return { producto, precio };
+}

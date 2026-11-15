@@ -63,7 +63,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.16f";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.17a";   // súbela al publicar cambios para verificar la actualización
 globalThis.TIXFAST_VERSION = APP_VERSION;
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
@@ -1022,7 +1022,7 @@ export default function App() {
           onRole={(r, puntoId, modo) => { if (puntoId) dispatch({ type: "SET_PUNTO", id: puntoId }); setRole(r); setView("pos"); const crmMode = modo === "crm" && r === "admin"; setAppMode(crmMode ? "crm" : "tpv");  }} />
       )}
 
-      <Escaparate activo={!!role && role !== "validador" && !inCRM && !puede(accApp, "tpv", ev, hoyLocal())} libre="header, nav, aside">
+      <Escaparate activo={!!role && role !== "validador" && !inCRM && !puede(accApp, "tpv", ev, hoyLocal())} funcion="tpv" libre="header, nav, aside">
       {/* ===== CAJERO ===== */}
       {role === "cajero" && (isMobile ? (
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -1545,7 +1545,7 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
         <section className="tg-der" aria-label="Elige cómo entrar">
           {sinTpv && mode === null && <div className="tg-susc">
             <div style={{ fontWeight: 900, fontSize: 16 }}>Estás en vista previa</div>
-            <div style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 3, lineHeight: 1.45 }}>Puedes entrar en todo y verlo. Para vender y guardar, activa tu suscripción: 7 días gratis{precioSusc != null ? ` y luego ${eurosTxt(precioSusc)} al mes` : ""}. La venta de entradas online es gratis siempre.</div>
+            <div style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 3, lineHeight: 1.45 }}>Puedes entrar en todo y verlo. Para vender y guardar, activa tu suscripción: prueba gratis{precioSusc != null ? ` y luego desde ${eurosTxt(precioSusc)} al mes` : ""}. La venta de entradas online es gratis siempre.</div>
             <button type="button" onClick={() => setVerSusc(true)} className="tg-susc-btn">Empezar prueba de 7 días</button>
           </div>}
           {hoja && <Capa><div onClick={() => setHoja(null)} style={{ position: "fixed", inset: 0, zIndex: 140, background: "rgba(0,0,0,.6)", display: "grid", placeItems: "end center", overflow: "auto" }}>

@@ -3,19 +3,18 @@
 //   alta    → crea el pago de alta de la suscripción mensual con renovación automática
 //             (7 días de prueba gratis la primera vez; la tarjeta se pide siempre) y devuelve la URL
 //   portal  → abre el portal de Stripe para cambiar la tarjeta o ver facturas
-//   cambiar_plan { plan } → sube (o baja) de nivel: TIXFAST, Premium, Empresa (Stripe prorratea la diferencia)
+//   cambiar_plan { plan } → sube (o baja) a cualquier plan contratable del panel (Stripe prorratea la diferencia)
 //   retener → antes de irse: { opcion: "descuento" | "pausa" | "cancelar", motivo, comentario, meses }
 //             la cancelación pasa siempre por aquí (con su motivo y una oferta), no por el portal
 // La primera vez se preparan solos en Stripe el producto, el precio, el portal y el aviso (webhook);
 // sus identificadores se guardan en la base de datos, nunca en el código.
 // La clave secreta de Stripe solo vive aquí (secreto STRIPE_SECRET_KEY).
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
-import { aplicarDescuento, pausar, cupon } from "../_shared/stripe.ts";
+import { aplicarDescuento, pausar, cupon, sincronizarPlan } from "../_shared/stripe.ts";
 
 const SK = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
 const URL_SB = Deno.env.get("SUPABASE_URL")!;
 const admin = createClient(URL_SB, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
-const DIAS_PRUEBA = 7;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -75,18 +74,10 @@ async function prepararAviso() {
   }, "tixfast-webhook-suscripcion-v1");
   if (w.secret) await guardar("webhook_suscripcion", w.secret);
 }
+// Precio mensual del plan en Stripe (se crea o se actualiza solo si el importe ha cambiado)
 async function precioDe(plan: any) {
-  const importe = Number(plan.precio_mes);
-  if (plan.stripe_price_id && Number(plan.stripe_price_importe) === importe) return plan.stripe_price_id as string;
-  const claveProd = plan.id === "pro" ? "producto_suscripcion" : `producto_suscripcion_${plan.id}`;
-  let producto = await leer(claveProd);
-  if (!producto) {
-    const p = await stripe("POST", "products", { name: plan.id === "pro" ? "TIXFAST · suscripción mensual" : `${plan.nombre} · suscripción mensual`, description: "TPV, CRM, facturación, stock, previsión y reservados para tus eventos." }, `tixfast-producto-${plan.id}-v1`);
-    producto = p.id as string; await guardar(claveProd, producto);
-  }
-  const pr = await stripe("POST", "prices", { product: producto, currency: "eur", unit_amount: cents(importe), recurring: { interval: "month" }, nickname: `${plan.nombre} ${importe} €/mes` }, `tixfast-precio-${plan.id}-${cents(importe)}`);
-  await admin.from("ticket_planes").update({ stripe_price_id: pr.id, stripe_price_importe: importe }).eq("id", plan.id);
-  return pr.id as string;
+  if (plan.stripe_price_id && Number(plan.stripe_price_importe) === Number(plan.precio_mes)) return plan.stripe_price_id as string;
+  return (await sincronizarPlan(admin, plan.id)).precio as string;
 }
 async function portalConfig() {
   const ya = await leer("portal_suscripcion_v2"); if (ya) return ya;
@@ -108,11 +99,13 @@ async function cliente(u: any, cuenta: any) {
 }
 
 // ---------- Acciones ----------
-const NIVELES = ["pro", "premium", "empresa"];
+// Cualquier plan creado en el panel que se pueda contratar: público, con precio, ni del sistema ni archivado.
+// Sin plan elegido: el destacado (o el más barato).
 async function planContratable(id: unknown) {
-  const pid = NIVELES.includes(String(id)) ? String(id) : "pro";
-  const { data: plan } = await admin.from("ticket_planes").select("*").eq("id", pid).single();
-  if (!plan || plan.precio_mes == null || Number(plan.precio_mes) <= 0 || (pid !== "pro" && !plan.publico)) return null;
+  let pid = typeof id === "string" && /^[a-z0-9_]{2,30}$/.test(id) ? id : null;
+  if (!pid) pid = (await admin.rpc("ticket_plan_por_defecto")).data as string || "pro";
+  const { data: plan } = await admin.from("ticket_planes").select("*").eq("id", pid).maybeSingle();
+  if (!plan || plan.sistema || plan.archivado || !plan.publico || plan.precio_mes == null || Number(plan.precio_mes) <= 0) return null;
   return plan;
 }
 async function alta(u: any, origen: string, oferta?: string, planId?: string) {
@@ -125,7 +118,8 @@ async function alta(u: any, origen: string, oferta?: string, planId?: string) {
   await prepararAviso();
   const precio = await precioDe(plan);
   const cus = await cliente(u, cuenta);
-  const conPrueba = !cuenta.prueba_usada;
+  const diasPrueba = Math.max(0, Math.min(60, Number(plan.dias_prueba ?? 7)));
+  const conPrueba = !cuenta.prueba_usada && diasPrueba > 0;
   // Oferta para volver (correo «recuperar»): solo a quien ya se fue y una sola vez
   let descuento: string | null = null;
   if (oferta === "recuperar" && !conPrueba && ["cancelada", "suspendida", "pendiente"].includes(cuenta.estado) && !cuenta.oferta_recuperar_usada) {
@@ -138,12 +132,12 @@ async function alta(u: any, origen: string, oferta?: string, planId?: string) {
     payment_method_collection: "always",            // la tarjeta se pide siempre, también con prueba
     ...(descuento ? { discounts: [{ coupon: descuento }] } : { allow_promotion_codes: "true" }),
     subscription_data: {
-      ...(conPrueba ? { trial_period_days: DIAS_PRUEBA, trial_settings: { end_behavior: { missing_payment_method: "cancel" } } } : {}),
+      ...(conPrueba ? { trial_period_days: diasPrueba, trial_settings: { end_behavior: { missing_payment_method: "cancel" } } } : {}),
       metadata: { tixfast_cuenta: u.id, tixfast_plan: plan.id },
       description: `Suscripción mensual a ${plan.nombre} con renovación automática`,
     },
     custom_text: { submit: { message: conPrueba
-      ? `Hoy no se cobra nada. Tras ${DIAS_PRUEBA} días de prueba se cobrarán ${Number(plan.precio_mes).toFixed(2).replace(".", ",")} € cada mes, con renovación automática, hasta que canceles.`
+      ? `Hoy no se cobra nada. Tras ${diasPrueba} días de prueba se cobrarán ${Number(plan.precio_mes).toFixed(2).replace(".", ",")} € cada mes, con renovación automática, hasta que canceles.`
       : `Se cobrarán ${Number(plan.precio_mes).toFixed(2).replace(".", ",")} € cada mes, con renovación automática, hasta que canceles.` } },
     metadata: { tixfast_cuenta: u.id, tixfast: "suscripcion" },
     success_url: `${origen}/?suscripcion=ok`,

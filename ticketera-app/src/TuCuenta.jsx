@@ -2,7 +2,7 @@
 // La cancelación pasa siempre por aquí: se pregunta el motivo y, según el motivo, se ofrece
 // quedarse con descuento o pausar unos meses (temporada baja) antes de cancelar de verdad.
 import React, { useEffect, useState } from "react";
-import { cargarCuenta, cargarOfertas, irAStripe, retener, sinSuscripcion, diasRestantes, ESTADO_CUENTA, eurosTxt } from "./cuenta";
+import { cargarCuenta, cargarOfertas, irAStripe, retener, cambiarPlan, resumenPlan, sinSuscripcion, diasRestantes, ESTADO_CUENTA, eurosTxt } from "./cuenta";
 import { Suscripcion } from "./Suscripcion";
 
 const fechaEs = (iso) => iso ? new Date(iso).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }) : "";
@@ -49,7 +49,7 @@ export function TuCuenta({ inicial = null }) {
       {c === null && <div style={{ color: "var(--muted)", fontSize: 14, padding: "10px 0" }}>No se ha podido cargar. Revisa la conexión.</div>}
       {a && <>
         <div style={K.fila}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800 }}>Correo</div><div style={{ fontSize: 13, color: "var(--muted)", overflowWrap: "anywhere" }}>{c.email || "—"}</div></div></div>
-        <div style={K.fila}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800 }}>Suscripción</div>{detalle && <div style={{ fontSize: 13, color: "var(--muted)" }}>{detalle}</div>}</div><span style={K.badge(est.c)}>{est.t}</span></div>
+        <div style={K.fila}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800 }}>Suscripción{c.plan && !fundador && !sin ? ` · ${c.plan.nombre}` : ""}</div>{detalle && <div style={{ fontSize: 13, color: "var(--muted)" }}>{detalle}</div>}</div><span style={K.badge(est.c)}>{est.t}</span></div>
         <div style={{ ...K.fila, borderBottom: "none" }}><div style={{ flex: 1 }}><div style={{ fontWeight: 800 }}>Ticketera</div><div style={{ fontSize: 13, color: "var(--muted)" }}>La venta de entradas online es siempre gratuita.</div></div><span style={K.badge("var(--green)")}>Gratis</span></div>
         <div style={{ display: "grid", gap: 8, marginTop: 6 }}>
           {f?.cliente_pago_id && <button disabled={busy} onClick={() => hacer(() => irAStripe("portal"))} style={K.btn}>{f.estado === "impagada" ? "💳 Actualizar mi tarjeta" : "Tarjeta y facturas"}</button>}
@@ -59,10 +59,32 @@ export function TuCuenta({ inicial = null }) {
         {msg && <div role="status" style={{ marginTop: 10, fontSize: 14, fontWeight: 700, color: msg.mal ? "var(--red)" : "var(--green)", textAlign: "center" }}>{msg.t}</div>}
       </>}
     </section>
+    {f?.suscripcion_pago_id && ["activa", "prueba"].includes(f.estado) && !f.cancela_al_final && !paso && (c.planes || []).some(p => p.id !== f.plan_id) &&
+      <CambiarPlan actual={f.plan_id} planes={c.planes} busy={busy} hacer={hacer} />}
     {f?.suscripcion_pago_id && ["activa", "prueba", "impagada"].includes(f.estado) && paso && <Retencion paso={paso} setPaso={setPaso} busy={busy} hacer={hacer} />}
     {sin && !f?.suscripcion_pago_id && <Suscripcion flash={(t) => setMsg({ t, mal: true })} compacto />}
     {sin && f?.estado === "cancelada" && <Suscripcion flash={(t) => setMsg({ t, mal: true })} compacto oferta="recuperar" />}
   </div>);
+}
+
+// Cambiar a otro plan con la suscripción en marcha (Stripe cobra o abona la diferencia del mes)
+function CambiarPlan({ actual, planes, busy, hacer }) {
+  const [abierto, setAbierto] = useState(false);
+  const otros = planes.filter(p => p.id !== actual);
+  return (<section style={K.panel}>
+    <button onClick={() => setAbierto(!abierto)} aria-expanded={abierto} style={{ ...K.btn, border: "none", background: "transparent", minHeight: 44, display: "flex", justifyContent: "space-between", alignItems: "center", padding: 0, textAlign: "left" }}>
+      <span><span style={{ display: "block", fontWeight: 900, fontSize: 16 }}>Cambiar de plan</span><span style={{ display: "block", fontSize: 13, color: "var(--muted)", fontWeight: 600 }}>Este mes solo se cobra (o se descuenta) la diferencia.</span></span>
+      <span aria-hidden="true" style={{ fontSize: 18 }}>{abierto ? "▴" : "▾"}</span>
+    </button>
+    {abierto && <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+      {otros.map(p => { const r = resumenPlan(p); return (<div key={p.id} style={{ border: "1px solid var(--line)", borderRadius: 14, padding: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}><b style={{ fontSize: 16 }}>{p.nombre}</b><b>{eurosTxt(p.precio_mes)} <span style={{ fontWeight: 600, color: "var(--muted)", fontSize: 13 }}>al mes</span></b></div>
+        {p.descripcion && <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 3 }}>{p.descripcion}</div>}
+        <div style={{ fontSize: 13, marginTop: 6, lineHeight: 1.45 }}>{r.incluye.join(" · ")}{r.limites.length ? <span style={{ color: "var(--muted)" }}> · hasta {r.limites.join(", ")}</span> : null}</div>
+        <button disabled={busy} onClick={() => { if (window.confirm(`¿Pasar a ${p.nombre} por ${eurosTxt(p.precio_mes)} al mes? Este mes solo se cobra o se descuenta la diferencia.${r.noIncluye.length ? `\n\nOjo: ${p.nombre} no incluye ${r.noIncluye.join(", ")}. Lo que ya tengas guardado no se borra.` : ""}`)) hacer(() => cambiarPlan(p.id), `✓ Ya tienes ${p.nombre}`); }} style={{ ...K.btn, marginTop: 10 }}>Pasar a {p.nombre}</button>
+      </div>); })}
+    </div>}
+  </section>);
 }
 
 function Retencion({ paso, setPaso, busy, hacer }) {

@@ -1,12 +1,13 @@
 // ===================== PANEL DE ADMINISTRACIÓN DE TIXFAST =====================
 // Solo lo ven los administradores de la plataforma (tabla ticket_superadmins).
-// Resumen · Cuentas (todas las registradas) · Errores · Registro de acciones.
+// Resumen · Planes (crear y editar los planes de suscripción) · Cuentas · Crecimiento · Errores · Registro.
 // Los datos los dan funciones del servidor que comprueban el permiso: aunque alguien
 // abriera esta pantalla sin serlo, no recibiría nada.
 import React, { useEffect, useMemo, useState } from "react";
 import { Capa } from "./Capa";
 import { supabase } from "./supabase";
 import { ESTADO_CUENTA, eurosTxt } from "./cuenta";
+import { Planes } from "./AdminPlanes";
 
 const fecha = (iso, conHora) => iso ? new Date(iso).toLocaleString("es-ES", conHora ? { day: "numeric", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" } : { day: "numeric", month: "short", year: "numeric" }) : "—";
 const hace = (iso) => { if (!iso) return "nunca"; const d = Math.floor((Date.now() - new Date(iso)) / 86400000); return d <= 0 ? "hoy" : d === 1 ? "ayer" : `hace ${d} días`; };
@@ -43,12 +44,13 @@ export default function AdminPlataforma({ onCerrar }) {
         <button onClick={onCerrar} style={K.btn} aria-label="Cerrar el panel">Cerrar</button>
       </header>
       <nav role="tablist" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(104px, 1fr))", gap: 6, padding: "10px 12px", borderBottom: "1px solid var(--line)" }}>
-        {[["resumen", "Resumen"], ["cuentas", "Cuentas"], ["crecimiento", "Crecimiento"], ["errores", "Errores"], ["registro", "Registro"]].map(([k, t]) =>
+        {[["resumen", "Resumen"], ["planes", "Planes"], ["cuentas", "Cuentas"], ["crecimiento", "Crecimiento"], ["errores", "Errores"], ["registro", "Registro"]].map(([k, t]) =>
           <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} style={{ ...K.chip(tab === k), borderRadius: 12, minHeight: 42, padding: 0 }}>{t}</button>)}
       </nav>
       <main data-scroll style={{ flex: 1, overflow: "auto", overscrollBehavior: "contain", padding: "14px 12px calc(20px + env(safe-area-inset-bottom))" }}>
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
           {tab === "resumen" && <Resumen avisar={avisar} irA={setTab} />}
+          {tab === "planes" && <Planes avisar={avisar} />}
           {tab === "cuentas" && <Cuentas avisar={avisar} />}
           {tab === "crecimiento" && <Crecimiento avisar={avisar} />}
           {tab === "errores" && <Errores avisar={avisar} />}
@@ -88,44 +90,12 @@ function Resumen({ avisar, irA }) {
         <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{sub}</div>
       </div>)}
     </div>
-    <Niveles avisar={avisar} alCambiar={cargar} />
+    {r.por_plan && Object.keys(r.por_plan).length > 0 && <div style={K.card}>
+      <div style={{ fontWeight: 900 }}>Cuentas con acceso por plan</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>{Object.entries(r.por_plan).map(([n, c]) => <span key={n} style={K.badge("var(--text)")}>{n}: {c}</span>)}</div>
+    </div>}
+    <button onClick={() => irA("planes")} style={{ ...K.btn, minHeight: 50 }}>Planes, precios y permisos →</button>
     <button onClick={() => irA("cuentas")} style={{ ...K.btn, minHeight: 50 }}>Ver todas las cuentas →</button>
-  </div>);
-}
-
-/* ---------- Niveles de suscripción: precio y si se pueden contratar ---------- */
-const LIMITE_TXT = { planos: (n) => `${n} planos guardados` };
-function Niveles({ avisar, alCambiar }) {
-  const [lista, setLista] = useState(null);
-  const [form, setForm] = useState({});
-  const cargar = () => rpc("admin_planes").then(x => { setLista(x || []); setForm(Object.fromEntries((x || []).map(p => [p.id, { precio: p.precio_mes != null ? String(p.precio_mes).replace(".", ",") : "", publico: !!p.publico }]))); }).catch(() => setLista(false));
-  useEffect(() => { cargar(); }, []);
-  if (lista === null) return null;
-  if (lista === false) return <div style={{ ...K.card, color: "var(--red)" }}>No se han podido cargar los niveles de suscripción.</div>;
-  const guardar = async (p) => {
-    const f = form[p.id]; const v = f.precio.trim() ? parseFloat(f.precio.replace(",", ".")) : null;
-    if (v != null && !(v > 0)) return avisar("Escribe un precio válido", true);
-    const publico = p.id === "pro" ? true : f.publico;
-    if (publico && v == null) return avisar("Ponle precio antes de dejarlo contratar", true);
-    if (!window.confirm(`¿Guardar ${p.nombre}${v != null ? ` a ${eurosTxt(v)} al mes` : ""}${p.id !== "pro" ? (publico ? ", que se pueda contratar" : ", oculto") : ""}? Las suscripciones en marcha mantienen su precio.`)) return;
-    try { await rpc("admin_plan", { p_plan: p.id, p_precio: v, p_publico: publico }); avisar(`✓ ${p.nombre} actualizado`); cargar(); alCambiar?.(); } catch { avisar("No se ha podido guardar", true); }
-  };
-  return (<div style={K.card}>
-    <div style={{ fontWeight: 900 }}>Niveles de suscripción</div>
-    <div style={{ fontSize: 13, color: "var(--muted)", margin: "2px 0 10px" }}>Precio al mes, IVA incluido. Premium y Empresa están ocultos hasta que les pongas precio y marques «Se puede contratar».</div>
-    <div style={{ display: "grid", gap: 10 }}>
-      {lista.map(p => { const f = form[p.id] || { precio: "", publico: false }; const lim = Object.entries(p.limites || {}).filter(([k]) => LIMITE_TXT[k]).map(([k, n]) => LIMITE_TXT[k](n)); return (
-        <div key={p.id} style={{ border: "1px solid var(--line)", borderRadius: 14, padding: 12 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}><b style={{ fontSize: 15.5 }}>{p.nombre}</b>
-            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>{p.cuentas} {p.cuentas === 1 ? "cuenta" : "cuentas"} · {lim.length ? lim.join(" · ") : "sin límites"}</span></div>
-          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-            <input value={f.precio} inputMode="decimal" placeholder="Sin precio" onChange={e => setForm({ ...form, [p.id]: { ...f, precio: e.target.value.replace(/[^\d.,]/g, "").slice(0, 8) } })} style={{ ...K.input, flex: "1 1 120px" }} aria-label={`Precio al mes de ${p.nombre}`} />
-            {p.id !== "pro" && <label style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 44, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-              <input type="checkbox" checked={f.publico} onChange={e => setForm({ ...form, [p.id]: { ...f, publico: e.target.checked } })} style={{ width: 20, height: 20 }} />Se puede contratar</label>}
-            <button onClick={() => guardar(p)} style={{ ...K.btn, background: "var(--accent)", border: "none", color: "#fff" }}>Guardar</button>
-          </div>
-        </div>); })}
-    </div>
   </div>);
 }
 
@@ -170,7 +140,11 @@ function Ficha({ c, avisar, onCerrar }) {
   const [d, setD] = useState(null);
   const [busy, setBusy] = useState(false);
   const [hasta, setHasta] = useState("");
-  useEffect(() => { rpc("admin_cuenta_detalle", { p_owner: c.owner_id }).then(setD).catch(() => setD(false)); }, [c.owner_id]);
+  const [planes, setPlanes] = useState([]);
+  const [planRegalo, setPlanRegalo] = useState("");
+  useEffect(() => { rpc("admin_cuenta_detalle", { p_owner: c.owner_id }).then(setD).catch(() => setD(false));
+    rpc("admin_planes").then(x => { const ps = (x || []).filter(p => !p.sistema && !p.archivado); setPlanes(ps); setPlanRegalo((ps.find(p => p.id === c.plan_id) || ps.find(p => p.destacado) || ps[0])?.id || ""); }).catch(() => {}); }, [c.owner_id]);
+  const nombrePlan = (id) => planes.find(p => p.id === id)?.nombre || id;
   const bloqueada = c.bloqueado_hasta && new Date(c.bloqueado_hasta) > new Date();
   const hacer = async (pregunta, fn, ok) => {
     if (busy || !window.confirm(pregunta)) return;
@@ -193,6 +167,7 @@ function Ficha({ c, avisar, onCerrar }) {
           {fila("Alta", fecha(c.alta, true))}
           {fila("Último acceso", c.ultimo_acceso ? `${fecha(c.ultimo_acceso, true)} (${hace(c.ultimo_acceso)})` : "nunca")}
           {fila("Correo confirmado", c.confirmado ? "Sí" : "No")}
+          {c.plan_id && c.plan_id !== "fundador" && fila("Plan", nombrePlan(c.plan_id))}
           {c.prueba_hasta && fila("Prueba hasta", fecha(c.prueba_hasta, true))}
           {c.periodo_fin && fila(c.estado === "cortesia" ? "Regalada hasta" : "Periodo hasta", fecha(c.periodo_fin, true))}
           {c.estado === "cortesia" && !c.periodo_fin && fila("Regalada hasta", "sin fecha de fin")}
@@ -204,10 +179,12 @@ function Ficha({ c, avisar, onCerrar }) {
         <div style={{ fontWeight: 900, marginTop: 16, marginBottom: 8 }}>Acciones</div>
         <div style={{ display: "grid", gap: 8 }}>
           <div style={{ ...K.card, padding: 10, display: "grid", gap: 8 }}>
-            <div style={{ fontSize: 13, color: "var(--muted)" }}>Regalar la suscripción (sin cobrar). Déjalo en blanco para que no caduque.</div>
+            <div style={{ fontSize: 13, color: "var(--muted)" }}>Regalar un plan (sin cobrar). Deja la fecha en blanco para que no caduque.</div>
+            {planes.length > 0 && <select value={planRegalo} onChange={e => setPlanRegalo(e.target.value)} style={K.input} aria-label="Plan que se regala">
+              {planes.map(p => <option key={p.id} value={p.id}>{p.nombre}{p.precio_mes != null ? ` · ${eurosTxt(p.precio_mes)}/mes` : ""}</option>)}</select>}
             <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={K.input} aria-label="Regalada hasta" />
-            {accion("🎁 Regalar suscripción", hasta ? `Hasta el ${fecha(hasta + "T23:59")}` : "Sin fecha de fin", () => hacer(`¿Regalar la suscripción a ${c.email}${hasta ? ` hasta el ${fecha(hasta + "T23:59")}` : " sin fecha de fin"}?${c.suscripcion_pago_id && ["activa", "prueba", "impagada"].includes(c.estado) ? "\n\nOJO: tiene una suscripción de pago en Stripe. Cancélala también para que no se le cobre." : ""}`,
-              () => rpc("admin_cuenta_cambiar", { p_owner: c.owner_id, p_accion: "cortesia", p_hasta: hasta ? new Date(hasta + "T23:59:59").toISOString() : null }), "✓ Suscripción regalada"), "#c084fc")}
+            {accion(`🎁 Regalar ${planRegalo ? nombrePlan(planRegalo) : "suscripción"}`, hasta ? `Hasta el ${fecha(hasta + "T23:59")}` : "Sin fecha de fin", () => hacer(`¿Regalar ${planRegalo ? nombrePlan(planRegalo) : "la suscripción"} a ${c.email}${hasta ? ` hasta el ${fecha(hasta + "T23:59")}` : " sin fecha de fin"}?${c.suscripcion_pago_id && ["activa", "prueba", "impagada"].includes(c.estado) ? "\n\nOJO: tiene una suscripción de pago en Stripe. Cancélala también para que no se le cobre." : ""}`,
+              () => rpc("admin_cuenta_cambiar", { p_owner: c.owner_id, p_accion: "cortesia", p_hasta: hasta ? new Date(hasta + "T23:59:59").toISOString() : null, p_plan: planRegalo || null }), "✓ Plan regalado"), "#c084fc")}
           </div>
           {accion("⭐ Hacer Fundador", "Sin cuota ni bloqueos, para siempre", () => hacer(`¿Hacer Fundador a ${c.email}?`, () => rpc("admin_cuenta_cambiar", { p_owner: c.owner_id, p_accion: "fundador" }), "✓ Ahora es Fundador"))}
           {c.suscripcion_pago_id && ["activa", "prueba", "impagada"].includes(c.estado) && !c.cancela_al_final && accion("Dar de baja al final del periodo", "Stripe deja de cobrar; sigue con acceso hasta el fin del mes pagado", () => hacer(`¿Dar de baja a ${c.email} al final de su periodo?`, () => servidor({ accion: "baja_stripe", cuenta: c.owner_id, cuando: "final" }), "✓ Baja programada en Stripe"), "var(--amber)")}
@@ -264,7 +241,7 @@ function Errores({ avisar }) {
 }
 
 /* ---------- Registro de acciones ---------- */
-const ACCIONES = { campana: "Campaña de correo", enviar_correo: "Correo enviado a mano", descuento: "Descuento aplicado", ampliar_prueba: "Prueba ampliada", crecimiento_ajustes: "Cambiar automatizaciones", cortesia: "Regalar suscripción", fundador: "Hacer Fundador", quitar: "Quitar acceso", precio: "Cambiar precio", baja_stripe_inmediata: "Baja inmediata en Stripe", baja_stripe_fin_periodo: "Baja al final del periodo", bloquear_acceso: "Bloquear cuenta", desbloquear_acceso: "Desbloquear cuenta" };
+const ACCIONES = { plan_nuevo: "Crear plan", plan_editar: "Editar plan", plan_archivar: "Archivar plan", plan_borrar: "Borrar plan", plan_recuperar: "Recuperar plan", plan_stripe: "Plan enviado a Stripe", campana: "Campaña de correo", enviar_correo: "Correo enviado a mano", descuento: "Descuento aplicado", ampliar_prueba: "Prueba ampliada", crecimiento_ajustes: "Cambiar automatizaciones", cortesia: "Regalar suscripción", fundador: "Hacer Fundador", quitar: "Quitar acceso", precio: "Cambiar precio", baja_stripe_inmediata: "Baja inmediata en Stripe", baja_stripe_fin_periodo: "Baja al final del periodo", bloquear_acceso: "Bloquear cuenta", desbloquear_acceso: "Desbloquear cuenta" };
 function Registro() {
   const [lista, setLista] = useState(null);
   useEffect(() => { rpc("admin_registro", { p_limite: 200 }).then(x => setLista(x || [])).catch(() => setLista(false)); }, []);
@@ -272,7 +249,7 @@ function Registro() {
   if (lista === false) return <div style={{ color: "var(--red)" }}>No se ha podido cargar el registro.</div>;
   if (!lista.length) return <div style={{ ...K.card, color: "var(--muted)" }}>Aún no hay acciones de administración.</div>;
   return (<div style={{ display: "grid", gap: 6 }}>{lista.map((x, i) => <div key={i} style={{ ...K.card, padding: 12, fontSize: 14 }}>
-    <div style={{ fontWeight: 800 }}>{ACCIONES[x.accion] || x.accion}{x.accion === "precio" && x.detalle ? `: ${x.detalle.antes ?? "—"} → ${x.detalle.ahora} €` : ""}</div>
+    <div style={{ fontWeight: 800 }}>{ACCIONES[x.accion] || x.accion}{x.accion === "precio" && x.detalle ? `: ${x.detalle.antes ?? "—"} → ${x.detalle.ahora} €` : ""}{x.accion?.startsWith("plan_") && x.detalle?.nombre ? `: ${x.detalle.nombre}` : x.accion === "plan_stripe" && x.detalle?.plan ? `: ${x.detalle.plan}` : ""}</div>
     <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2, overflowWrap: "anywhere" }}>{fecha(x.fecha, true)} · {x.cuenta || "plataforma"} · por {x.admin || "—"}</div>
   </div>)}</div>);
 }

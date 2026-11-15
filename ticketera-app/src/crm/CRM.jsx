@@ -217,7 +217,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
         )}
 
       <main style={{ flex: 1, overflow: "auto", padding: isMobile ? 12 : "26px 34px 40px", WebkitOverflowScrolling: "touch" }}>
-        <Escaparate activo={bloq(tab)}>
+        <Escaparate activo={bloq(tab)} funcion={FUNC_TAB[tab]}>
         <div style={{ maxWidth: 1180, margin: "0 auto" }}>
           {!isMobile && (
             <div style={{ marginBottom: 20 }}>

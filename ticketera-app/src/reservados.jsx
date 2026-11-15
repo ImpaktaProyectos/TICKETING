@@ -10,6 +10,8 @@ import { enlacePedirBebidas, waNumero } from "./mensajesReservados";
 import React, { useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import * as db from "./db";
 import { uid, supabase } from "./supabase";
+import { useAcceso, puede, hoyLocal } from "./cuenta";
+import { Escaparate } from "./Escaparate";
 const PlanoReservados = lazy(() => import("./plano/VistaPlano"));
 const ReservaOnline = lazy(() => import("./ReservaOnlineConfig").then(m => ({ default: m.ReservaOnlineConfig })));
 
@@ -670,6 +672,7 @@ function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puede
 
 /* ---------- Configuración (solo administrador) ---------- */
 function ConfigReservados({ ev, cfg, res, isMobile, flash, onGuardarCfg }) {
+  const acc = useAcceso();
   const [d, setD] = useState(cfg);
   useEffect(() => { setD(resCfg(ev)); }, [ev.id]);
   const cambiado = JSON.stringify(d) !== JSON.stringify(cfg);
@@ -779,7 +782,7 @@ function ConfigReservados({ ev, cfg, res, isMobile, flash, onGuardarCfg }) {
           <input type="checkbox" checked={d.lineaTicket} onChange={e => set("lineaTicket", e.target.checked)} style={{ width: 22, height: 22, flexShrink: 0 }} />
         </label>)}
 
-      <Suspense fallback={null}><ReservaOnline ev={ev} cfg={d} flash={flash} tieneplano={!!cfg.plano?.elementos?.length} /></Suspense>
+      <Escaparate activo={!puede(acc, "reserva_online", ev, hoyLocal())} funcion="reserva_online"><Suspense fallback={null}><ReservaOnline ev={ev} cfg={d} flash={flash} tieneplano={!!cfg.plano?.elementos?.length} /></Suspense></Escaparate>
 
       <div style={{ position: "sticky", bottom: 0, background: "var(--bg)", padding: "10px 0", display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
         {cambiado && <span style={{ color: "var(--amber)", fontWeight: 700, fontSize: 13 }}>Cambios sin guardar</span>}

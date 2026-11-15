@@ -20,9 +20,14 @@ refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las fun
       entradas, reserva de mesa con adelanto desde el portal del evento, y cambio de nivel.
 - [ ] Alta de RRPP con confirmación por correo (en vez de confirmada al momento).
 
+## 2b. Planes configurables (ver PLANES_Y_PERMISOS.md)
+- [ ] Probar la migración `20261117090000_ticket_planes_configurables.sql` en una transacción que se deshace y aplicarla.
+- [ ] Publicar `suscripcion`, `suscripcion-stripe`, `admin-plataforma` y `crecimiento`.
+- [ ] Configurar los planes en Panel TIXFAST › Planes (estrategia recomendada en PLANES_Y_PERMISOS.md).
+
 ## 3. Decisiones tuyas
 - [ ] ¿Obligamos a cambiar los PIN de fábrica (1234 / 0000) en el primer uso?
-- [ ] Precio de TIXFAST Premium y Empresa (Panel TIXFAST › Resumen › Niveles de suscripción).
+- [ ] Planes, precios y permisos (Panel TIXFAST › Planes).
 - [ ] Cambiar los emojis por iconos propios en el resto de la app interna (TPV, CRM, panel). Ya está hecho
       en las páginas públicas, la reserva online, la ficha de bebidas, el plano y Reservados.
 

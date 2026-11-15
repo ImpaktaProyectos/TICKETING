@@ -5,10 +5,12 @@
 //   descuento      { cuenta, pct, meses }         → aplica un descuento a su suscripción de Stripe
 //   ampliar_prueba { cuenta, dias }               → alarga su prueba gratuita en Stripe
 //   campana        { segmento, asunto, texto, boton, prueba } → correo a un grupo (o solo a ti, de prueba)
+//   plan_stripe    { plan }                       → crea o actualiza en Stripe el producto y el precio del plan
+//   estado_stripe                                 → ¿hay Stripe conectado? ¿en pruebas o real?
 // Solo para administradores de TIXFAST (tabla ticket_superadmins). Todo queda en ticket_admin_registro.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import { plantilla, enviar, sitio, bajaUrl } from "../_shared/correos.ts";
-import { aplicarDescuento, stripe as stripeApi } from "../_shared/stripe.ts";
+import { aplicarDescuento, stripe as stripeApi, sincronizarPlan } from "../_shared/stripe.ts";
 
 const SK = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
 const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
@@ -36,6 +38,16 @@ Deno.serve(async (req) => {
     if (!u?.user) return json({ ok: false, motivo: "sesion" }, 401);
     const { data: sa } = await admin.from("ticket_superadmins").select("user_id").eq("user_id", u.user.id).maybeSingle();
     if (!sa) return json({ ok: false, motivo: "permiso" }, 403);
+    // Planes: conexión con Stripe
+    if (b.accion === "estado_stripe") return json({ ok: true, conectado: !!SK, modo: SK.startsWith("sk_live_") || SK.startsWith("rk_live_") ? "real" : SK ? "pruebas" : null });
+    if (b.accion === "plan_stripe") {
+      if (!SK) return json({ ok: false, motivo: "sin_pasarela" });
+      const plan = String(b.plan || "");
+      if (!/^[a-z0-9_]{2,30}$/.test(plan)) return json({ ok: false, motivo: "plan" }, 400);
+      const r = await sincronizarPlan(admin, plan);
+      await admin.from("ticket_admin_registro").insert({ admin_id: u.user.id, accion: "plan_stripe", detalle: { plan, ...r } });
+      return json({ ok: true, ...r });
+    }
     // Campaña: no va a una cuenta concreta
     if (b.accion === "campana") {
       const asunto = String(b.asunto || "").trim().slice(0, 120), texto = String(b.texto || "").trim().slice(0, 4000);
@@ -81,7 +93,7 @@ Deno.serve(async (req) => {
     if (b.accion === "enviar_correo") {
       const [{ data: c }, { data: us }, { data: cfg }, { data: plan }] = await Promise.all([
         admin.from("ticket_cuentas").select("*").eq("owner_id", cuenta).single(), admin.auth.admin.getUserById(cuenta),
-        admin.from("ticket_crecimiento_config").select("ajustes").eq("id", 1).single(), admin.from("ticket_planes").select("precio_mes").eq("id", "pro").single()]);
+        admin.from("ticket_crecimiento_config").select("ajustes").eq("id", 1).single(), admin.from("ticket_planes").select("precio_mes").eq("publico", true).eq("archivado", false).eq("sistema", false).gt("precio_mes", 0).order("destacado", { ascending: false }).order("precio_mes").limit(1).maybeSingle()]);
       const email = us?.user?.email; if (!email) return json({ ok: false, motivo: "cuenta" });
       const tipo = String(b.tipo || "");
       const t = plantilla(tipo, { precio: plan?.precio_mes != null ? Number(plan.precio_mes) : null, config: cfg?.ajustes || {}, sitio: sitio(),

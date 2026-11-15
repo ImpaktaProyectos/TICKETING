@@ -26,19 +26,39 @@ const ESTADO: Record<string, string> = {
   canceled: "cancelada", incomplete: "pendiente", incomplete_expired: "pendiente",
 };
 
+// Plan de la suscripción: el de sus datos (metadata) si existe; si no, el dueño del precio cobrado
+async function planDe(sub: any): Promise<string | null> {
+  const meta = sub?.metadata?.tixfast_plan;
+  if (typeof meta === "string" && meta) {
+    const { data } = await admin.from("ticket_planes").select("id").eq("id", meta).eq("sistema", false).maybeSingle();
+    if (data) return data.id;
+  }
+  const precio = sub?.items?.data?.[0]?.price?.id;
+  if (precio) {
+    const { data } = await admin.from("ticket_planes").select("id").eq("stripe_price_id", precio).maybeSingle();
+    if (data) return data.id;
+    const prod = sub?.items?.data?.[0]?.price?.product;
+    const { data: p2 } = await admin.from("ticket_planes").select("id").eq("stripe_product_id", typeof prod === "string" ? prod : prod?.id || "").maybeSingle();
+    if (p2) return p2.id;
+  }
+  return null;
+}
+
 async function aplicar(sub: any) {
   const cuenta = sub?.metadata?.tixfast_cuenta;
   const cus = typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
   const finPeriodo = sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end ?? null;
   const cambios: Record<string, unknown> = {
     // En pausa (temporada baja): no se cobra y no hay acceso hasta que se reanude
-    estado: sub.pause_collection && sub.status === "active" ? "suspendida" : (ESTADO[sub.status] || "pendiente"), plan_id: ["pro", "premium", "empresa"].includes(sub?.metadata?.tixfast_plan) ? sub.metadata.tixfast_plan : "pro", proveedor_pago: "stripe",
+    estado: sub.pause_collection && sub.status === "active" ? "suspendida" : (ESTADO[sub.status] || "pendiente"), proveedor_pago: "stripe",
     suscripcion_pago_id: sub.id, cliente_pago_id: cus,
     prueba_hasta: fecha(sub.trial_end), periodo_fin: fecha(sub.pause_collection?.resumes_at ?? finPeriodo),
     cancela_al_final: !!sub.cancel_at_period_end || !!sub.cancel_at,
     actualizada_en: new Date().toISOString(),
   };
   if (sub.trial_end) cambios.prueba_usada = true;
+  const plan = await planDe(sub);
+  if (plan) cambios.plan_id = plan;   // si no se reconoce el plan, la cuenta conserva el que tenía
   // Un aviso de una suscripción antigua (cancelada) no pisa la suscripción nueva de la cuenta
   const { data: actual } = await (cuenta ? admin.from("ticket_cuentas").select("suscripcion_pago_id").eq("owner_id", cuenta) : admin.from("ticket_cuentas").select("suscripcion_pago_id").eq("cliente_pago_id", cus)).maybeSingle();
   if (actual?.suscripcion_pago_id && actual.suscripcion_pago_id !== sub.id && ["cancelada", "pendiente"].includes(String(cambios.estado))) return;

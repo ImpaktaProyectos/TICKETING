@@ -4,8 +4,7 @@
 import { Icono } from "../iconos";
 import React, { useEffect, useState } from "react";
 import { Capa } from "../Capa";
-import { supabase } from "../supabase";
-import { useAcceso, limiteDe, cambiarPlan } from "../cuenta";
+import { useAcceso, limiteDe, cambiarPlan, cargarPlanes, planMejor } from "../cuenta";
 import { listarPlanos, guardarPlano, renombrarPlano, borrarPlano } from "./biblioteca";
 
 const K = {
@@ -23,9 +22,9 @@ export function MisPlanos({ planoActual, reservados, nombreSugerido = "", onCarg
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [editando, setEditando] = useState(null);   // { id, nombre }
-  const [superior, setSuperior] = useState(null);   // nivel superior contratable (Premium)
+  const [superior, setSuperior] = useState(null);   // plan contratable más barato que guarda más planos
   const cargar = () => listarPlanos().then(setLista).catch(e => { setLista([]); setMsg({ t: e.message, mal: true }); });
-  useEffect(() => { cargar(); supabase.rpc("ticket_planes_disponibles").then(({ data }) => setSuperior((data || []).find(x => x.id !== "pro" && x.limites?.planos == null) || null), () => {}); }, []);
+  useEffect(() => { cargar(); cargarPlanes().then(ps => setSuperior(planMejor(ps, acc?.plan_id, { limite: "planos", n: limite ?? 0 })), () => {}); }, []);
   const lleno = limite != null && lista && lista.length >= limite;
   const existente = lista?.find(x => x.nombre.trim().toLowerCase() === nombre.trim().toLowerCase());
   const hacer = async (fn, ok) => { setBusy(true); setMsg(null); try { await fn(); if (ok) setMsg({ t: ok }); await cargar(); } catch (e) { setMsg({ t: e?.mostrar ? e.message : "No se ha podido completar", mal: true }); } setBusy(false); };
@@ -37,7 +36,7 @@ export function MisPlanos({ planoActual, reservados, nombreSugerido = "", onCarg
   const subir = async () => {
     if (!window.confirm(`¿Pasar a ${superior.nombre} por ${euros(superior.precio_mes)} al mes? Este mes solo se cobra la diferencia.`)) return;
     setBusy(true); setMsg(null);
-    try { await cambiarPlan(superior.id); setMsg({ t: `Ya tienes ${superior.nombre}: guarda todos los planos que quieras.` }); }
+    try { await cambiarPlan(superior.id); setMsg({ t: `Ya tienes ${superior.nombre}: ya puedes guardar más planos.` }); }
     catch (e) { setMsg({ t: e?.mostrar ? e.message : "No se ha podido cambiar de plan", mal: true }); }
     setBusy(false);
   };
@@ -57,7 +56,7 @@ export function MisPlanos({ planoActual, reservados, nombreSugerido = "", onCarg
           <input value={nombre} maxLength={60} onChange={e => setNombre(e.target.value)} placeholder="Ej.: Sala Aula 69" aria-label="Nombre del plano" style={K.input} />
           {lleno && !existente
             ? <div style={{ fontSize: 13.5, marginTop: 8 }}>
-                <b>Has llegado a {limite} planos guardados.</b> Sustituye uno poniendo su mismo nombre{superior ? <>, o pasa a <b>{superior.nombre}</b> para guardar todos los que quieras.</> : ". Pronto habrá un plan superior para guardar más."}
+                <b>Has llegado a {limite} planos guardados.</b> Sustituye uno poniendo su mismo nombre{superior ? <>, o pasa a <b>{superior.nombre}</b> para guardar más.</> : "."}
                 {superior && <button type="button" disabled={busy} onClick={subir} style={{ ...K.btn, width: "100%", marginTop: 8, borderColor: "var(--accent)", color: "var(--accent)" }}>Pasar a {superior.nombre} · {euros(superior.precio_mes)}/mes</button>}
               </div>
             : <button type="button" disabled={busy} onClick={guardar} style={{ ...K.btn, width: "100%", marginTop: 8, background: "var(--accent)", border: "none", color: "#fff" }}>{existente ? `Sustituir «${existente.nombre}»` : "Guardar en Mis planos"}</button>}
