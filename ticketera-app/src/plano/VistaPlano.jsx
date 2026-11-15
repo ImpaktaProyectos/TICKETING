@@ -18,7 +18,7 @@ export default function VistaPlano({ cfg, res, role, isMobile, nombreEvento, onA
   const admin = role === "admin";
   const faltan = plano ? sinColocar(plano, res.reservados).length : 0;
   const cambiarVista = (v) => { setVista(v); try { localStorage.setItem(K_VISTA, v); } catch {} };
-  const boton = (on) => ({ minHeight: 40, padding: "0 13px", borderRadius: 10, border: "none", fontWeight: 800, fontSize: 13.5, cursor: "pointer", background: on ? "var(--accent)" : "transparent", color: on ? "#fff" : "var(--text)" });
+  const boton = (on) => ({ minHeight: 44, padding: "0 13px", borderRadius: 10, border: "none", fontWeight: 800, fontSize: 13.5, cursor: "pointer", background: on ? "var(--accent)" : "transparent", color: on ? "#fff" : "var(--text)" });
 
   return (<div>
     {plano ? <>

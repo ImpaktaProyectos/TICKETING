@@ -54,7 +54,7 @@ export function useTema() {
 export const C = {
   btnPrimary: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, background: "var(--accent)", color: "#fff", border: "none", borderRadius: 12, padding: "11px 18px", fontWeight: 900, fontSize: 14.5, cursor: "pointer", whiteSpace: "nowrap" },
   btnGhost: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 12, padding: "11px 16px", fontWeight: 800, fontSize: 14, cursor: "pointer", whiteSpace: "nowrap" },
-  btnSm: { display: "inline-flex", alignItems: "center", gap: 6, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "7px 11px", fontWeight: 800, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" },
+  btnSm: { display: "inline-flex", alignItems: "center", gap: 6, minHeight: 44, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "7px 11px", fontWeight: 800, fontSize: 12.5, cursor: "pointer", whiteSpace: "nowrap" },
   listBtn: { display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "11px 4px", background: "transparent", border: "none", borderTop: "1px solid var(--line)", color: "var(--text)", cursor: "pointer", textAlign: "left", font: "inherit" },
   miniSelect: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "7px 28px 7px 10px", fontWeight: 800, fontSize: 12.5, outline: "none", cursor: "pointer", maxWidth: "100%" },
   head: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "var(--head)", backdropFilter: "saturate(1.6) blur(14px)", WebkitBackdropFilter: "saturate(1.6) blur(14px)", borderBottom: "1px solid var(--line)", color: "var(--text)", flexShrink: 0, paddingTop: "max(10px, env(safe-area-inset-top))" },
@@ -141,7 +141,7 @@ export function Seg({ opciones, valor, onChange, full, size = "md" }) {
   return (
     <div style={{ display: full ? "flex" : "inline-flex", gap: 4, padding: 4, borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", maxWidth: "100%", overflowX: "auto" }}>
       {opciones.map(o => { const on = o.k === valor; return (
-        <button key={o.k} type="button" onClick={() => onChange(o.k)} style={{ flex: full ? 1 : "none", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: pad, borderRadius: 9, border: "none", cursor: "pointer", fontWeight: 800, fontSize: size === "sm" ? 12.5 : 13.5, whiteSpace: "nowrap", background: on ? (o.c || "var(--accent)") : "transparent", color: on ? (o.ink || "#fff") : "var(--muted)", transition: "background .12s" }}>
+        <button key={o.k} type="button" onClick={() => onChange(o.k)} style={{ flex: full ? 1 : "none", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 44, padding: pad, borderRadius: 9, border: "none", cursor: "pointer", fontWeight: 800, fontSize: size === "sm" ? 12.5 : 13.5, whiteSpace: "nowrap", background: on ? (o.c || "var(--accent)") : "transparent", color: on ? (o.ink || "#fff") : "var(--muted)", transition: "background .12s" }}>
           {o.i && <Icon n={o.i} s={15} />}{o.t}
         </button>); })}
     </div>

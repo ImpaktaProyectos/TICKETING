@@ -120,7 +120,7 @@ function Reservar({ token, cancelada }) {
             <div style={{ flex: 1, minWidth: 160 }}><div style={{ fontWeight: 900, fontSize: 19 }}>Elige tu mesa</div>
               <div style={{ fontSize: 13.5, color: "var(--muted)", display: "flex", alignItems: "center", gap: 7, marginTop: 2 }}><span className="rv-vivo" aria-hidden="true" />En directo · {libres} {libres === 1 ? "mesa disponible" : "mesas disponibles"}</div></div>
             {plano && <div role="tablist" aria-label="Vista" style={{ display: "inline-flex", border: "1px solid var(--line)", borderRadius: 12, padding: 3 }}>
-              {[["2d", "Plano"], ["3d", "3D"]].map(([k, t]) => <button key={k} role="tab" aria-selected={vista === k} onClick={() => setVista(k)} style={{ minHeight: 38, padding: "0 13px", borderRadius: 9, border: "none", fontWeight: 800, cursor: "pointer", fontFamily: "inherit", background: vista === k ? C : "transparent", color: vista === k ? "#fff" : "var(--text)" }}>{t}</button>)}
+              {[["2d", "Plano"], ["3d", "3D"]].map(([k, t]) => <button key={k} role="tab" aria-selected={vista === k} onClick={() => setVista(k)} style={{ minHeight: 44, padding: "0 13px", borderRadius: 9, border: "none", fontWeight: 800, cursor: "pointer", fontFamily: "inherit", background: vista === k ? C : "transparent", color: vista === k ? "#fff" : "var(--text)" }}>{t}</button>)}
             </div>}
           </div>
           {plano ? <>

@@ -149,6 +149,8 @@ function Mesa({ e, g, info, modo, tema, sel, tresD, onPointerDown, onClick }) {
   const clicable = modo !== "editar" && (!publico || libre);
   return (
     <g {...g} onPointerDown={onPointerDown} onClick={onClick} style={{ cursor: modo === "editar" ? "move" : clicable ? "pointer" : "not-allowed", touchAction: modo === "editar" ? "none" : undefined }} role={clicable ? "button" : undefined} aria-label={`${nombre}: ${publico ? (libre ? "disponible" : "reservada") : estado}`}>
+      {/* Zona táctil invisible: en el móvil la mesa se toca bien aunque el dibujo sea pequeño */}
+      {modo !== "editar" && <rect x={e.x - 0.35} y={e.y - 0.35} width={e.w + 0.7} height={e.h + 0.7} fill="transparent" pointerEvents={clicable ? "all" : "none"} />}
       {e.forma === "sofa" && <path d={`M${e.x} ${e.y + e.h} V${e.y + 0.18} Q${e.x} ${e.y} ${e.x + 0.18} ${e.y} H${e.x + e.w - 0.18} Q${e.x + e.w} ${e.y} ${e.x + e.w} ${e.y + 0.18} V${e.y + e.h}`}
         fill="none" stroke={col} strokeWidth={0.32} strokeLinecap="round" opacity={0.9} />}
       <Forma e={e} relleno={publico && !libre ? "url(#pl-rayas)" : hexA(col, libre ? 0.16 : 0.38)} borde={elegida ? tema.acento : col} grosor={elegida ? 0.14 : 0.07} guiones={e.forma === "palco" ? "0.22 0.12" : undefined} />

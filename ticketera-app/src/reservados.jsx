@@ -167,7 +167,7 @@ const R = {
   input: { width: "100%", boxSizing: "border-box", background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "11px 12px", fontSize: 16, outline: "none" },
   primary: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, background: "var(--accent)", color: "#fff", border: "none", borderRadius: 12, padding: "12px 18px", fontWeight: 800, fontSize: 15, cursor: "pointer" },
   ghost: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 12, padding: "11px 16px", fontWeight: 700, fontSize: 14, cursor: "pointer" },
-  small: { display: "inline-flex", alignItems: "center", gap: 6, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 9, padding: "7px 11px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
+  small: { display: "inline-flex", alignItems: "center", gap: 6, minHeight: 44, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 9, padding: "7px 11px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
   chip: { display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 20, border: "1px solid var(--line)", background: "transparent", color: "var(--text)", fontWeight: 700, fontSize: 13.5, cursor: "pointer" },
   wrap: { position: "fixed", inset: 0, zIndex: 85, background: "rgba(0,0,0,.72)", backdropFilter: "blur(4px)", display: "flex", alignItems: "flex-end", justifyContent: "center" },
   sheet: { width: "100%", maxWidth: 560, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "22px 22px 0 0", padding: 18, paddingBottom: "calc(18px + env(safe-area-inset-bottom))", maxHeight: "92dvh", overflow: "auto", boxSizing: "border-box" },
@@ -373,7 +373,7 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
           {!isMobile && puedeReservar && tab === "mapa" && <button onClick={nuevaReserva} style={{ ...R.small, background: "var(--accent)", color: "#fff", border: "none", padding: "9px 13px" }}>+ Nueva reserva</button>}
           {!isMobile && onVentaSocio && puedeReservar && tab === "mapa" && <button onClick={() => onVentaSocio(null)} style={{ ...R.small, background: "var(--green)", color: "#04231a", border: "none", padding: "9px 13px" }}>💶 Vender sin ticket</button>}
           {role === "admin" && <div style={{ display: "inline-flex", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: 3 }}>
-            {[["mapa", "Mapa"], ["config", "Configuración"]].map(([k, t]) => <button key={k} onClick={() => setTab(k)} style={{ border: "none", borderRadius: 9, padding: "8px 14px", fontWeight: 800, fontSize: 13.5, cursor: "pointer", background: tab === k ? "var(--accent)" : "transparent", color: tab === k ? "#fff" : "var(--text)" }}>{t}</button>)}
+            {[["mapa", "Mapa"], ["config", "Configuración"]].map(([k, t]) => <button key={k} onClick={() => setTab(k)} style={{ border: "none", borderRadius: 9, minHeight: 44, padding: "0 14px", fontWeight: 800, fontSize: 13.5, cursor: "pointer", background: tab === k ? "var(--accent)" : "transparent", color: tab === k ? "#fff" : "var(--text)" }}>{t}</button>)}
           </div>}
           {tab === "mapa" && res.reservados.length > 0 && <button onClick={exportar} disabled={exportando} style={{ ...R.small, padding: "9px 13px", opacity: exportando ? .6 : 1 }} title="Hoja para imprimir con todos los reservados">🖨️ {exportando ? "Preparando…" : "Exportar reservados"}</button>}
           {onCerrar && <button onClick={onCerrar} style={R.small}>← Volver al TPV</button>}
@@ -407,7 +407,7 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
           </div>
         )}
         {!sinConfig && <div role="tablist" aria-label="Vista de los reservados" style={{ display: "inline-flex", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: 3, marginBottom: 12 }}>
-          {[["tarjetas", "▦ Tarjetas"], ["plano", "🗺️ Plano de la sala"]].map(([k, t]) => <button key={k} role="tab" aria-selected={vistaRes === k} onClick={() => elegirVista(k)} style={{ border: "none", borderRadius: 9, minHeight: 40, padding: "0 14px", fontWeight: 800, fontSize: 13.5, cursor: "pointer", background: vistaRes === k ? "var(--accent)" : "transparent", color: vistaRes === k ? "#fff" : "var(--text)" }}>{t}</button>)}
+          {[["tarjetas", "▦ Tarjetas"], ["plano", "🗺️ Plano de la sala"]].map(([k, t]) => <button key={k} role="tab" aria-selected={vistaRes === k} onClick={() => elegirVista(k)} style={{ border: "none", borderRadius: 9, minHeight: 44, padding: "0 14px", fontWeight: 800, fontSize: 13.5, cursor: "pointer", background: vistaRes === k ? "var(--accent)" : "transparent", color: vistaRes === k ? "#fff" : "var(--text)" }}>{t}</button>)}
         </div>}
         {vistaRes === "plano" && !sinConfig && <Suspense fallback={<div style={{ color: "var(--muted)", padding: 20 }}>Cargando el plano…</div>}>
           <PlanoReservados cfg={cfg} res={res} role={role} nombreEvento={ev.venue || ev.name || ""} isMobile={isMobile} onAbrir={(id) => setFicha({ id })}
