@@ -68,7 +68,7 @@ La idea: **separar por tipo de cliente, no trocear el CRM**. Quitar «gastos» p
 
 ## 5. Pendiente
 
-- [ ] **Publicar**: aplicar la migración `20261117090000_ticket_planes_configurables.sql` y subir las funciones `suscripcion`, `suscripcion-stripe`, `admin-plataforma` y `crecimiento`. La prueba en una transacción que se deshace está preparada pero no se llegó a ejecutar (Supabase pidió una confirmación que no llegó a tiempo).
+- [x] **Publicado** (15/11/2026): migración `20261117090000_ticket_planes_configurables.sql` (probada antes en una transacción que se deshace) y funciones `suscripcion`, `suscripcion-stripe`, `admin-plataforma` y `crecimiento`.
 - [ ] Probar con la tarjeta 4242 4242 4242 4242: alta en cada plan, cambio de plan y aviso de Stripe.
 - [ ] Facturación **anual** (precio al año con descuento): no está; se puede añadir encima de esto.
 - [ ] Pasar las suscripciones en marcha a un precio nuevo: no se hace solo a propósito (hay que avisar al cliente antes).

@@ -85,6 +85,6 @@ Un ticket suelto vale lo cobrado en la caja. Un vale de un bono o combo vale el 
 La comisión se calcula con la configuración actual: si se corrige, la liquidación se corrige.
 
 ## Pendiente
-- [ ] Publicar: migraciones `20261117090000` y `20261118090000`, funciones del servidor y la app.
+- [x] Publicar: migraciones `20261117090000` y `20261118090000`, funciones del servidor y la app (15/11/2026).
 - [ ] Ideas siguientes: «canjéalo en…» impreso en el ticket, que un puesto marque un producto como
       agotado y lo vean las cajas, y venta anticipada de vales en la ticketera online.

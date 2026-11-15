@@ -21,12 +21,12 @@ refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las fun
 - [ ] Alta de RRPP con confirmación por correo (en vez de confirmada al momento).
 
 ## 2b. Planes configurables (ver PLANES_Y_PERMISOS.md)
-- [ ] Probar la migración `20261117090000_ticket_planes_configurables.sql` en una transacción que se deshace y aplicarla.
-- [ ] Publicar `suscripcion`, `suscripcion-stripe`, `admin-plataforma` y `crecimiento`.
+- [x] Probar la migración `20261117090000_ticket_planes_configurables.sql` en una transacción que se deshace y aplicarla (publicada el 15/11/2026).
+- [x] Publicar `suscripcion`, `suscripcion-stripe`, `admin-plataforma` y `crecimiento` (15/11/2026).
 - [ ] Configurar los planes en Panel TIXFAST › Planes (estrategia recomendada en PLANES_Y_PERMISOS.md).
 
 ## 2c. Multipuesto (ver MULTIPUESTO.md)
-- [ ] Aplicar `20261118090000_ticket_multipuesto.sql` (después de la de planes) y publicar la app (ruta `/p/`).
+- [x] Aplicar `20261118090000_ticket_multipuesto.sql` (después de la de planes) y publicar la app (ruta `/p/`) (15/11/2026).
 - [ ] Prueba real: evento Multipuesto, 2 puestos, venta en caja y canje desde dos móviles.
 
 ## 3. Decisiones tuyas
