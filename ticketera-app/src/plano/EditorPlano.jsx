@@ -5,7 +5,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Capa } from "../Capa";
 import { Plano } from "./Plano";
-import { TIPOS, GRUPOS_TIPOS, normalizar, crear, mover, redimensionar, girar, duplicar, sinColocar, colocarReservados, plantilla, ajustar, MIN_SALA, MAX_SALA } from "./modelo";
+import { TIPOS, GRUPOS_TIPOS, normalizar, crear, mover, redimensionar, girar, duplicar, sinColocar, colocarReservados, plantilla, ajustar, enlazar, MIN_SALA, MAX_SALA } from "./modelo";
+import { MisPlanos } from "./MisPlanos";
+import { mesasQueFaltan } from "./biblioteca";
 
 const K = {
   btn: { minHeight: 44, padding: "0 13px", borderRadius: 12, border: "1px solid var(--line)", background: "var(--surface2)", color: "var(--text)", fontWeight: 800, fontSize: 14, cursor: "pointer", whiteSpace: "nowrap" },
@@ -16,12 +18,13 @@ const K = {
 const FORMAS = { redonda: "Redonda", cuadrada: "Cuadrada", sofa: "Sofá", palco: "Palco" };
 const numero = (t) => { const v = parseFloat(String(t).replace(",", ".")); return Number.isFinite(v) ? v : null; };
 
-export function EditorPlano({ plano: inicial, reservados, isMobile, onGuardar, onCrearReservado, onCerrar }) {
+export function EditorPlano({ plano: inicial, reservados, isMobile, nombreSugerido = "", onGuardar, onCrearReservado, onCerrar }) {
   const [p, setP] = useState(() => (inicial ? normalizar(inicial) : null));
   const [hist, setHist] = useState({ atras: [], adelante: [] });
   const [sel, setSel] = useState(null);
   const [panel, setPanel] = useState(inicial ? "anadir" : "sala");
   const [guardando, setGuardando] = useState(false);
+  const [verPlanos, setVerPlanos] = useState(false);   // hoja «Mis planos»
   const cambiado = useRef(false);
   const base = useRef(null);   // plano antes de empezar a arrastrar (para deshacer de una vez)
 
@@ -72,6 +75,19 @@ export function EditorPlano({ plano: inicial, reservados, isMobile, onGuardar, o
   const usarPlantilla = (k) => {
     if (p?.elementos.length && !window.confirm("¿Empezar con esta plantilla? Se sustituye lo que hay dibujado (puedes deshacer).")) return;
     const pl = plantilla(k); aplicar(colocarReservados(pl, reservados)); setSel(null); setPanel("anadir");
+  };
+  // Usar en este evento un plano guardado en la cuenta: las mesas se enlazan por nombre con los
+  // reservados del evento y se crean las que falten; los reservados que no estén se colocan aparte
+  const cargarGuardado = async (x) => {
+    if (pRef.current?.elementos.length && !window.confirm(`¿Usar «${x.nombre}» en este evento? Se sustituye el plano actual (puedes deshacer).`)) return;
+    const creados = [];
+    if (onCrearReservado) for (const e of mesasQueFaltan(x.plano, reservados)) {
+      const r = await onCrearReservado({ nombre: e.ref, tamano: e.forma === "sofa" || e.w * e.h >= 4.5 ? "grande" : "pequeno" });
+      if (r) creados.push(r);
+    }
+    const todos = [...reservados, ...creados];
+    aplicar(colocarReservados(enlazar(x.plano, todos), todos));
+    setSel(null); setPanel("anadir"); setVerPlanos(false);
   };
   const guardar = async () => { setGuardando(true); try { await onGuardar(normalizar(p)); cambiado.current = false; onCerrar(); } finally { setGuardando(false); } };
   const cerrar = () => { if (cambiado.current && !window.confirm("Tienes cambios sin guardar. ¿Salir igualmente?")) return; onCerrar(); };
@@ -159,9 +175,13 @@ export function EditorPlano({ plano: inicial, reservados, isMobile, onGuardar, o
           <button key={k} type="button" onClick={() => { const pl = k === "vacio" ? normalizar({ ancho: 20, largo: 14, elementos: [] }) : plantilla(k); const nuevo = colocarReservados(pl, reservados); pRef.current = nuevo; setP(nuevo); cambiado.current = true; setPanel(k === "vacio" ? "sala" : "anadir"); }}
             style={{ ...K.pieza, minHeight: 110, alignItems: "flex-start", textAlign: "left", padding: 12, gap: 4 }}><span style={{ fontSize: 28 }}>{i}</span><b style={{ fontSize: 15 }}>{t}</b><span style={{ color: "var(--muted)", fontWeight: 600 }}>{sub}</span></button>)}
       </div>
+      <button type="button" onClick={() => setVerPlanos(true)} style={{ ...K.btn, width: "100%", marginTop: 10, minHeight: 52, display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
+        <span style={{ fontSize: 24 }}>📚</span><span style={{ flex: 1 }}>Usar uno de Mis planos<br /><span style={{ fontWeight: 600, color: "var(--muted)", fontSize: 12.5 }}>Los que guardaste de otras salas o eventos</span></span><span aria-hidden>›</span></button>
       <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 10 }}>Tus reservados se colocan solos en el plano; luego los mueves a su sitio.</div>
       <button type="button" onClick={onCerrar} style={{ ...K.btn, width: "100%", marginTop: 12 }}>Cancelar</button>
-    </div></div></Capa>);
+    </div></div>
+    {verPlanos && <MisPlanos planoActual={null} reservados={reservados} onCargar={cargarGuardado} onCerrar={() => setVerPlanos(false)} />}
+  </Capa>);
 
   // Se llaman como funciones (no como componentes) para que los campos no pierdan el foco al escribir
   const panelActual = panel === "sala" ? PanelSala() : panel === "elemento" ? PanelElemento() : PanelAnadir();
@@ -174,6 +194,7 @@ export function EditorPlano({ plano: inicial, reservados, isMobile, onGuardar, o
         <div style={{ flex: 1, minWidth: 120 }}><div style={{ fontWeight: 900, fontSize: 16 }}>🗺️ Plano de la sala</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{String(p.ancho).replace(".", ",")} × {String(p.largo).replace(".", ",")} m · {p.elementos.length} elementos</div></div>
         <button type="button" onClick={deshacer} disabled={!hist.atras.length} aria-label="Deshacer" style={{ ...K.btn, width: 44, padding: 0, opacity: hist.atras.length ? 1 : .4 }}>↶</button>
         <button type="button" onClick={rehacer} disabled={!hist.adelante.length} aria-label="Rehacer" style={{ ...K.btn, width: 44, padding: 0, opacity: hist.adelante.length ? 1 : .4 }}>↷</button>
+        <button type="button" onClick={() => setVerPlanos(true)} aria-label="Mis planos" title="Guardar o cargar planos de tu cuenta" style={K.btn}>📚{isMobile ? "" : " Mis planos"}</button>
         <button type="button" onClick={cerrar} style={K.btn}>Cerrar</button>
         <button type="button" onClick={guardar} disabled={guardando} style={{ ...K.btn, background: "var(--accent)", border: "none", color: "#fff" }}>{guardando ? "Guardando…" : "Guardar"}</button>
       </header>
@@ -188,6 +209,7 @@ export function EditorPlano({ plano: inicial, reservados, isMobile, onGuardar, o
         </aside>
       </div>
     </div>
+    {verPlanos && <MisPlanos planoActual={p} reservados={reservados} nombreSugerido={nombreSugerido} onCargar={cargarGuardado} onCerrar={() => setVerPlanos(false)} />}
   </Capa>);
 }
 

@@ -9,7 +9,7 @@ import { enlazar, COLOR_ESTADO, sinColocar } from "./modelo";
 const LEYENDA = [["libre", "Libre"], ["pendiente", "Pagando online"], ["reservado", "Reservado"], ["llegado", "Ha llegado"], ["novino", "No vino"]];
 const K_VISTA = "tixfast_plano_vista";
 
-export default function VistaPlano({ cfg, res, role, isMobile, onAbrir, onGuardarPlano, onCrearReservado }) {
+export default function VistaPlano({ cfg, res, role, isMobile, nombreEvento, onAbrir, onGuardarPlano, onCrearReservado }) {
   const [vista, setVista] = useState(() => { try { return localStorage.getItem(K_VISTA) || "2d"; } catch { return "2d"; } });
   const [editar, setEditar] = useState(false);
   const plano = useMemo(() => (cfg.plano ? enlazar(cfg.plano, res.reservados) : null), [cfg.plano, res.reservados]);
@@ -42,6 +42,6 @@ export default function VistaPlano({ cfg, res, role, isMobile, onAbrir, onGuarda
         {admin ? <button type="button" onClick={() => setEditar(true)} style={{ marginTop: 14, minHeight: 48, padding: "0 20px", borderRadius: 14, border: "none", background: "var(--accent)", color: "#fff", fontWeight: 900, fontSize: 15.5, cursor: "pointer" }}>Diseñar el plano</button>
           : <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 10 }}>Lo puede diseñar el administrador.</div>}
       </div>)}
-    {editar && <EditorPlano plano={plano} reservados={res.reservados} isMobile={isMobile} onCrearReservado={onCrearReservado} onGuardar={onGuardarPlano} onCerrar={() => setEditar(false)} />}
+    {editar && <EditorPlano plano={plano} reservados={res.reservados} isMobile={isMobile} nombreSugerido={nombreEvento} onCrearReservado={onCrearReservado} onGuardar={onGuardarPlano} onCerrar={() => setEditar(false)} />}
   </div>);
 }

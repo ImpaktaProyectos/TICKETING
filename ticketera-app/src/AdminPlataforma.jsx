@@ -63,8 +63,7 @@ export default function AdminPlataforma({ onCerrar }) {
 /* ---------- Resumen ---------- */
 function Resumen({ avisar, irA }) {
   const [r, setR] = useState(null);
-  const [precio, setPrecio] = useState("");
-  const cargar = () => rpc("admin_resumen").then(x => { setR(x); setPrecio(String(x.precio ?? "").replace(".", ",")); }).catch(() => setR(false));
+  const cargar = () => rpc("admin_resumen").then(setR).catch(() => setR(false));
   useEffect(() => { cargar(); }, []);
   if (r === null) return <div style={{ color: "var(--muted)" }}>Cargando…</div>;
   if (r === false) return <div style={{ color: "var(--red)" }}>No se ha podido cargar. ¿Tienes permiso de administrador?</div>;
@@ -81,12 +80,6 @@ function Resumen({ avisar, irA }) {
     ["Eventos", r.eventos, `${r.ventas_30d} tickets en 30 días`],
     ["Errores 24 h", r.errores_24h, `${r.errores_7d} en 7 días`, r.errores_24h ? "var(--red)" : null],
   ];
-  const guardarPrecio = async () => {
-    const v = parseFloat(String(precio).replace(",", "."));
-    if (!(v > 0)) return avisar("Escribe un precio válido", true);
-    if (!window.confirm(`¿Cambiar el precio a ${eurosTxt(v)} al mes? Se aplica a las altas nuevas; las suscripciones en marcha mantienen su precio.`)) return;
-    try { await rpc("admin_precio", { p_importe: v }); avisar("✓ Precio actualizado"); cargar(); } catch { avisar("No se ha podido cambiar el precio", true); }
-  };
   return (<div style={{ display: "grid", gap: 12 }}>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
       {tiles.map(([t, n, sub, c]) => <div key={t} style={K.card}>
@@ -95,15 +88,44 @@ function Resumen({ avisar, irA }) {
         <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{sub}</div>
       </div>)}
     </div>
-    <div style={K.card}>
-      <div style={{ fontWeight: 900 }}>Precio de la suscripción</div>
-      <div style={{ fontSize: 13, color: "var(--muted)", margin: "2px 0 10px" }}>Al mes, IVA incluido. Las suscripciones en marcha mantienen el precio con el que se dieron de alta.</div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <input value={precio} inputMode="decimal" onChange={e => setPrecio(e.target.value.replace(/[^\d.,]/g, "").slice(0, 8))} style={{ ...K.input, flex: 1 }} aria-label="Precio al mes" />
-        <button onClick={guardarPrecio} style={{ ...K.btn, background: "var(--accent)", border: "none", color: "#fff" }}>Guardar</button>
-      </div>
-    </div>
+    <Niveles avisar={avisar} alCambiar={cargar} />
     <button onClick={() => irA("cuentas")} style={{ ...K.btn, minHeight: 50 }}>Ver todas las cuentas →</button>
+  </div>);
+}
+
+/* ---------- Niveles de suscripción: precio y si se pueden contratar ---------- */
+const LIMITE_TXT = { planos: (n) => `${n} planos guardados` };
+function Niveles({ avisar, alCambiar }) {
+  const [lista, setLista] = useState(null);
+  const [form, setForm] = useState({});
+  const cargar = () => rpc("admin_planes").then(x => { setLista(x || []); setForm(Object.fromEntries((x || []).map(p => [p.id, { precio: p.precio_mes != null ? String(p.precio_mes).replace(".", ",") : "", publico: !!p.publico }]))); }).catch(() => setLista(false));
+  useEffect(() => { cargar(); }, []);
+  if (lista === null) return null;
+  if (lista === false) return <div style={{ ...K.card, color: "var(--red)" }}>No se han podido cargar los niveles de suscripción.</div>;
+  const guardar = async (p) => {
+    const f = form[p.id]; const v = f.precio.trim() ? parseFloat(f.precio.replace(",", ".")) : null;
+    if (v != null && !(v > 0)) return avisar("Escribe un precio válido", true);
+    const publico = p.id === "pro" ? true : f.publico;
+    if (publico && v == null) return avisar("Ponle precio antes de dejarlo contratar", true);
+    if (!window.confirm(`¿Guardar ${p.nombre}${v != null ? ` a ${eurosTxt(v)} al mes` : ""}${p.id !== "pro" ? (publico ? ", que se pueda contratar" : ", oculto") : ""}? Las suscripciones en marcha mantienen su precio.`)) return;
+    try { await rpc("admin_plan", { p_plan: p.id, p_precio: v, p_publico: publico }); avisar(`✓ ${p.nombre} actualizado`); cargar(); alCambiar?.(); } catch { avisar("No se ha podido guardar", true); }
+  };
+  return (<div style={K.card}>
+    <div style={{ fontWeight: 900 }}>Niveles de suscripción</div>
+    <div style={{ fontSize: 13, color: "var(--muted)", margin: "2px 0 10px" }}>Precio al mes, IVA incluido. Premium y Empresa están ocultos hasta que les pongas precio y marques «Se puede contratar».</div>
+    <div style={{ display: "grid", gap: 10 }}>
+      {lista.map(p => { const f = form[p.id] || { precio: "", publico: false }; const lim = Object.entries(p.limites || {}).filter(([k]) => LIMITE_TXT[k]).map(([k, n]) => LIMITE_TXT[k](n)); return (
+        <div key={p.id} style={{ border: "1px solid var(--line)", borderRadius: 14, padding: 12 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}><b style={{ fontSize: 15.5 }}>{p.nombre}</b>
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>{p.cuentas} {p.cuentas === 1 ? "cuenta" : "cuentas"} · {lim.length ? lim.join(" · ") : "sin límites"}</span></div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+            <input value={f.precio} inputMode="decimal" placeholder="Sin precio" onChange={e => setForm({ ...form, [p.id]: { ...f, precio: e.target.value.replace(/[^\d.,]/g, "").slice(0, 8) } })} style={{ ...K.input, flex: "1 1 120px" }} aria-label={`Precio al mes de ${p.nombre}`} />
+            {p.id !== "pro" && <label style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 44, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+              <input type="checkbox" checked={f.publico} onChange={e => setForm({ ...form, [p.id]: { ...f, publico: e.target.checked } })} style={{ width: 20, height: 20 }} />Se puede contratar</label>}
+            <button onClick={() => guardar(p)} style={{ ...K.btn, background: "var(--accent)", border: "none", color: "#fff" }}>Guardar</button>
+          </div>
+        </div>); })}
+    </div>
   </div>);
 }
 

@@ -1,7 +1,7 @@
 // Pruebas de la reserva online y del plano: node src/reservasCalculo.test.mjs
 import assert from "node:assert/strict";
 import { totalReserva, gastosGestion, importes, packsDeMesa, telefonoValido, emailValido } from "./reservasCalculo.js";
-import { normalizar, crear, mover, redimensionar, girar, sinColocar, colocarReservados, plantilla, enlazar, ajustar, TIPOS } from "./plano/modelo.js";
+import { normalizar, crear, mover, redimensionar, girar, sinColocar, colocarReservados, plantilla, enlazar, ajustar, TIPOS, paraGuardar, mesasQueFaltan } from "./plano/modelo.js";
 
 let n = 0; const t = (nombre, f) => { f(); n++; console.log("✓ " + nombre); };
 const PACK = { id: "t1", nombre: "Pack Cabina", precio: 250, botellas: 2, tamano: "grande" };
@@ -66,5 +66,22 @@ t("plano: al copiar un evento, las mesas se vuelven a enlazar por nombre", () =>
   const p = enlazar(viejo, [{ id: "nuevo1", nombre: "R1" }]);
   assert.equal(p.elementos[0].reservadoId, "nuevo1");
   assert.equal(p.elementos[1].reservadoId, undefined);
+});
+t("Mis planos: se guarda sin enlaces y al cargarlo en otro club se crean solo las mesas que faltan", () => {
+  const evA = [{ id: "a1", nombre: "R1" }, { id: "a2", nombre: "VIP 2" }];
+  const dibujo = { ancho: 20, largo: 14, elementos: [
+    { id: "m1", tipo: "mesa", x: 1, y: 1, w: 2, h: 2, reservadoId: "a1" }, { id: "m2", tipo: "mesa", x: 5, y: 1, w: 2.6, h: 2, forma: "sofa", reservadoId: "a2" },
+    { id: "c", tipo: "cabina", x: 9, y: 9, w: 3, h: 2 }] };
+  const g = paraGuardar(dibujo, evA);
+  assert.ok(g.elementos.every(e => !("reservadoId" in e)));
+  assert.deepEqual(g.elementos.filter(e => e.tipo === "mesa").map(e => e.ref), ["R1", "VIP 2"]);
+  // Otro evento solo tiene «vip 2» (sin importar mayúsculas): falta R1
+  const evB = [{ id: "b2", nombre: "vip 2" }];
+  const faltan = mesasQueFaltan(g, evB);
+  assert.deepEqual(faltan.map(e => e.ref), ["R1"]);
+  const todos = [...evB, { id: "b1", nombre: "R1" }];
+  const listo = colocarReservados(enlazar(g, todos), todos);
+  assert.deepEqual(listo.elementos.filter(e => e.tipo === "mesa").map(e => e.reservadoId).sort(), ["b1", "b2"]);
+  assert.equal(listo.elementos.length, 3);
 });
 console.log(`\n${n} pruebas de reservas online y plano correctas`);

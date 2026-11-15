@@ -94,6 +94,16 @@ export function enlazar(plano, reservados) {
   }) };
 }
 
+// «Mis planos»: versión para guardar en la cuenta, sin ids de reservados de este evento y con el nombre de cada mesa
+export function paraGuardar(plano, reservados) {
+  const p = enlazar(plano, reservados);
+  return { ...p, elementos: p.elementos.map(({ reservadoId, ...e }) => e) };
+}
+// Mesas de un plano guardado que no existen en este evento (se crean al cargarlo)
+export function mesasQueFaltan(plano, reservados) {
+  return enlazar(plano, reservados).elementos.filter(e => e.tipo === "mesa" && !e.reservadoId && e.ref);
+}
+
 // Reservados que aún no están en el plano
 export function sinColocar(plano, reservados) {
   const puestos = new Set((plano?.elementos || []).filter(e => e.reservadoId).map(e => e.reservadoId));

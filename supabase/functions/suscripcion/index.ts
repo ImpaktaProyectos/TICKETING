@@ -3,6 +3,7 @@
 //   alta    → crea el pago de alta de la suscripción mensual con renovación automática
 //             (7 días de prueba gratis la primera vez; la tarjeta se pide siempre) y devuelve la URL
 //   portal  → abre el portal de Stripe para cambiar la tarjeta o ver facturas
+//   cambiar_plan { plan } → sube (o baja) de nivel: TIXFAST, Premium, Empresa (Stripe prorratea la diferencia)
 //   retener → antes de irse: { opcion: "descuento" | "pausa" | "cancelar", motivo, comentario, meses }
 //             la cancelación pasa siempre por aquí (con su motivo y una oferta), no por el portal
 // La primera vez se preparan solos en Stripe el producto, el precio, el portal y el aviso (webhook);
@@ -72,10 +73,11 @@ async function prepararAviso() {
 async function precioDe(plan: any) {
   const importe = Number(plan.precio_mes);
   if (plan.stripe_price_id && Number(plan.stripe_price_importe) === importe) return plan.stripe_price_id as string;
-  let producto = await leer("producto_suscripcion");
+  const claveProd = plan.id === "pro" ? "producto_suscripcion" : `producto_suscripcion_${plan.id}`;
+  let producto = await leer(claveProd);
   if (!producto) {
-    const p = await stripe("POST", "products", { name: "TIXFAST · suscripción mensual", description: "TPV, CRM, facturación, stock, previsión y reservados para tus eventos." }, "tixfast-producto-suscripcion-v1");
-    producto = p.id as string; await guardar("producto_suscripcion", producto);
+    const p = await stripe("POST", "products", { name: plan.id === "pro" ? "TIXFAST · suscripción mensual" : `${plan.nombre} · suscripción mensual`, description: "TPV, CRM, facturación, stock, previsión y reservados para tus eventos." }, `tixfast-producto-${plan.id}-v1`);
+    producto = p.id as string; await guardar(claveProd, producto);
   }
   const pr = await stripe("POST", "prices", { product: producto, currency: "eur", unit_amount: cents(importe), recurring: { interval: "month" }, nickname: `${plan.nombre} ${importe} €/mes` }, `tixfast-precio-${plan.id}-${cents(importe)}`);
   await admin.from("ticket_planes").update({ stripe_price_id: pr.id, stripe_price_importe: importe }).eq("id", plan.id);
@@ -101,13 +103,20 @@ async function cliente(u: any, cuenta: any) {
 }
 
 // ---------- Acciones ----------
-async function alta(u: any, origen: string, oferta?: string) {
+const NIVELES = ["pro", "premium", "empresa"];
+async function planContratable(id: unknown) {
+  const pid = NIVELES.includes(String(id)) ? String(id) : "pro";
+  const { data: plan } = await admin.from("ticket_planes").select("*").eq("id", pid).single();
+  if (!plan || plan.precio_mes == null || Number(plan.precio_mes) <= 0 || (pid !== "pro" && !plan.publico)) return null;
+  return plan;
+}
+async function alta(u: any, origen: string, oferta?: string, planId?: string) {
   const { data: cuenta } = await admin.from("ticket_cuentas").select("*").eq("owner_id", u.id).maybeSingle();
   if (!cuenta) return json({ ok: false, motivo: "sin_ficha" });
   if (cuenta.plan_id === "fundador") return json({ ok: false, motivo: "fundador" });
   if (["prueba", "activa", "impagada"].includes(cuenta.estado) && cuenta.suscripcion_pago_id) return json({ ok: false, motivo: "ya_suscrito" });
-  const { data: plan } = await admin.from("ticket_planes").select("*").eq("id", "pro").single();
-  if (plan.precio_mes == null || Number(plan.precio_mes) <= 0) return json({ ok: false, motivo: "sin_precio" });
+  const plan = await planContratable(planId);
+  if (!plan) return json({ ok: false, motivo: "sin_precio" });
   await prepararAviso();
   const precio = await precioDe(plan);
   const cus = await cliente(u, cuenta);
@@ -125,8 +134,8 @@ async function alta(u: any, origen: string, oferta?: string) {
     ...(descuento ? { discounts: [{ coupon: descuento }] } : { allow_promotion_codes: "true" }),
     subscription_data: {
       ...(conPrueba ? { trial_period_days: DIAS_PRUEBA, trial_settings: { end_behavior: { missing_payment_method: "cancel" } } } : {}),
-      metadata: { tixfast_cuenta: u.id },
-      description: "Suscripción mensual a TIXFAST con renovación automática",
+      metadata: { tixfast_cuenta: u.id, tixfast_plan: plan.id },
+      description: `Suscripción mensual a ${plan.nombre} con renovación automática`,
     },
     custom_text: { submit: { message: conPrueba
       ? `Hoy no se cobra nada. Tras ${DIAS_PRUEBA} días de prueba se cobrarán ${Number(plan.precio_mes).toFixed(2).replace(".", ",")} € cada mes, con renovación automática, hasta que canceles.`
@@ -143,6 +152,22 @@ async function portal(u: any, origen: string) {
   if (!cuenta?.cliente_pago_id) return json({ ok: false, motivo: "sin_cliente" });
   const s = await stripe("POST", "billing_portal/sessions", { customer: cuenta.cliente_pago_id, configuration: await portalConfig(), return_url: `${origen}/?suscripcion=portal`, locale: "es" });
   return json({ ok: true, url: s.url });
+}
+
+// Subir o bajar de nivel con la suscripción en marcha (Stripe cobra o abona la diferencia del mes)
+async function cambiarPlan(u: any, b: any) {
+  const { data: cuenta } = await admin.from("ticket_cuentas").select("*").eq("owner_id", u.id).maybeSingle();
+  if (!cuenta?.suscripcion_pago_id || !["activa", "prueba"].includes(cuenta.estado)) return json({ ok: false, motivo: "sin_suscripcion" });
+  const plan = await planContratable(b.plan);
+  if (!plan || plan.id === cuenta.plan_id) return json({ ok: false, motivo: "sin_precio" });
+  const precio = await precioDe(plan);
+  const sub = await stripe("GET", `subscriptions/${cuenta.suscripcion_pago_id}`);
+  const item = sub?.items?.data?.[0]?.id;
+  if (!item) return json({ ok: false, motivo: "sin_suscripcion" });
+  await stripe("POST", `subscriptions/${cuenta.suscripcion_pago_id}`, { items: [{ id: item, price: precio }], proration_behavior: "create_prorations",
+    metadata: { tixfast_cuenta: u.id, tixfast_plan: plan.id } }, `tixfast-cambio-${u.id}-${plan.id}-${Math.floor(Date.now() / 600000)}`);
+  await admin.from("ticket_cuentas").update({ plan_id: plan.id, actualizada_en: new Date().toISOString() }).eq("owner_id", u.id);
+  return json({ ok: true, plan: plan.id });
 }
 
 const MOTIVOS_BAJA = ["caro", "temporada", "falta", "no_uso", "otro"];
@@ -191,7 +216,8 @@ Deno.serve(async (req) => {
     if (!SK) return json({ ok: false, motivo: "sin_pasarela" });
     const u = await usuario(req); if (!u) return json({ ok: false, motivo: "sesion" }, 401);
     const origen = origenValido(b.origen); if (!origen) return json({ ok: false, motivo: "origen" });
-    if (b.accion === "alta") return await alta(u, origen, b.oferta);
+    if (b.accion === "alta") return await alta(u, origen, b.oferta, b.plan);
+    if (b.accion === "cambiar_plan") return await cambiarPlan(u, b);
     if (b.accion === "retener") return await retener(u, b);
     if (b.accion === "portal") return await portal(u, origen);
     return json({ ok: false, motivo: "accion" }, 400);

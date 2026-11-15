@@ -79,6 +79,14 @@ export async function retener(opcion, datos = {}) {
   await refrescarAcceso(true);
   return data;
 }
+// Subir de nivel (TIXFAST → Premium / Empresa) con la suscripción en marcha: Stripe cobra solo la diferencia del mes
+export async function cambiarPlan(plan) {
+  if (!navigator.onLine) throw Object.assign(new Error("Sin conexión: inténtalo con internet."), { mostrar: true });
+  const { data, error } = await supabase.functions.invoke("suscripcion", { body: { accion: "cambiar_plan", plan, origen: window.location.origin } });
+  if (error || !data?.ok) throw Object.assign(new Error(MOTIVOS[data?.motivo] || "No se ha podido cambiar de plan. Inténtalo de nuevo."), { mostrar: true });
+  await refrescarAcceso(true);
+  return data;
+}
 // Ofertas disponibles para esta cuenta (descuento para quedarse o para volver, meses de pausa)
 export async function cargarOfertas() {
   const { data, error } = await supabase.rpc("ticket_ofertas");

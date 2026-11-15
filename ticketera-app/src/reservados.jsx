@@ -313,9 +313,12 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
   // Vista de los reservados: tarjetas (de siempre) o plano de la sala
   const [vistaRes, setVistaRes] = useState(() => { try { return localStorage.getItem("tixfast_res_vista") || "tarjetas"; } catch { return "tarjetas"; } });
   const elegirVista = (v) => { setVistaRes(v); try { localStorage.setItem("tixfast_res_vista", v); } catch {} };
-  const crearReservado = async () => {
-    const n = res.reservados.length + 1;
-    const r = { id: uid(), nombre: `R${n}`, tamano: "pequeno", personas: null, orden: n, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: 0, senalMetodo: "", senalSocio: "", promotorId: "", llegadaEn: null };
+  // Mesa nueva desde el plano. Al cargar un plano guardado se crean varias seguidas con su nombre
+  const ultimoOrden = useRef(0);
+  const crearReservado = async ({ nombre, tamano } = {}) => {
+    const n = Math.max(res.reservados.length, ...res.reservados.map(x => Number(x.orden) || 0), ultimoOrden.current) + 1;
+    ultimoOrden.current = n;
+    const r = { id: uid(), nombre: String(nombre || `R${n}`).slice(0, 40), tamano: tamano === "grande" ? "grande" : "pequeno", personas: null, orden: n, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: 0, senalMetodo: "", senalSocio: "", promotorId: "", llegadaEn: null };
     await res.guardar(r); return r;
   };
   const porUuid = useMemo(() => mapaVentas(sales), [sales]);
@@ -407,7 +410,7 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
           {[["tarjetas", "▦ Tarjetas"], ["plano", "🗺️ Plano de la sala"]].map(([k, t]) => <button key={k} role="tab" aria-selected={vistaRes === k} onClick={() => elegirVista(k)} style={{ border: "none", borderRadius: 9, minHeight: 40, padding: "0 14px", fontWeight: 800, fontSize: 13.5, cursor: "pointer", background: vistaRes === k ? "var(--accent)" : "transparent", color: vistaRes === k ? "#fff" : "var(--text)" }}>{t}</button>)}
         </div>}
         {vistaRes === "plano" && !sinConfig && <Suspense fallback={<div style={{ color: "var(--muted)", padding: 20 }}>Cargando el plano…</div>}>
-          <PlanoReservados cfg={cfg} res={res} role={role} isMobile={isMobile} onAbrir={(id) => setFicha({ id })}
+          <PlanoReservados cfg={cfg} res={res} role={role} nombreEvento={ev.venue || ev.name || ""} isMobile={isMobile} onAbrir={(id) => setFicha({ id })}
             onCrearReservado={crearReservado} onGuardarPlano={async (plano) => { await onGuardarCfg({ ...cfg, plano }); flash("🗺️ Plano guardado"); }} />
         </Suspense>}
         {(vistaRes !== "plano" || sinConfig) && <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,minmax(0,1fr))" : "repeat(auto-fill, minmax(190px,1fr))", gap: isMobile ? 10 : 12, alignItems: isMobile ? "start" : "stretch" }}>
