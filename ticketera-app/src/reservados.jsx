@@ -5,6 +5,7 @@
 // aquí solo se apunta a qué reservado va cada una.
 import { secretoDe, comprobar as comprobarPin, leerBloqueo, acierto, fallo } from "./pin";
 import { Capa } from "./Capa";
+import { Icono, enTexto as IK } from "./iconos";
 import { enlacePedirBebidas, waNumero } from "./mensajesReservados";
 import React, { useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import * as db from "./db";
@@ -200,7 +201,7 @@ function Hoja({ title, sub, onClose, children, footer, ancho = 560 }) {
         <div style={R.grab} />
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 14 }}>
           <div style={{ minWidth: 0 }}><div style={{ fontSize: 19, fontWeight: 800 }}>{title}</div>{sub && <div style={R.sub}>{sub}</div>}</div>
-          <button onClick={onClose} style={{ ...R.small, padding: "8px 11px" }} aria-label="Cerrar">✕</button>
+          <button onClick={onClose} style={{ ...R.small, padding: "8px 11px" }} aria-label="Cerrar"><Icono n="cerrar" s={15} /></button>
         </div>
         {children}
         {footer && <div style={{ position: "sticky", bottom: -18, background: "var(--surface)", paddingTop: 12, marginTop: 6 }}>{footer}</div>}
@@ -221,8 +222,8 @@ export function LineaReservados({ ev, punto, res, testMode, isMobile, onElegir, 
   return (
     <div style={{ marginTop: 22 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
-        <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, fontWeight: 800 }}>⭐ Reservados VIP</div>
-        <button onClick={onVerMapa} style={{ ...R.small, borderColor: "rgba(168,85,247,.5)" }}>🗺️ Mapa · <span style={{ color: ESTADOS.llegado.c }}>{cuenta("llegado")} dentro</span> · <span style={{ color: ESTADOS.reservado.c }}>{cuenta("reservado")} por llegar</span></button>
+        <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, fontWeight: 800 }}><Icono n="estrella" s={12} style={IK} />Reservados VIP</div>
+        <button onClick={onVerMapa} style={{ ...R.small, borderColor: "rgba(168,85,247,.5)" }}><Icono n="mapa" s={15} style={IK} />Mapa · <span style={{ color: ESTADOS.llegado.c }}>{cuenta("llegado")} dentro</span> · <span style={{ color: ESTADOS.reservado.c }}>{cuenta("reservado")} por llegar</span></button>
       </div>
       {items.length === 0 ? (
         <div style={{ color: "var(--muted)", fontSize: 13, border: "2px dashed var(--line)", borderRadius: 14, padding: 16, textAlign: "center" }}>No hay productos de reservados marcados para el TPV. Se configuran en Reservados › Configuración.</div>
@@ -281,9 +282,9 @@ export function CobrarReservado({ ev, item: itemTpv, res, sales, fijo, onCobrar,
       {r && (
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}><Estado e={r.estado} big />{r.cliente && <b>{r.cliente}</b>}<span style={{ color: "var(--muted)", fontSize: 13 }}>{TAMANOS[r.tamano]}</span></div>
-          {r.estado === "libre" && <div style={{ background: "rgba(255,180,0,.1)", border: "1px solid rgba(255,180,0,.4)", color: "var(--amber)", borderRadius: 12, padding: "10px 12px", fontSize: 13.5, fontWeight: 700, marginBottom: 12 }}>⚠️ {r.nombre} está libre. Puedes cobrar igual{tarifa ? " y pasará a «Ha llegado»" : ""}.</div>}
-          {r.estado === "novino" && <div style={{ background: "rgba(255,77,77,.1)", border: "1px solid rgba(255,77,77,.4)", color: "var(--red)", borderRadius: 12, padding: "10px 12px", fontSize: 13.5, fontWeight: 700, marginBottom: 12 }}>⚠️ {r.nombre} está marcado como «No vino».</div>}
-          {tarifa && cobro?.yaCobrada && <div style={{ background: "rgba(255,180,0,.1)", border: "1px solid rgba(255,180,0,.4)", color: "var(--amber)", borderRadius: 12, padding: "10px 12px", fontSize: 13.5, fontWeight: 700, marginBottom: 12 }}>⚠️ Este reservado ya tiene una tarifa cobrada esta noche.</div>}
+          {r.estado === "libre" && <div style={{ background: "rgba(255,180,0,.1)", border: "1px solid rgba(255,180,0,.4)", color: "var(--amber)", borderRadius: 12, padding: "10px 12px", fontSize: 13.5, fontWeight: 700, marginBottom: 12 }}><Icono n="aviso" s={15} style={IK} />{r.nombre} está libre. Puedes cobrar igual{tarifa ? " y pasará a «Ha llegado»" : ""}.</div>}
+          {r.estado === "novino" && <div style={{ background: "rgba(255,77,77,.1)", border: "1px solid rgba(255,77,77,.4)", color: "var(--red)", borderRadius: 12, padding: "10px 12px", fontSize: 13.5, fontWeight: 700, marginBottom: 12 }}><Icono n="aviso" s={15} style={IK} />{r.nombre} está marcado como «No vino».</div>}
+          {tarifa && cobro?.yaCobrada && <div style={{ background: "rgba(255,180,0,.1)", border: "1px solid rgba(255,180,0,.4)", color: "var(--amber)", borderRadius: 12, padding: "10px 12px", fontSize: 13.5, fontWeight: 700, marginBottom: 12 }}><Icono n="aviso" s={15} style={IK} />Este reservado ya tiene una tarifa cobrada esta noche.</div>}
           <div style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 14, padding: 14 }}>
             {tarifa ? (<>
               <Linea t={item.nombre} v={money(cobro.total)} />
@@ -347,7 +348,7 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
       const doc = pdfReservados(filas, ev);
       const u = URL.createObjectURL(doc.output("blob"));
       const a = document.createElement("a"); a.href = u; a.download = `Reservados_${String(ev.name || "evento").replace(/[^\p{L}\p{N}]+/gu, "_")}.pdf`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000);
-      flash("🖨️ Hoja de reservados descargada: ábrela e imprímela");
+      flash("Hoja de reservados descargada: ábrela e imprímela");
     } catch { flash("No se ha podido preparar la hoja", "warn"); } finally { setExportando(false); }
   };
   const [borr, setBorr] = useState(() => leerBorrador(ev.id));
@@ -366,30 +367,30 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontSize: isMobile ? 19 : 22, fontWeight: 800 }}>⭐ Reservados VIP</div>
+          <div style={{ fontSize: isMobile ? 19 : 22, fontWeight: 800 }}><Icono n="estrella" s={18} style={{ ...IK, verticalAlign: "-2.5px" }} />Reservados VIP</div>
           <div style={{ ...R.sub, display: isMobile ? "none" : "block" }}>{ev.name}{cfg.puntos.length ? ` · se cobran en ${ev.puntos.filter(p => cfg.puntos.includes(p.id)).map(p => p.name).join(", ")}` : " · aún sin punto de venta elegido"}</div>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {!isMobile && puedeReservar && tab === "mapa" && <button onClick={nuevaReserva} style={{ ...R.small, background: "var(--accent)", color: "#fff", border: "none", padding: "9px 13px" }}>+ Nueva reserva</button>}
-          {!isMobile && onVentaSocio && puedeReservar && tab === "mapa" && <button onClick={() => onVentaSocio(null)} style={{ ...R.small, background: "var(--green)", color: "#04231a", border: "none", padding: "9px 13px" }}>💶 Vender sin ticket</button>}
+          {!isMobile && onVentaSocio && puedeReservar && tab === "mapa" && <button onClick={() => onVentaSocio(null)} style={{ ...R.small, background: "var(--green)", color: "#04231a", border: "none", padding: "9px 13px" }}><Icono n="dinero" s={15} style={IK} />Vender sin ticket</button>}
           {role === "admin" && <div style={{ display: "inline-flex", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: 3 }}>
             {[["mapa", "Mapa"], ["config", "Configuración"]].map(([k, t]) => <button key={k} onClick={() => setTab(k)} style={{ border: "none", borderRadius: 9, minHeight: 44, padding: "0 14px", fontWeight: 800, fontSize: 13.5, cursor: "pointer", background: tab === k ? "var(--accent)" : "transparent", color: tab === k ? "#fff" : "var(--text)" }}>{t}</button>)}
           </div>}
-          {tab === "mapa" && res.reservados.length > 0 && <button onClick={exportar} disabled={exportando} style={{ ...R.small, padding: "9px 13px", opacity: exportando ? .6 : 1 }} title="Hoja para imprimir con todos los reservados">🖨️ {exportando ? "Preparando…" : "Exportar reservados"}</button>}
+          {tab === "mapa" && res.reservados.length > 0 && <button onClick={exportar} disabled={exportando} style={{ ...R.small, padding: "9px 13px", opacity: exportando ? .6 : 1 }} title="Hoja para imprimir con todos los reservados"><Icono n="imprimir" s={15} style={IK} />{exportando ? "Preparando…" : "Exportar reservados"}</button>}
           {onCerrar && <button onClick={onCerrar} style={R.small}>← Volver al TPV</button>}
         </div>
       </div>
 
       {tab === "mapa" && borr && !ficha && res.reservados.some(z => z.id === borr.rid) && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "rgba(255,180,0,.12)", border: "1px solid rgba(255,180,0,.45)", borderRadius: 14, padding: "10px 12px", marginBottom: 12 }}>
-          <span style={{ flex: "1 1 180px", fontSize: 14 }}>✏️ Tienes una reserva a medias{borr.cliente ? <> de <b>{borr.cliente}</b></> : ""}{borr.sitio ? ` en ${borr.sitio}` : ""}.</span>
+          <span style={{ flex: "1 1 180px", fontSize: 14 }}><Icono n="lapiz" s={14} style={IK} />Tienes una reserva a medias{borr.cliente ? <> de <b>{borr.cliente}</b></> : ""}{borr.sitio ? ` en ${borr.sitio}` : ""}.</span>
           <button onClick={() => setFicha({ id: borr.rid, nueva: !!borr.nueva })} style={{ ...R.small, background: "var(--accent)", color: "#fff", border: "none", padding: "9px 13px" }}>Continuar</button>
           <button onClick={() => { borrarBorrador(ev.id); setBorr(null); }} style={{ ...R.small, padding: "9px 12px" }}>Descartar</button>
         </div>)}
       {tab === "mapa" && (<>
         {isMobile ? (
           <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 12, paddingBottom: 2 }}>
-            {[["dentro", cuenta("llegado"), ESTADOS.llegado.c], ["por llegar", cuenta("reservado"), ESTADOS.reservado.c], ["libres", cuenta("libre"), ESTADOS.libre.c], ["🍾", totBot, "var(--text)"], ["", money(totImp), "var(--green)"]].map(([l, v, c], i) => (
+            {[["dentro", cuenta("llegado"), ESTADOS.llegado.c], ["por llegar", cuenta("reservado"), ESTADOS.reservado.c], ["libres", cuenta("libre"), ESTADOS.libre.c], [<Icono key="b" n="botella" s={14} style={{ display: "inline-block", verticalAlign: "-2px" }} />, totBot, "var(--text)"], ["", money(totImp), "var(--green)"]].map(([l, v, c], i) => (
               <div key={i} style={{ flexShrink: 0, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 12, padding: "7px 11px", fontSize: 13, fontWeight: 700, color: "var(--muted)", whiteSpace: "nowrap" }}><b style={{ color: c, fontSize: 16 }}>{v}</b> {l}</div>))}
           </div>
         ) : <div style={{ display: "grid", gridTemplateColumns: "repeat(5,minmax(0,1fr))", gap: 10, marginBottom: 14 }}>
@@ -407,18 +408,18 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
           </div>
         )}
         {!sinConfig && <div role="tablist" aria-label="Vista de los reservados" style={{ display: "inline-flex", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: 3, marginBottom: 12 }}>
-          {[["tarjetas", "▦ Tarjetas"], ["plano", "🗺️ Plano de la sala"]].map(([k, t]) => <button key={k} role="tab" aria-selected={vistaRes === k} onClick={() => elegirVista(k)} style={{ border: "none", borderRadius: 9, minHeight: 44, padding: "0 14px", fontWeight: 800, fontSize: 13.5, cursor: "pointer", background: vistaRes === k ? "var(--accent)" : "transparent", color: vistaRes === k ? "#fff" : "var(--text)" }}>{t}</button>)}
+          {[["tarjetas", <><Icono n="tarjetas" s={14} style={IK} />Tarjetas</>], ["plano", <><Icono n="mapa" s={14} style={IK} />Plano de la sala</>]].map(([k, t]) => <button key={k} role="tab" aria-selected={vistaRes === k} onClick={() => elegirVista(k)} style={{ border: "none", borderRadius: 9, minHeight: 44, padding: "0 14px", fontWeight: 800, fontSize: 13.5, cursor: "pointer", background: vistaRes === k ? "var(--accent)" : "transparent", color: vistaRes === k ? "#fff" : "var(--text)" }}>{t}</button>)}
         </div>}
         {vistaRes === "plano" && !sinConfig && <Suspense fallback={<div style={{ color: "var(--muted)", padding: 20 }}>Cargando el plano…</div>}>
           <PlanoReservados cfg={cfg} res={res} role={role} nombreEvento={ev.venue || ev.name || ""} isMobile={isMobile} onAbrir={(id) => setFicha({ id })}
-            onCrearReservado={crearReservado} onGuardarPlano={async (plano) => { await onGuardarCfg({ ...cfg, plano }); flash("🗺️ Plano guardado"); }} />
+            onCrearReservado={crearReservado} onGuardarPlano={async (plano) => { await onGuardarCfg({ ...cfg, plano }); flash("Plano guardado"); }} />
         </Suspense>}
         {(vistaRes !== "plano" || sinConfig) && <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,minmax(0,1fr))" : "repeat(auto-fill, minmax(190px,1fr))", gap: isMobile ? 10 : 12, alignItems: isMobile ? "start" : "stretch" }}>
           {res.reservados.map(r => { const e = ESTADOS[r.estado] || ESTADOS.libre; const s = stats[r.id]; const t = tarifaDe(r); const P = calcPedido(r, cfg); return (
             <button key={r.id} onClick={() => setFicha({ id: r.id })} style={{ textAlign: "left", background: `linear-gradient(180deg, ${e.bg}, var(--surface))`, border: `2px solid ${e.c}`, borderRadius: 18, padding: 14, color: "var(--text)", cursor: "pointer", minHeight: isMobile && r.estado === "libre" ? 0 : 150, display: "flex", flexDirection: "column", gap: 4 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6 }}>
                 <span style={{ fontSize: 28, fontWeight: 900, lineHeight: 1 }}>{r.nombre}</span>
-                <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textAlign: "right" }}>{TAMANOS[r.tamano]}{P.personas != null ? <><br /><b style={{ color: "var(--text)", fontSize: 12.5 }}>👥 {P.personas}</b></> : r.personas ? ` · ${r.personas} pers.` : ""}</span>
+                <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textAlign: "right" }}>{TAMANOS[r.tamano]}{P.personas != null ? <><br /><b style={{ color: "var(--text)", fontSize: 12.5 }}><Icono n="personas" s={12} style={{ ...IK, marginRight: 3, verticalAlign: "-2px" }} />{P.personas}</b></> : r.personas ? ` · ${r.personas} pers.` : ""}</span>
               </div>
               <Estado e={r.estado} />
               {(r.cliente || !isMobile) && <div style={{ fontWeight: 800, fontSize: 14.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minHeight: 20 }}>{r.cliente || <span style={{ color: "var(--muted)", fontWeight: 600 }}>Sin cliente</span>}</div>}
@@ -426,7 +427,7 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
               {r.estado !== "libre" && P.total != null && <div style={{ fontSize: 12.5, fontWeight: 800 }}>Reserva {money(P.total)}</div>}
               {r.estado !== "libre" && r.senal > 0 && <div style={{ fontSize: 12, fontWeight: 700, color: "var(--amber)" }}>Señal {money(r.senal)}{r.senalSocio ? ` · ${r.senalSocio}` : ""}</div>}
               <div style={{ marginTop: "auto", display: "flex", justifyContent: "space-between", alignItems: "baseline", paddingTop: 6, borderTop: "1px solid var(--line)" }}>
-                <span style={{ fontSize: 13, fontWeight: 800 }}>🍾 {s.botellas}{P.n && s.botellas !== P.n && r.estado !== "libre" ? <span style={{ color: "var(--muted)", fontWeight: 700 }}> / {P.n}</span> : null}</span>
+                <span style={{ fontSize: 13, fontWeight: 800 }}><Icono n="botella" s={14} style={IK} />{s.botellas}{P.n && s.botellas !== P.n && r.estado !== "libre" ? <span style={{ color: "var(--muted)", fontWeight: 700 }}> / {P.n}</span> : null}</span>
                 <span style={{ fontSize: 15, fontWeight: 900, color: s.total > 0 ? "var(--green)" : "var(--muted)" }}>{money(s.total)}</span>
               </div>
             </button>); })}
@@ -438,7 +439,7 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
       {isMobile && tab === "mapa" && puedeReservar && (
         <div style={{ position: "sticky", bottom: enBarra ? -12 : 0, zIndex: 5, display: "flex", gap: 8, padding: enBarra ? "12px 0 12px" : "12px 0 calc(4px + env(safe-area-inset-bottom))", marginTop: 12, background: "linear-gradient(180deg, transparent, var(--bg) 30%)" }}>
           <button onClick={nuevaReserva} style={{ ...R.primary, flex: 1, padding: "15px 10px", fontSize: 16 }}>+ Nueva reserva</button>
-          {onVentaSocio && <button onClick={() => onVentaSocio(null)} style={{ ...R.primary, flex: 1, padding: "15px 10px", fontSize: 16, background: "var(--green)", color: "#04231a" }}>💶 Vender</button>}
+          {onVentaSocio && <button onClick={() => onVentaSocio(null)} style={{ ...R.primary, flex: 1, padding: "15px 10px", fontSize: 16, background: "var(--green)", color: "#04231a" }}><Icono n="dinero" s={16} style={IK} />Vender</button>}
         </div>)}
 
       {ficha && (() => { const r = res.reservados.find(x => x.id === ficha.id); if (!r) return null; return (
@@ -503,19 +504,19 @@ function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puede
   return (
     <Hoja title={nueva ? "Nueva reserva" : `Reservado ${dest.nombre}`} sub={nueva ? "Elige el reservado y apunta lo que lleva. Se guarda al momento en todos los equipos." : `${TAMANOS[dest.tamano]}${dest.personas ? ` · caben ${dest.personas}` : ""}`} onClose={onClose}
       footer={<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {cambiado && <div style={{ flexBasis: "100%", fontSize: 12, color: "var(--muted)", marginBottom: -2 }}>✏️ Borrador guardado en este equipo: si cierras, no se pierde.</div>}
-        {!nueva && !moviendo && puedeCobrar && C.total != null && stats && !stats.tarifaCobrada && <button onClick={() => onCobrar(L)} style={{ ...R.primary, flex: "2 1 220px", background: "var(--green)", color: "#04231a" }}>💶 Cobrar en taquilla · {money(enTaquilla)}</button>}
-        {!nueva && !moviendo && onVentaSocio && <button onClick={() => onVentaSocio(L)} style={{ ...R.ghost, flex: "1 1 140px", borderColor: "var(--green)", color: "var(--green)" }}>💶 Vender sin ticket</button>}
+        {cambiado && <div style={{ flexBasis: "100%", fontSize: 12, color: "var(--muted)", marginBottom: -2 }}><Icono n="lapiz" s={13} style={IK} />Borrador guardado en este equipo: si cierras, no se pierde.</div>}
+        {!nueva && !moviendo && puedeCobrar && C.total != null && stats && !stats.tarifaCobrada && <button onClick={() => onCobrar(L)} style={{ ...R.primary, flex: "2 1 220px", background: "var(--green)", color: "#04231a" }}><Icono n="dinero" s={16} style={IK} />Cobrar en taquilla · {money(enTaquilla)}</button>}
+        {!nueva && !moviendo && onVentaSocio && <button onClick={() => onVentaSocio(L)} style={{ ...R.ghost, flex: "1 1 140px", borderColor: "var(--green)", color: "var(--green)" }}><Icono n="dinero" s={15} style={IK} />Vender sin ticket</button>}
         <button onClick={() => onGuardar(L, destino)} disabled={!cambiado} style={{ ...R.primary, flex: "1 1 140px", opacity: cambiado ? 1 : .45 }}>{nueva ? `Guardar en ${dest.nombre}` : moviendo ? `Mover a ${dest.nombre}` : "Guardar"}</button>
       </div>}>
       {recuperado && <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,180,0,.12)", border: "1px solid rgba(255,180,0,.45)", borderRadius: 12, padding: "10px 12px", marginBottom: 12, fontSize: 13.5 }}>
-        <span style={{ flex: 1 }}>✏️ Seguimos con lo que habías escrito{borr?.ts ? ` (${hora(new Date(borr.ts).toISOString())})` : ""}.</span>
+        <span style={{ flex: 1 }}><Icono n="lapiz" s={14} style={IK} />Seguimos con lo que habías escrito{borr?.ts ? ` (${hora(new Date(borr.ts).toISOString())})` : ""}.</span>
         <button onClick={descartar} style={{ ...R.small, padding: "7px 10px" }}>Descartar</button>
       </div>}
       {r.estado === "pendiente" && <div style={{ background: "rgba(192,132,252,.12)", border: "1px solid rgba(192,132,252,.45)", color: "#c084fc", borderRadius: 12, padding: "10px 12px", fontSize: 13.5, fontWeight: 700, marginBottom: 12 }}>
-        🌐 Un cliente está pagando esta mesa por la web. Si paga, quedará reservada con sus datos; si no, se libera sola en unos minutos.</div>}
+        <Icono n="web" s={15} style={IK} />Un cliente está pagando esta mesa por la web. Si paga, quedará reservada con sus datos; si no, se libera sola en unos minutos.</div>}
       {/^🌐 Reserva web/.test(r.nota || "") && <div style={{ background: "rgba(34,211,166,.1)", border: "1px solid rgba(34,211,166,.4)", color: "var(--green)", borderRadius: 12, padding: "10px 12px", fontSize: 13.5, fontWeight: 700, marginBottom: 12 }}>
-        🌐 Reservada por la web{r.senal > 0 ? ` · adelanto de ${money(r.senal)} pagado con tarjeta` : ""}.</div>}
+        <Icono n="web" s={15} style={IK} />Reservada por la web{r.senal > 0 ? ` · adelanto de ${money(r.senal)} pagado con tarjeta` : ""}.</div>}
       <Field label={nueva ? "Reservado" : mover ? "Reservado · toca otro para moverla" : "Reservado"}>
         <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4, WebkitOverflowScrolling: "touch" }}>
           {reservados.map(z => { const libre = z.estado === "libre" || z.id === r.id; const on = z.id === destino; const e = ESTADOS[z.id === r.id ? "libre" : z.estado] || ESTADOS.libre; const puede = libre && (mover || z.id === r.id); return (
@@ -539,7 +540,7 @@ function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puede
 
       <div style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 14, padding: 12, marginBottom: 12 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
-          <div style={{ fontWeight: 800 }}>🍾 Botellas <span style={{ color: "var(--muted)", fontWeight: 700 }}>· {x.pedido.botellas.length}</span></div>
+          <div style={{ fontWeight: 800 }}><Icono n="botella" s={15} style={IK} />Botellas <span style={{ color: "var(--muted)", fontWeight: 700 }}>· {x.pedido.botellas.length}</span></div>
           <select value={x.tarifaId || ""} onChange={e => set("tarifaId", e.target.value)} aria-label="Tarifa" style={{ ...R.input, width: "auto", maxWidth: "58%", padding: "8px 10px", fontSize: 14 }}>
             <option value="">Sin tarifa</option>
             {cfg.tarifas.map(z => <option key={z.id} value={z.id}>{z.nombre} · {money(z.precio)}{z.botellas ? ` · ${z.botellas} bot.` : ""}</option>)}
@@ -552,7 +553,7 @@ function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puede
             <input value={x.pedido.botellas[i].bebida} list="res-bebidas" maxLength={60} onChange={e => setB(b.id, { bebida: e.target.value })} placeholder={`Botella ${i + 1}`} aria-label={`Botella ${i + 1}`} style={{ ...R.input, padding: "10px", fontWeight: 700 }} />
             <input value={x.pedido.botellas[i].mezcla} list="res-mezclas" maxLength={60} onChange={e => setB(b.id, { mezcla: e.target.value })} placeholder="Mezcla" aria-label={`Mezcla de la botella ${i + 1}`} style={{ ...R.input, padding: "10px" }} />
             {x.pedido.precioModo === "botella" && <input value={x.pedido.botellas[i].precio} inputMode="decimal" onChange={e => setB(b.id, { precio: e.target.value.replace(/[^\d.,]/g, "").slice(0, 8) })} placeholder={b.auto != null ? String(b.auto).replace(".", ",") : "€"} aria-label={`Precio de la botella ${i + 1}`} style={{ ...R.input, padding: "10px 8px", fontWeight: 800, textAlign: "right" }} />}
-            <button onClick={() => delB(b.id)} aria-label={`Quitar la botella ${i + 1}`} style={{ ...R.small, padding: "9px 0", justifyContent: "center", color: "var(--muted)" }}>✕</button>
+            <button onClick={() => delB(b.id)} aria-label={`Quitar la botella ${i + 1}`} style={{ ...R.small, padding: "9px 0", justifyContent: "center", color: "var(--muted)" }}><Icono n="cerrar" s={14} /></button>
           </div>))}
         <button onClick={addB} style={{ ...R.ghost, width: "100%", padding: "10px", borderStyle: "dashed" }}>+ Añadir botella</button>
 
@@ -587,17 +588,17 @@ function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puede
           {!cfg.socios.length && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Añade los socios en Configuración (6 · Socios) para elegirlos aquí.</div>}
           {x.senalSocio && senal > 0 && <div style={{ fontSize: 12.5, color: "var(--amber)", fontWeight: 700, marginTop: 6 }}>{x.senalSocio} debe {money(senal)} a la caja hasta que lo reponga. Saldrá en los informes del TPV y en el CRM.</div>}
         </Field>
-        {C.total != null && senal > 0 && stats?.tarifaCobrada && <div style={{ fontSize: 13, marginBottom: 10, color: "var(--green)", fontWeight: 700 }}>✓ Cobrado en taquilla con la señal ya descontada.</div>}
+        {C.total != null && senal > 0 && stats?.tarifaCobrada && <div style={{ fontSize: 13, marginBottom: 10, color: "var(--green)", fontWeight: 700 }}><Icono n="ok" s={14} style={IK} />Cobrado en taquilla con la señal ya descontada.</div>}
         {C.total != null && !stats?.tarifaCobrada && <div style={{ fontSize: 13, marginBottom: 10 }}>En taquilla pagará <b style={{ color: "var(--accent)" }}>{money(enTaquilla)}</b>{senal > 0 ? ` (${money(C.total)} − ${money(senal)} de señal)` : ""}{promotor?.telefono ? <> · <a href={`tel:${promotor.telefono.replace(/[^\d+]/g, "")}`} style={{ color: "var(--muted)" }}>llamar a {promotor.nombre}</a></> : null}</div>}
       </div>
       <Field label="Nota"><input value={x.nota} maxLength={500} onChange={e => set("nota", e.target.value)} placeholder="Cumpleaños, bengalas a las 2:00…" style={R.input} /></Field>
       {x.telefono && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-        {waNumero(x.telefono) && <a href={enlacePedirBebidas({ ...L, nombre: dest.nombre }, ev, C)} target="_blank" rel="noopener noreferrer" style={{ ...R.small, textDecoration: "none", background: "#22d3a6", color: "#04231a", border: "none", padding: "10px 14px", fontWeight: 900 }} title="Abre WhatsApp con un mensaje para que te digan botellas y refrescos">🍾 Pedir bebidas por WhatsApp</a>}
-        <a href={`https://wa.me/${x.telefono.replace(/[^\d]/g, "").replace(/^(?=[67]\d{8}$)/, "34")}?text=${encodeURIComponent(`Hola ${x.cliente || ""}, te escribimos de ${ev.name} sobre tu reservado ${dest.nombre}.`)}`} target="_blank" rel="noopener noreferrer" style={{ ...R.small, textDecoration: "none", color: "#22d3a6" }}>💬 WhatsApp a {x.cliente || "el cliente"}</a>
+        {waNumero(x.telefono) && <a href={enlacePedirBebidas({ ...L, nombre: dest.nombre }, ev, C)} target="_blank" rel="noopener noreferrer" style={{ ...R.small, textDecoration: "none", background: "#22d3a6", color: "#04231a", border: "none", padding: "10px 14px", fontWeight: 900 }} title="Abre WhatsApp con un mensaje para que te digan botellas y refrescos"><Icono n="botella" s={15} style={IK} />Pedir bebidas por WhatsApp</a>}
+        <a href={`https://wa.me/${x.telefono.replace(/[^\d]/g, "").replace(/^(?=[67]\d{8}$)/, "34")}?text=${encodeURIComponent(`Hola ${x.cliente || ""}, te escribimos de ${ev.name} sobre tu reservado ${dest.nombre}.`)}`} target="_blank" rel="noopener noreferrer" style={{ ...R.small, textDecoration: "none", color: "#22d3a6" }}><Icono n="chat" s={14} style={IK} />WhatsApp a {x.cliente || "el cliente"}</a>
       </div>}
 
       {!nueva && <>
-        <div style={{ fontWeight: 800, margin: "6px 0 4px" }}>Esta noche · 🍾 {stats?.botellas || 0} botellas · {money(stats?.total || 0)}</div>
+        <div style={{ fontWeight: 800, margin: "6px 0 4px" }}>Esta noche · {stats?.botellas || 0} botellas · {money(stats?.total || 0)}</div>
         {stats?.lineas.length ? stats.lineas.map(v => (
           <div key={v.clientUuid} style={{ ...R.row, fontSize: 13.5 }}>
             <span style={{ color: "var(--muted)", width: 44 }}>{hora(v.ts)}</span>
@@ -772,7 +773,7 @@ export function VentaSocio({ ev, res, sales, fijo, defCaja, onVender, onClose })
   const paso = (n, t) => <div style={{ fontWeight: 800, fontSize: 14, margin: "14px 0 8px", display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 22, height: 22, borderRadius: 22, background: "var(--accent)", color: "#fff", display: "inline-grid", placeItems: "center", fontSize: 12 }}>{n}</span>{t}</div>;
   const chip = (on) => ({ ...R.chip, borderColor: on ? "var(--accent)" : "var(--line)", background: on ? "rgba(255,90,60,.14)" : "transparent" });
   return (
-    <Hoja title="💶 Vender sin ticket" sub="Venta de un socio desde su móvil. No se imprime nada." onClose={onClose}
+    <Hoja title="Vender sin ticket" sub="Venta de un socio desde su móvil. No se imprime nada." onClose={onClose}
       footer={<>
         {err && <div style={{ color: "var(--red)", fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>{err}</div>}
         <button onClick={vender} style={{ ...R.primary, width: "100%", padding: 15, fontSize: 17, opacity: listo ? 1 : .55 }}>{comprobando ? "Comprobando…" : <>Vender {item ? money(precio) : ""}</>}{cajaObj ? ` · a ${cajaObj.name}` : ""}</button>
@@ -793,10 +794,10 @@ export function VentaSocio({ ev, res, sales, fijo, defCaja, onVender, onClose })
           {lista.map(it => <button key={it.id} onClick={() => { setItemId(it.id); setErr(""); }} style={chip(itemId === it.id)}>{it.id === "__reserva" ? `⭐ Su reserva · ${it.nombre}` : `${it.emoji || (it.tipo === "tarifa" ? "🛋️" : "🍾")} ${it.nombre}`} · {money(it.precio)}</button>)}
         </div>}
       {cobro && cobro.senal > 0 && <div style={{ fontSize: 13, marginTop: 8, color: "var(--green)", fontWeight: 700 }}>Se descuenta la señal: {money(cobro.total)} − {money(cobro.senal)} = {money(cobro.aCobrar)}</div>}
-      {cobro?.yaCobrada && <div style={{ fontSize: 13, marginTop: 8, color: "var(--amber)", fontWeight: 700 }}>⚠️ Este reservado ya tiene una tarifa cobrada.</div>}
+      {cobro?.yaCobrada && <div style={{ fontSize: 13, marginTop: 8, color: "var(--amber)", fontWeight: 700 }}><Icono n="aviso" s={14} style={IK} />Este reservado ya tiene una tarifa cobrada.</div>}
       {paso(3, "Cómo ha pagado")}
       <div style={{ display: "flex", gap: 8 }}>
-        {[["efectivo", "💶 Efectivo"], ["tarjeta", "💳 Tarjeta"]].map(([k, t]) => <button key={k} onClick={() => { setMetodo(k); setErr(""); }} style={{ ...chip(metodo === k), flex: 1, justifyContent: "center", padding: "12px" }}>{t}</button>)}
+        {[["efectivo", <><Icono n="dinero" s={15} style={IK} />Efectivo</>], ["tarjeta", <><Icono n="tarjeta" s={15} style={IK} />Tarjeta</>]].map(([k, t]) => <button key={k} onClick={() => { setMetodo(k); setErr(""); }} style={{ ...chip(metodo === k), flex: 1, justifyContent: "center", padding: "12px" }}>{t}</button>)}
       </div>
       {paso(4, "A qué caja va el dinero")}
       <select value={caja} onChange={e => setCaja(e.target.value)} style={R.input}>{cajas.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
@@ -831,8 +832,8 @@ export function InformeReservados({ ev, res, sales, isMobile }) {
   return (
     <div style={{ ...R.panel, marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
-        <div style={{ fontWeight: 800 }}>⭐ Reservados VIP</div>
-        <button onClick={csv} style={R.small}>⬇️ CSV de reservados</button>
+        <div style={{ fontWeight: 800 }}><Icono n="estrella" s={15} style={IK} />Reservados VIP</div>
+        <button onClick={csv} style={R.small}><Icono n="descargar" s={14} style={IK} />CSV de reservados</button>
       </div>
       <div style={{ ...R.sub, marginBottom: 12 }}>Lo cobrado en el TPV ya está dentro de la facturación. Las señales no entran en las cajas de las barras: las tiene quien las cobró (si es un socio, sale abajo en «Dinero que tienen los socios»).</div>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,minmax(0,1fr))" : "repeat(4,minmax(0,1fr))", gap: 10, marginBottom: 12 }}>
