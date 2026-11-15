@@ -11,12 +11,14 @@
 -- · ticket_puestos: cada puesto, su comisión general (% o € por unidad) y su acceso.
 -- · ticket_puesto_productos: qué consumiciones acepta cada puesto (por nombre de producto,
 --   así «Hamburguesa» de la Caja 1 y de la Caja 2 es la misma) y su comisión si es distinta.
--- · Acceso del puesto: enlace secreto (/p/<token>) + PIN de 6 cifras. De los dos solo se guarda
---   la huella (sha-256 del enlace, bcrypt del PIN): no se pueden volver a ver, solo regenerar.
---   5 PIN fallidos → bloqueado 15 minutos. Al entrar se crea una sesión para ese móvil que
---   caduca al terminar el evento (12 h después del fin; sin fin, a los 3 días) y se puede cerrar desde el TPV.
--- · Entrar SIN teclear el PIN: el organizador enseña un QR de activación (un solo uso, 15 minutos)
---   y el móvil del puesto lo escanea. Pensado para montar los puestos en el evento en un momento.
+-- · Acceso del puesto (un móvil = un «dispositivo» del puesto):
+--   1) El organizador lo ACTIVA con un código de un solo uso: QR que se escanea allí mismo (15 min)
+--      o enlace que se envía (24 h). Solo se guarda su huella (sha-256).
+--   2) La primera vez, el food truck CREA SU PROPIO PIN de 6 cifras (bcrypt; el organizador no lo ve).
+--   3) El móvil queda desbloqueado 12 horas; después pide el PIN del puesto para otras 12 h.
+--      5 PIN fallidos → 15 minutos bloqueado. El móvil queda vinculado hasta el final del evento
+--      (12 h después del fin; sin fin, 3 días) y el organizador puede desconectarlo cuando quiera.
+--   4) El PIN también sirve para salir del «modo mostrador» (lector de cara al público, sin datos).
 -- · El canje de un puesto SIEMPRE lo decide el servidor (sin internet no se da nada por bueno).
 --   Un ticket de un producto que el puesto no acepta → «no válido aquí» y el ticket NO se gasta.
 -- · El canje del TPV (ticket_canjear) sigue igual: ahora llama al mismo núcleo con puesto = null.
@@ -34,9 +36,8 @@ create table if not exists public.ticket_puestos (
   activo boolean not null default true,
   comision_tipo text not null default 'pct' check (comision_tipo in ('pct', 'fijo')),
   comision_valor numeric(10,2) not null default 0 check (comision_valor >= 0 and comision_valor <= 10000),
-  acceso_huella text unique,                 -- sha-256 (hex) del token del enlace
-  pin_huella text,                           -- bcrypt del PIN
-  acceso_creado_en timestamptz,
+  pin_huella text,                           -- bcrypt del PIN que crea el propio puesto
+  pin_creado_en timestamptz,
   intentos int not null default 0,
   bloqueado_hasta timestamptz,
   activar_huella text unique,                -- sha-256 del código de activación (un solo uso)
@@ -67,10 +68,11 @@ revoke all on public.ticket_puesto_productos from anon, authenticated;
 create table if not exists public.ticket_puesto_sesiones (
   id uuid primary key default gen_random_uuid(),
   puesto_id uuid not null references public.ticket_puestos(id) on delete cascade,
-  huella text not null unique,               -- sha-256 (hex) del secreto de la sesión
+  huella text not null unique,               -- sha-256 (hex) del secreto del móvil
   dispositivo text check (dispositivo is null or length(dispositivo) <= 80),
   creada_en timestamptz not null default now(),
-  caduca_en timestamptz not null,
+  caduca_en timestamptz not null,           -- hasta cuándo queda vinculado este móvil
+  desbloqueado_hasta timestamptz not null,   -- hasta cuándo puede escanear sin volver a poner el PIN (12 h)
   ultimo_uso timestamptz not null default now(),
   revocada boolean not null default false
 );
@@ -333,23 +335,18 @@ end $$;
 revoke all on function public.puesto_guardar(jsonb) from public, anon;
 grant execute on function public.puesto_guardar(jsonb) to authenticated;
 
--- Nuevo enlace + PIN (los anteriores dejan de valer y se cierran todas sus sesiones). Se enseñan UNA vez.
-create or replace function public.puesto_acceso_nuevo(p_puesto uuid)
+-- Olvidó el PIN: se borra y, al activar de nuevo un móvil con el QR, el puesto crea otro
+create or replace function public.puesto_borrar_pin(p_puesto uuid)
 returns jsonb language plpgsql security definer set search_path = '' as $$
-declare v_ev uuid; v_token text; v_pin text;
+declare v_ev uuid;
 begin
   select evento_id into v_ev from public.ticket_puestos where id = p_puesto and owner_id = (select auth.uid());
   perform public.ticket_dueno_evento(v_ev);
-  v_token := translate(encode(extensions.gen_random_bytes(18), 'base64'), '+/', '-_');
-  v_pin := lpad(((('x' || encode(extensions.gen_random_bytes(4), 'hex'))::bit(32)::bigint) % 1000000)::text, 6, '0');
-  update public.ticket_puestos set acceso_huella = encode(extensions.digest(v_token, 'sha256'), 'hex'),
-    pin_huella = extensions.crypt(v_pin, extensions.gen_salt('bf', 8)), acceso_creado_en = now(), intentos = 0, bloqueado_hasta = null, actualizado_en = now()
-  where id = p_puesto;
-  update public.ticket_puesto_sesiones set revocada = true where puesto_id = p_puesto and not revocada;
-  return jsonb_build_object('ok', true, 'token', v_token, 'pin', v_pin);
+  update public.ticket_puestos set pin_huella = null, pin_creado_en = null, intentos = 0, bloqueado_hasta = null, actualizado_en = now() where id = p_puesto;
+  return jsonb_build_object('ok', true);
 end $$;
-revoke all on function public.puesto_acceso_nuevo(uuid) from public, anon;
-grant execute on function public.puesto_acceso_nuevo(uuid) to authenticated;
+revoke all on function public.puesto_borrar_pin(uuid) from public, anon;
+grant execute on function public.puesto_borrar_pin(uuid) to authenticated;
 
 -- Cerrar todas las sesiones abiertas de un puesto (p. ej. si pierde el móvil)
 create or replace function public.puesto_cerrar_sesiones(p_puesto uuid)
@@ -390,7 +387,7 @@ begin
   perform public.ticket_dueno_evento(p_evento);
   return coalesce((select jsonb_agg(jsonb_build_object('id', p.id, 'nombre', p.nombre, 'color', p.color, 'contacto', p.contacto, 'activo', p.activo,
       'comision_tipo', p.comision_tipo, 'comision_valor', p.comision_valor,
-      'acceso', p.acceso_huella is not null, 'acceso_creado_en', p.acceso_creado_en,
+      'tiene_pin', p.pin_huella is not null, 'pin_creado_en', p.pin_creado_en,
       'bloqueado', coalesce(p.bloqueado_hasta > now(), false), 'intentos', p.intentos,
       'sesiones', (select count(*) from public.ticket_puesto_sesiones s where s.puesto_id = p.id and not s.revocada and s.caduca_en > now()),
       'ultimo_uso', (select max(s.ultimo_uso) from public.ticket_puesto_sesiones s where s.puesto_id = p.id and not s.revocada),
@@ -450,59 +447,27 @@ end $$;
 revoke all on function public.puestos_registro(uuid, int) from public, anon;
 grant execute on function public.puestos_registro(uuid, int) to authenticated;
 
--- ---------- Puesto (food truck): entra con enlace + PIN y solo ve lo suyo ----------
--- Lo que se enseña antes del PIN (quien tiene el enlace): solo los nombres
-create or replace function public.puesto_portada(p_token text)
-returns jsonb language sql stable security definer set search_path = '' as $$
-  select case when p.id is null then null else jsonb_build_object('puesto', p.nombre, 'color', p.color, 'evento', e.nombre,
-    'activo', p.activo and e.ticket_style ->> 'modalidad' = 'multipuesto', 'bloqueado', coalesce(p.bloqueado_hasta > now(), false)) end
-  from public.ticket_puestos p join public.ticket_eventos e on e.id = p.evento_id
-  where length(coalesce(p_token, '')) between 20 and 64 and p.acceso_huella = encode(extensions.digest(p_token, 'sha256'), 'hex');
-$$;
-revoke all on function public.puesto_portada(text) from public;
-grant execute on function public.puesto_portada(text) to anon, authenticated;
-
--- Abre una sesión para un móvil del puesto (la usan entrar con PIN y entrar con el QR de activación)
+-- ---------- Puesto (food truck): activado por el organizador, con su propio PIN, y solo ve lo suyo ----------
+-- Vincula un móvil al puesto (tras activarlo con el código del organizador): desbloqueado 12 h
 create or replace function public.ticket_puesto_sesion_nueva(p_puesto uuid, p_dispositivo text)
 returns jsonb language plpgsql security definer set search_path = '' as $$
-declare v_sec text; v_cad timestamptz; v_fin timestamptz; pu record;
+declare v_sec text; v_cad timestamptz; pu record;
 begin
-  select p.nombre, p.color, e.nombre as evento, e.fin into pu from public.ticket_puestos p join public.ticket_eventos e on e.id = p.evento_id where p.id = p_puesto;
+  select p.nombre, p.color, p.pin_huella is null as sin_pin, e.nombre as evento, e.fin into pu
+    from public.ticket_puestos p join public.ticket_eventos e on e.id = p.evento_id where p.id = p_puesto;
   v_sec := translate(encode(extensions.gen_random_bytes(32), 'base64'), '+/=', '-_');
   v_cad := least(case when pu.fin is null then now() + interval '3 days' else greatest(pu.fin, now()) + interval '12 hours' end, now() + interval '7 days');
-  insert into public.ticket_puesto_sesiones (puesto_id, huella, dispositivo, caduca_en)
-  values (p_puesto, encode(extensions.digest(v_sec, 'sha256'), 'hex'), left(nullif(btrim(coalesce(p_dispositivo, '')), ''), 80), v_cad);
-  return jsonb_build_object('ok', true, 'sesion', v_sec, 'caduca_en', v_cad, 'puesto', pu.nombre, 'color', pu.color, 'evento', pu.evento);
+  insert into public.ticket_puesto_sesiones (puesto_id, huella, dispositivo, caduca_en, desbloqueado_hasta)
+  values (p_puesto, encode(extensions.digest(v_sec, 'sha256'), 'hex'), left(nullif(btrim(coalesce(p_dispositivo, '')), ''), 80), v_cad, least(now() + interval '12 hours', v_cad));
+  return jsonb_build_object('ok', true, 'sesion', v_sec, 'caduca_en', v_cad, 'desbloqueado_hasta', least(now() + interval '12 hours', v_cad),
+    'necesita_pin', pu.sin_pin, 'puesto', pu.nombre, 'color', pu.color, 'evento', pu.evento);
 end $$;
 revoke all on function public.ticket_puesto_sesion_nueva(uuid, text) from public, anon, authenticated;
 
-create or replace function public.puesto_entrar(p_token text, p_pin text, p_dispositivo text default null)
+-- Código de activación (organizador): un solo uso. 15 min para escanearlo allí; hasta 24 h para enviarlo.
+create or replace function public.puesto_codigo_activar(p_puesto uuid, p_minutos int default 15)
 returns jsonb language plpgsql security definer set search_path = '' as $$
-declare p record; e record;
-begin
-  if length(coalesce(p_token, '')) not between 20 and 64 then return jsonb_build_object('ok', false, 'motivo', 'enlace'); end if;
-  select * into p from public.ticket_puestos where acceso_huella = encode(extensions.digest(p_token, 'sha256'), 'hex') for update;
-  if not found then return jsonb_build_object('ok', false, 'motivo', 'enlace'); end if;
-  select id, nombre, fin, ticket_style into e from public.ticket_eventos where id = p.evento_id;
-  if not p.activo or coalesce(e.ticket_style ->> 'modalidad', '') <> 'multipuesto' then return jsonb_build_object('ok', false, 'motivo', 'inactivo'); end if;
-  if p.bloqueado_hasta > now() then return jsonb_build_object('ok', false, 'motivo', 'bloqueado', 'hasta', p.bloqueado_hasta); end if;
-  if p.pin_huella is null or coalesce(p_pin, '') !~ '^\d{6}$' or extensions.crypt(p_pin, p.pin_huella) <> p.pin_huella then
-    -- PIN incorrecto: al quinto fallo seguido, 15 minutos bloqueado
-    update public.ticket_puestos set intentos = case when intentos + 1 >= 5 then 0 else intentos + 1 end,
-      bloqueado_hasta = case when intentos + 1 >= 5 then now() + interval '15 minutes' else bloqueado_hasta end
-    where id = p.id;
-    return jsonb_build_object('ok', false, 'motivo', case when p.intentos + 1 >= 5 then 'bloqueado' else 'pin' end, 'quedan', greatest(0, 4 - p.intentos));
-  end if;
-  update public.ticket_puestos set intentos = 0, bloqueado_hasta = null where id = p.id;
-  return public.ticket_puesto_sesion_nueva(p.id, p_dispositivo);
-end $$;
-revoke all on function public.puesto_entrar(text, text, text) from public;
-grant execute on function public.puesto_entrar(text, text, text) to anon, authenticated;
-
--- QR de activación (organizador): un solo uso, 15 minutos. Se puede pedir otro cuando se quiera.
-create or replace function public.puesto_codigo_activar(p_puesto uuid)
-returns jsonb language plpgsql security definer set search_path = '' as $$
-declare v_ev uuid; v_cod text; v_cad timestamptz := now() + interval '15 minutes';
+declare v_ev uuid; v_cod text; v_cad timestamptz := now() + make_interval(mins => least(greatest(coalesce(p_minutos, 15), 5), 1440));
 begin
   select evento_id into v_ev from public.ticket_puestos where id = p_puesto and owner_id = (select auth.uid()) and activo;
   if v_ev is null then raise exception using errcode = 'P0001', message = 'TIXFAST: el puesto no existe o está desactivado.'; end if;
@@ -511,10 +476,10 @@ begin
   update public.ticket_puestos set activar_huella = encode(extensions.digest(v_cod, 'sha256'), 'hex'), activar_caduca = v_cad where id = p_puesto;
   return jsonb_build_object('ok', true, 'codigo', v_cod, 'caduca_en', v_cad);
 end $$;
-revoke all on function public.puesto_codigo_activar(uuid) from public, anon;
-grant execute on function public.puesto_codigo_activar(uuid) to authenticated;
+revoke all on function public.puesto_codigo_activar(uuid, int) from public, anon;
+grant execute on function public.puesto_codigo_activar(uuid, int) to authenticated;
 
--- El móvil del puesto escanea el QR de activación: entra sin PIN y el código deja de valer
+-- El móvil del puesto usa el código: queda vinculado y desbloqueado 12 h; el código deja de valer
 create or replace function public.puesto_activar(p_codigo text, p_dispositivo text default null)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare p record;
@@ -531,19 +496,82 @@ end $$;
 revoke all on function public.puesto_activar(text, text) from public;
 grant execute on function public.puesto_activar(text, text) to anon, authenticated;
 
--- Sesión válida → el puesto (o nada). Apunta el último uso como mucho una vez por minuto.
+-- El móvil vinculado (aunque esté bloqueado): su sesión o nada
+create or replace function public.ticket_puesto_movil(p_sesion text)
+returns public.ticket_puesto_sesiones language sql stable security definer set search_path = '' as $$
+  select x.* from public.ticket_puesto_sesiones x join public.ticket_puestos p on p.id = x.puesto_id join public.ticket_eventos e on e.id = p.evento_id
+  where length(coalesce(p_sesion, '')) between 30 and 64 and x.huella = encode(extensions.digest(p_sesion, 'sha256'), 'hex')
+    and not x.revocada and x.caduca_en > now() and p.activo and e.ticket_style ->> 'modalidad' = 'multipuesto';
+$$;
+revoke all on function public.ticket_puesto_movil(text) from public, anon, authenticated;
+
+-- Estado del móvil: a qué puesto pertenece, si está desbloqueado y si el puesto aún no tiene PIN
+create or replace function public.puesto_estado(p_sesion text)
+returns jsonb language plpgsql stable security definer set search_path = '' as $$
+declare m public.ticket_puesto_sesiones; pu record;
+begin
+  m := public.ticket_puesto_movil(p_sesion);
+  if m.id is null then return jsonb_build_object('ok', false, 'motivo', 'sesion'); end if;
+  select p.nombre, p.color, p.pin_huella is null as sin_pin, coalesce(p.bloqueado_hasta > now(), false) as bloqueado, p.bloqueado_hasta, e.nombre as evento
+    into pu from public.ticket_puestos p join public.ticket_eventos e on e.id = p.evento_id where p.id = m.puesto_id;
+  return jsonb_build_object('ok', true, 'puesto', pu.nombre, 'color', pu.color, 'evento', pu.evento, 'necesita_pin', pu.sin_pin,
+    'desbloqueado', m.desbloqueado_hasta > now(), 'desbloqueado_hasta', m.desbloqueado_hasta, 'bloqueado_pin', pu.bloqueado, 'bloqueado_hasta', pu.bloqueado_hasta);
+end $$;
+revoke all on function public.puesto_estado(text) from public;
+grant execute on function public.puesto_estado(text) to anon, authenticated;
+
+-- El puesto crea su propio PIN (solo si aún no tiene y desde un móvil recién activado y desbloqueado)
+create or replace function public.puesto_crear_pin(p_sesion text, p_pin text)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare m public.ticket_puesto_sesiones; n int;
+begin
+  m := public.ticket_puesto_movil(p_sesion);
+  if m.id is null then return jsonb_build_object('ok', false, 'motivo', 'sesion'); end if;
+  if m.desbloqueado_hasta <= now() then return jsonb_build_object('ok', false, 'motivo', 'bloqueada'); end if;
+  if coalesce(p_pin, '') !~ '^\d{6}$' or p_pin ~ '^(\d)\1{5}$' or p_pin in ('123456', '654321', '012345') then
+    return jsonb_build_object('ok', false, 'motivo', 'pin_debil'); end if;
+  update public.ticket_puestos set pin_huella = extensions.crypt(p_pin, extensions.gen_salt('bf', 8)), pin_creado_en = now(), intentos = 0, bloqueado_hasta = null, actualizado_en = now()
+   where id = m.puesto_id and pin_huella is null;
+  get diagnostics n = row_count;
+  if n = 0 then return jsonb_build_object('ok', false, 'motivo', 'ya_tiene'); end if;
+  return jsonb_build_object('ok', true);
+end $$;
+revoke all on function public.puesto_crear_pin(text, text) from public;
+grant execute on function public.puesto_crear_pin(text, text) to anon, authenticated;
+
+-- PIN del puesto: desbloquea este móvil otras 12 h (también para salir del modo mostrador)
+create or replace function public.puesto_desbloquear(p_sesion text, p_pin text)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare m public.ticket_puesto_sesiones; p record; v_hasta timestamptz;
+begin
+  m := public.ticket_puesto_movil(p_sesion);
+  if m.id is null then return jsonb_build_object('ok', false, 'motivo', 'sesion'); end if;
+  select * into p from public.ticket_puestos where id = m.puesto_id for update;
+  if p.pin_huella is null then return jsonb_build_object('ok', false, 'motivo', 'sin_pin'); end if;
+  if p.bloqueado_hasta > now() then return jsonb_build_object('ok', false, 'motivo', 'bloqueado', 'hasta', p.bloqueado_hasta); end if;
+  if coalesce(p_pin, '') !~ '^\d{6}$' or extensions.crypt(p_pin, p.pin_huella) <> p.pin_huella then
+    -- PIN incorrecto: al quinto fallo seguido, 15 minutos bloqueado (en todos los móviles del puesto)
+    update public.ticket_puestos set intentos = case when intentos + 1 >= 5 then 0 else intentos + 1 end,
+      bloqueado_hasta = case when intentos + 1 >= 5 then now() + interval '15 minutes' else bloqueado_hasta end where id = p.id;
+    return jsonb_build_object('ok', false, 'motivo', case when p.intentos + 1 >= 5 then 'bloqueado' else 'pin' end, 'quedan', greatest(0, 4 - p.intentos));
+  end if;
+  update public.ticket_puestos set intentos = 0, bloqueado_hasta = null where id = p.id;
+  v_hasta := least(now() + interval '12 hours', m.caduca_en);
+  update public.ticket_puesto_sesiones set desbloqueado_hasta = v_hasta, ultimo_uso = now() where id = m.id;
+  return jsonb_build_object('ok', true, 'desbloqueado_hasta', v_hasta);
+end $$;
+revoke all on function public.puesto_desbloquear(text, text) from public;
+grant execute on function public.puesto_desbloquear(text, text) to anon, authenticated;
+
+-- Móvil vinculado y DESBLOQUEADO → el puesto (o nada). Apunta el último uso como mucho una vez por minuto.
 create or replace function public.ticket_puesto_de_sesion(p_sesion text)
 returns uuid language plpgsql security definer set search_path = '' as $$
-declare s record;
+declare m public.ticket_puesto_sesiones;
 begin
-  if length(coalesce(p_sesion, '')) not between 30 and 64 then return null; end if;
-  select x.id, x.puesto_id, x.ultimo_uso into s from public.ticket_puesto_sesiones x join public.ticket_puestos p on p.id = x.puesto_id
-   join public.ticket_eventos e on e.id = p.evento_id
-   where x.huella = encode(extensions.digest(p_sesion, 'sha256'), 'hex') and not x.revocada and x.caduca_en > now()
-     and p.activo and e.ticket_style ->> 'modalidad' = 'multipuesto';
-  if s.id is null then return null; end if;
-  if s.ultimo_uso < now() - interval '1 minute' then update public.ticket_puesto_sesiones set ultimo_uso = now() where id = s.id; end if;
-  return s.puesto_id;
+  m := public.ticket_puesto_movil(p_sesion);
+  if m.id is null or m.desbloqueado_hasta <= now() then return null; end if;
+  if m.ultimo_uso < now() - interval '1 minute' then update public.ticket_puesto_sesiones set ultimo_uso = now() where id = m.id; end if;
+  return m.puesto_id;
 end $$;
 revoke all on function public.ticket_puesto_de_sesion(text) from public, anon, authenticated;
 
@@ -552,7 +580,9 @@ returns jsonb language plpgsql security definer set search_path = '' as $$
 declare v_p uuid; pu record; s record;
 begin
   v_p := public.ticket_puesto_de_sesion(p_sesion);
-  if v_p is null then return jsonb_build_object('ok', false, 'motivo', 'sesion'); end if;
+  if v_p is null then
+    return jsonb_build_object('ok', false, 'motivo', case when (public.ticket_puesto_movil(p_sesion)).id is null then 'sesion' else 'bloqueada' end);
+  end if;
   if length(coalesce(p_datos, '')) > 200 then return jsonb_build_object('ok', false, 'motivo', 'ilegible'); end if;
   select p.id, p.owner_id, p.evento_id into pu from public.ticket_puestos p where p.id = v_p;
   select dispositivo into s from public.ticket_puesto_sesiones where huella = encode(extensions.digest(p_sesion, 'sha256'), 'hex');
@@ -567,10 +597,12 @@ returns jsonb language plpgsql stable security definer set search_path = '' as $
 declare v_p uuid; pu record; e record;
 begin
   -- (stable: no apunta el último uso; lo hace puesto_canjear)
-  if length(coalesce(p_sesion, '')) not between 30 and 64 then return jsonb_build_object('ok', false, 'motivo', 'sesion'); end if;
-  select x.puesto_id into v_p from public.ticket_puesto_sesiones x join public.ticket_puestos p on p.id = x.puesto_id join public.ticket_eventos ev on ev.id = p.evento_id
-   where x.huella = encode(extensions.digest(p_sesion, 'sha256'), 'hex') and not x.revocada and x.caduca_en > now() and p.activo and ev.ticket_style ->> 'modalidad' = 'multipuesto';
-  if v_p is null then return jsonb_build_object('ok', false, 'motivo', 'sesion'); end if;
+  declare m public.ticket_puesto_sesiones; begin
+    m := public.ticket_puesto_movil(p_sesion);
+    if m.id is null then return jsonb_build_object('ok', false, 'motivo', 'sesion'); end if;
+    if m.desbloqueado_hasta <= now() then return jsonb_build_object('ok', false, 'motivo', 'bloqueada'); end if;
+    v_p := m.puesto_id;
+  end;
   select * into pu from public.ticket_puestos where id = v_p;
   select nombre, fecha, fin into e from public.ticket_eventos where id = pu.evento_id;
   return jsonb_build_object('ok', true, 'ahora', now(),

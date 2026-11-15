@@ -14,9 +14,14 @@ capa del TPV: el CRM no cambia.
 2. **Ajustes del evento › Puestos** → añadir cada puesto: nombre, color, contacto,
    **tu comisión general** (% o € por unidad) y **qué productos puede canjear**, con comisión propia
    por producto si hace falta.
-3. **Crear enlace y PIN** → se enseñan **una sola vez** (QR del enlace, copiar y WhatsApp). Mándalos
-   por separado. Si se pierden, se crean otros y los anteriores dejan de valer al momento.
-4. El puesto abre el enlace, pone el PIN y escanea:
+3. **Activar el móvil del puesto** (un solo uso):
+   - **📲 QR**: el puesto lo escanea allí mismo. Caduca a los 15 minutos.
+   - **✉️ Enlace**: se envía por WhatsApp. Caduca a las 24 horas.
+
+   La primera vez, **el puesto crea su propio PIN** de 6 cifras; la organización no lo ve. El móvil
+   queda desbloqueado **12 horas** y después pide ese PIN para otras 12. Si se olvida, en Puestos se
+   pulsa «Borrar PIN» y se crea otro al activar de nuevo un móvil.
+4. El puesto escanea:
    - Verde **ENTREGA**.
    - Rojo **YA CANJEADO** (dice dónde y a qué hora).
    - Rojo **TICKET NO VÁLIDO AQUÍ**: el ticket sigue valiendo y la pantalla dice qué puesto lo acepta.
@@ -30,24 +35,25 @@ capa del TPV: el CRM no cambia.
    - Descarga en Excel (CSV).
 
 ## Rápido en la cola
-- **El PIN no se pide en cada ticket:** una vez por móvil, y el móvil queda dentro todo el evento
-  (hasta 12 h después del fin; si el evento no tiene hora de fin, 3 días).
-- **Sin PIN:** «📲 Activar un móvil con QR». El organizador lo enseña en su móvil y el food truck lo
-  escanea con la cámara. Vale una vez y 15 minutos. Ideal para montar los puestos al empezar.
-- **Pantalla siempre encendida**, y la cámara se reabre sola al volver a la app o desbloquear el móvil.
-- **Pedido agrupado:** si el cliente da varios tickets, se escanean seguidos y arriba sale
-  «3 × Hamburguesa · 1 × Bebida» hasta pulsar «Listo» (o 20 s sin escanear). El verde dura menos de
-  1 segundo para seguir con el siguiente.
-- **Pistola lectora USB o Bluetooth** (modo teclado, 30–40 €): se escanea sin tocar el móvil.
-- **Modo mostrador:** botón 🔄 para usar la cámara delantera, con el móvil en un soporte mirando a la cola.
-- **Icono en la pantalla de inicio:** tras entrar, la dirección es `/p/sesion`. Añadida a la pantalla
-  de inicio, abre directamente el escáner.
+- **Acceso:** sin PIN en cada ticket. Una activación por móvil y el PIN propio cada 12 horas.
+- **Pantalla:** siempre encendida, y la cámara se reabre sola al volver a la app o desbloquear el móvil.
+- **Pedido agrupado:** varios tickets seguidos suman «3 × Hamburguesa · 1 × Bebida» hasta pulsar «Listo».
+- **Pistola lectora USB o Bluetooth** (modo teclado): se escanea sin tocar el móvil.
+- **Icono en la pantalla de inicio:** `/p/sesion` abre directamente el escáner.
+
+## Modo mostrador (de cara al público)
+- El botón «Mostrador» pone la cámara delantera, para usar el móvil en un soporte mirando a la cola.
+- **Solo sale «✓ CORRECTO» + el producto, o «NO VÁLIDO»** (o «NO VÁLIDO AQUÍ: es para…»).
+- Ni facturación, ni historial, ni pedidos, ni datos internos.
+- Para salir hace falta el **PIN del puesto**.
 
 ## Seguridad
-- **Acceso:** enlace secreto (144 bits) + PIN de 6 cifras. En la base de datos solo se guarda su huella
-  (SHA-256 y bcrypt). 5 PIN fallidos → 15 minutos bloqueado.
-- **Sesión:** cada móvil tiene la suya, que caduca 12 h después del fin del evento. El organizador
-  puede cerrarla, y desactivar el puesto la cierra al momento.
+- **Acceso:** el móvil solo entra con un código de activación de un solo uso de la organización
+  (24 bytes aleatorios; solo se guarda su huella). El PIN lo crea el puesto, se guarda cifrado (bcrypt)
+  y no se aceptan PIN fáciles. Tras 5 fallos seguidos, el puesto queda 15 minutos bloqueado.
+- **Vínculo del móvil:** dura hasta 12 h después del fin del evento (3 días si no tiene fin). Cada
+  12 horas pide el PIN. El organizador puede desvincular los móviles o desactivar el puesto, y deja de
+  funcionar al momento.
 - **Quién decide:** el canje lo decide siempre el servidor, con la misma garantía de un solo uso que
   el validador de siempre. Sin internet no se da nada por bueno.
 - **Qué ve cada puesto:** solo lo suyo. No ve ventas, caja ni otros puestos. Las tablas nuevas no se

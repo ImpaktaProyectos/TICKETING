@@ -1,8 +1,9 @@
 // ===================== MULTIPUESTO · PUESTOS DEL EVENTO (organizador) =====================
 // Alta de cada puesto (food truck, caseta, proveedor), qué productos puede canjear, la comisión del
-// organizador (general y, si hace falta, por producto) y su acceso: enlace + PIN. El enlace y el PIN
-// solo se enseñan al crearlos (en la base de datos solo queda su huella); si se pierden, se generan
-// otros y los anteriores dejan de valer al momento, igual que las sesiones abiertas.
+// organizador (general y, si hace falta, por producto) y la ACTIVACIÓN de sus móviles: QR que se
+// escanea allí mismo (15 min) o enlace que se envía (24 h), de un solo uso. La primera vez el puesto
+// crea su propio PIN (la organización no lo ve) y cada 12 h se lo pide el móvil. Si lo olvida, se
+// borra aquí y lo vuelve a crear al activar otra vez un móvil.
 import React, { useEffect, useMemo, useState } from "react";
 import { Capa } from "../Capa";
 import { supabase } from "../supabase";
@@ -34,25 +35,21 @@ export function Puestos({ ev, flash }) {
   const acc = useAcceso();
   const [lista, setLista] = useState(null);
   const [editar, setEditar] = useState(null);     // puesto (o {} nuevo)
-  const [acceso, setAcceso] = useState(null);     // { puesto, token, pin }
-  const [activar, setActivar] = useState(null);   // { puesto, codigo, caduca_en }
+  const [activar, setActivar] = useState(null);   // { puesto, codigo, caduca_en, minutos }
   const [busy, setBusy] = useState(false);
   const cargar = () => rpc("puestos_evento", { p_evento: ev.id }).then(x => setLista(x || [])).catch(() => setLista(false));
   useEffect(() => { setLista(null); cargar(); }, [ev.id]);
   const consumiciones = useMemo(() => consumicionesDelEvento(ev), [ev]);
   const nombreDe = (clave) => consumiciones.find(c => c.clave === clave)?.nombre || clave;
   const hacer = async (fn, ok) => { if (busy) return; setBusy(true); try { const r = await fn(); if (ok) flash(typeof ok === "function" ? ok(r) : ok); await cargar(); return r; } catch (e) { flash(e?.mostrar ? e.message : "No se ha podido completar", "warn"); } finally { setBusy(false); } };
-  const vincular = async (p) => { const r = await hacer(() => rpc("puesto_codigo_activar", { p_puesto: p.id })); if (r?.codigo) setActivar({ puesto: p, codigo: r.codigo, caduca_en: r.caduca_en }); };
-  const nuevoAcceso = async (p) => {
-    if (p.acceso && !window.confirm(`¿Crear un acceso nuevo para ${p.nombre}?\n\nEl enlace y el PIN anteriores dejan de valer al momento y se cierran sus ${p.sesiones || 0} sesiones abiertas.`)) return;
-    const r = await hacer(() => rpc("puesto_acceso_nuevo", { p_puesto: p.id }));
-    if (r?.token) setAcceso({ puesto: p, token: r.token, pin: r.pin });
-  };
+  const vincular = async (p, minutos = 15) => { const r = await hacer(() => rpc("puesto_codigo_activar", { p_puesto: p.id, p_minutos: minutos })); if (r?.codigo) setActivar({ puesto: p, codigo: r.codigo, caduca_en: r.caduca_en, minutos }); };
+  const borrarPin = (p) => window.confirm(`¿Borrar el PIN de ${p.nombre}?\n\nSus móviles siguen vinculados. Cuando actives un móvil con el QR o el enlace, el puesto creará un PIN nuevo.`)
+    && hacer(() => rpc("puesto_borrar_pin", { p_puesto: p.id }), "✓ PIN borrado: se creará uno nuevo al activar un móvil");
 
   return (<Escaparate activo={!puede(acc, "multipuesto", ev, hoyLocal())} funcion="multipuesto">
     <div style={{ display: "grid", gap: 10 }}>
       <div style={{ fontSize: 13.5, color: "var(--muted)", lineHeight: 1.45 }}>
-        Cada puesto entra con <b style={{ color: "var(--text)" }}>su enlace y su PIN</b> y solo puede canjear los productos que le marques. Lo que canjea se atribuye a ese puesto, con la hora exacta. Él solo ve lo suyo.
+        Activa el móvil de cada puesto con un <b style={{ color: "var(--text)" }}>QR o un enlace de un solo uso</b>. La primera vez el puesto crea <b style={{ color: "var(--text)" }}>su propio PIN</b>, que su móvil le pide cada 12 horas. Solo puede canjear los productos que le marques, cada canje queda con su hora exacta y él solo ve lo suyo.
       </div>
       {!consumiciones.length && <div style={{ ...K.panel, borderColor: "var(--amber)", fontSize: 14 }}>Primero crea en tus cajas los productos que se venden (por ejemplo «Hamburguesa»). Luego podrás elegir qué puesto canjea cada uno.</div>}
       {lista === null && <div style={{ color: "var(--muted)" }}>Cargando puestos…</div>}
@@ -64,6 +61,7 @@ export function Puestos({ ev, flash }) {
             <b style={{ fontSize: 16.5 }}>{p.nombre}</b>
             {!p.activo && <span style={K.badge("var(--muted)")}>Desactivado</span>}
             {p.bloqueado && <span style={K.badge("var(--red)")}>Bloqueado por PIN</span>}
+            {p.activo && <span style={K.badge(p.tiene_pin ? "var(--green)" : "var(--muted)")}>{p.tiene_pin ? "PIN creado" : "Sin PIN aún"}</span>}
             <span style={{ marginLeft: "auto", fontSize: 13, color: "var(--muted)" }}>{p.canjes} {p.canjes === 1 ? "canje" : "canjes"}</span>
           </div>
           <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>Tu comisión: <b style={{ color: "var(--text)" }}>{textoComision({ tipo: p.comision_tipo, valor: p.comision_valor })}</b>{p.contacto ? ` · ${p.contacto}` : ""}</div>
@@ -73,20 +71,20 @@ export function Puestos({ ev, flash }) {
               : <span style={{ fontSize: 13, color: "var(--amber)" }}>No puede canjear nada todavía</span>}
           </div>
           <div style={{ fontSize: 12.5, marginTop: 8, color: p.sesiones ? "var(--muted)" : "var(--amber)" }}>
-            {p.sesiones ? `${p.sesiones} ${p.sesiones === 1 ? "móvil conectado" : "móviles conectados"}${p.ultimo_uso ? ` · último uso ${fechaHora(p.ultimo_uso)}` : ""}` : "Ningún móvil conectado: actívalo con el QR o envíale enlace y PIN."}{p.acceso ? ` · enlace creado el ${fechaHora(p.acceso_creado_en)}` : ""}
+            {p.sesiones ? `${p.sesiones} ${p.sesiones === 1 ? "móvil vinculado" : "móviles vinculados"}${p.ultimo_uso ? ` · último uso ${fechaHora(p.ultimo_uso)}` : ""}` : "Ningún móvil vinculado: actívalo con el QR o envíale el enlace de activación."}
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
             <button disabled={busy} onClick={() => setEditar(p)} style={{ ...K.btn, flex: "1 1 100px", borderColor: "var(--accent)", color: "var(--accent)" }}>Editar</button>
-            {p.activo && <button disabled={busy} onClick={() => vincular(p)} style={{ ...K.btn, flex: "1 1 100%", minHeight: 50, borderColor: "var(--green)", color: "var(--green)" }}>📲 Activar un móvil con QR (sin PIN)</button>}
-            {p.activo && <button disabled={busy} onClick={() => nuevoAcceso(p)} style={{ ...K.btn, flex: "1 1 150px" }}>{p.acceso ? "Nuevo enlace y PIN" : "Crear enlace y PIN"}</button>}
-            {p.sesiones > 0 && <button disabled={busy} onClick={() => window.confirm(`¿Cerrar la sesión de ${p.nombre} en ${p.sesiones === 1 ? "su móvil" : `sus ${p.sesiones} móviles`}? Tendrán que volver a poner el PIN.`) && hacer(() => rpc("puesto_cerrar_sesiones", { p_puesto: p.id }), "✓ Sesiones cerradas")} style={{ ...K.btn, flex: "1 1 130px" }}>Cerrar sesiones</button>}
+            {p.activo && <button disabled={busy} onClick={() => vincular(p, 15)} style={{ ...K.btn, flex: "1 1 160px", minHeight: 50, borderColor: "var(--green)", color: "var(--green)" }}>📲 Activar móvil con QR</button>}
+            {p.activo && <button disabled={busy} onClick={() => vincular(p, 1440)} style={{ ...K.btn, flex: "1 1 160px", minHeight: 50 }}>✉️ Enviar enlace de activación</button>}
+            {p.tiene_pin && <button disabled={busy} onClick={() => borrarPin(p)} style={{ ...K.btn, flex: "1 1 130px" }}>Borrar PIN</button>}
+            {p.sesiones > 0 && <button disabled={busy} onClick={() => window.confirm(`¿Desvincular ${p.sesiones === 1 ? "el móvil" : `los ${p.sesiones} móviles`} de ${p.nombre}? Para volver a usarlos hará falta activarlos otra vez.`) && hacer(() => rpc("puesto_cerrar_sesiones", { p_puesto: p.id }), "✓ Móviles desvinculados")} style={{ ...K.btn, flex: "1 1 130px" }}>Desvincular móviles</button>}
           </div>
         </div>))}
       <button disabled={busy || lista === null || lista === false} onClick={() => setEditar({})} style={K.prim}>+ Añadir puesto</button>
     </div>
     {editar && <EditorPuesto ev={ev} puesto={editar} consumiciones={consumiciones} flash={flash} onCerrar={(cambio) => { setEditar(null); if (cambio) cargar(); }} />}
-    {acceso && <HojaAcceso {...acceso} ev={ev} onCerrar={() => setAcceso(null)} />}
-    {activar && <HojaActivar {...activar} onOtro={() => vincular(activar.puesto)} onCerrar={() => { setActivar(null); cargar(); }} />}
+    {activar && <HojaActivar {...activar} ev={ev} onOtro={() => vincular(activar.puesto, activar.minutos)} onCerrar={() => { setActivar(null); cargar(); }} />}
   </Escaparate>);
 }
 
@@ -110,7 +108,7 @@ function EditorPuesto({ ev, puesto, consumiciones, flash, onCerrar }) {
     if (e.length) { setErrores(e); return; }
     if (!nuevo && puesto.activo && !datos.activo && !window.confirm(`¿Desactivar ${datos.nombre}? Se cierra su sesión al momento y no podrá canjear. Su registro se conserva.`)) return;
     setBusy(true); setErrores([]);
-    try { await rpc("puesto_guardar", { p: { ...datos, evento_id: ev.id } }); flash(nuevo ? `✓ ${datos.nombre} añadido. Ahora crea su enlace y su PIN.` : `✓ ${datos.nombre} guardado`); onCerrar(true); }
+    try { await rpc("puesto_guardar", { p: { ...datos, evento_id: ev.id } }); flash(nuevo ? `✓ ${datos.nombre} añadido. Ahora activa su móvil con el QR o envíale el enlace.` : `✓ ${datos.nombre} guardado`); onCerrar(true); }
     catch (er) { setErrores([er.message]); setBusy(false); }
   };
   const borrar = async () => {
@@ -185,68 +183,39 @@ function EditorPuesto({ ev, puesto, consumiciones, flash, onCerrar }) {
   </Capa>);
 }
 
-// Enlace + PIN recién creados: se enseñan UNA vez
-function HojaAcceso({ puesto, token, pin, ev, onCerrar }) {
-  const url = enlacePuesto(token);
-  const [copiado, setCopiado] = useState(null);
-  const copiar = async (txt, que) => { try { await navigator.clipboard.writeText(txt); setCopiado(que); setTimeout(() => setCopiado(null), 2000); } catch { window.prompt("Copia esto:", txt); } };
-  const wa = (txt) => `https://wa.me/?text=${encodeURIComponent(txt)}`;
-  return (<Capa>
-    <div style={K.hojaWrap}>
-      <div role="dialog" aria-modal="true" aria-label={`Acceso de ${puesto.nombre}`} style={K.hoja}>
-        <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid var(--line)" }}>
-          <div style={{ fontWeight: 900, fontSize: 18 }}>Acceso de {puesto.nombre}</div>
-          <div style={{ fontSize: 13, color: "var(--amber)", marginTop: 4, fontWeight: 700 }}>Por seguridad, el enlace y el PIN no se vuelven a mostrar. Si se pierden, crea otros.</div>
-        </div>
-        <div data-scroll style={{ flex: 1, overflow: "auto", padding: "8px 16px 16px" }}>
-          <div style={K.lbl}>1 · Enlace (solo vale para {puesto.nombre})</div>
-          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-            <div style={{ background: "#fff", padding: 8, borderRadius: 12 }}><QrCodigo texto={url} mm={34} margen={1} /></div>
-            <div style={{ flex: "1 1 200px", minWidth: 0, fontSize: 13, overflowWrap: "anywhere", color: "var(--muted)" }}>{url}<div style={{ marginTop: 6 }}>Que lo abran en el móvil o tablet del puesto, o que escaneen este QR.</div></div>
-          </div>
-          <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-            <button onClick={() => copiar(url, "enlace")} style={{ ...K.btn, flex: "1 1 130px" }}>{copiado === "enlace" ? "✓ Copiado" : "Copiar enlace"}</button>
-            <a href={wa(`Acceso de ${puesto.nombre} para canjear los tickets de ${ev.name} en TIXFAST:\n${url}\n\nEl PIN te lo paso aparte.`)} target="_blank" rel="noopener noreferrer" style={{ ...K.btn, flex: "1 1 150px", display: "grid", placeItems: "center", textDecoration: "none" }}>Enviar por WhatsApp</a>
-          </div>
-          <div style={K.lbl}>2 · PIN (mándalo por separado)</div>
-          <div style={{ fontSize: 40, fontWeight: 900, letterSpacing: 8, textAlign: "center", padding: "10px 0", border: "1px dashed var(--line)", borderRadius: 14 }}>{pin}</div>
-          <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-            <button onClick={() => copiar(pin, "pin")} style={{ ...K.btn, flex: "1 1 130px" }}>{copiado === "pin" ? "✓ Copiado" : "Copiar PIN"}</button>
-            <a href={wa(`PIN de ${puesto.nombre} en TIXFAST: ${pin}`)} target="_blank" rel="noopener noreferrer" style={{ ...K.btn, flex: "1 1 150px", display: "grid", placeItems: "center", textDecoration: "none" }}>Enviar PIN por WhatsApp</a>
-          </div>
-          <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 12, lineHeight: 1.45 }}>Enlace y PIN juntos dan acceso solo a este puesto: canjear sus productos y ver sus ventas. Tras 5 PIN fallidos se bloquea 15 minutos. Puedes cerrar sus sesiones o cambiarlos cuando quieras.</div>
-        </div>
-        <div style={{ borderTop: "1px solid var(--line)", padding: "10px 16px calc(12px + env(safe-area-inset-bottom))" }}>
-          <button onClick={() => window.confirm("¿Ya has copiado o enviado el enlace y el PIN? No se vuelven a mostrar.") && onCerrar()} style={{ ...K.prim, width: "100%" }}>Hecho</button>
-        </div>
-      </div>
-    </div>
-  </Capa>);
-}
-
-// QR de activación: el móvil del puesto lo escanea con su cámara y entra sin PIN (un solo uso, 15 min)
-function HojaActivar({ puesto, codigo, caduca_en, onOtro, onCerrar }) {
+// Activación de un móvil del puesto: un solo uso. QR para escanearlo allí (15 min) o enlace para enviarlo (24 h)
+function HojaActivar({ puesto, codigo, caduca_en, minutos, ev, onOtro, onCerrar }) {
   const url = `${window.location.origin}/p/activar?c=${encodeURIComponent(codigo)}`;
+  const enlace = minutos > 15;
   const [queda, setQueda] = useState(() => Math.max(0, new Date(caduca_en) - Date.now()));
+  const [copiado, setCopiado] = useState(false);
   useEffect(() => { const t = setInterval(() => setQueda(Math.max(0, new Date(caduca_en) - Date.now())), 1000); return () => clearInterval(t); }, [caduca_en]);
-  const min = Math.floor(queda / 60000), seg = Math.floor((queda % 60000) / 1000);
+  const h = Math.floor(queda / 3600000), min = Math.floor((queda % 3600000) / 60000), seg = Math.floor((queda % 60000) / 1000);
+  const tiempo = h ? `${h} h ${min} min` : `${min}:${String(seg).padStart(2, "0")}`;
+  const copiar = async () => { try { await navigator.clipboard.writeText(url); setCopiado(true); setTimeout(() => setCopiado(false), 2000); } catch { window.prompt("Copia el enlace:", url); } };
+  const wa = `https://wa.me/?text=${encodeURIComponent(`Activa el móvil de ${puesto.nombre} para canjear los tickets de ${ev?.name || "el evento"} en TIXFAST. Ábrelo en el móvil del puesto (vale una sola vez):\n${url}`)}`;
   return (<Capa>
     <div style={K.hojaWrap} onClick={onCerrar}>
       <div role="dialog" aria-modal="true" aria-label={`Activar un móvil de ${puesto.nombre}`} onClick={e => e.stopPropagation()} style={K.hoja}>
         <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid var(--line)", display: "flex", gap: 10, alignItems: "center" }}>
-          <div style={{ flex: 1 }}><div style={{ fontWeight: 900, fontSize: 18 }}>Activar un móvil de {puesto.nombre}</div>
-            <div style={{ fontSize: 13, color: "var(--muted)" }}>Que lo escaneen con la cámara del móvil o tablet del puesto. Entra solo, sin PIN.</div></div>
+          <div style={{ flex: 1 }}><div style={{ fontWeight: 900, fontSize: 18 }}>{enlace ? "Enlace de activación" : "Activar un móvil"} · {puesto.nombre}</div>
+            <div style={{ fontSize: 13, color: "var(--muted)" }}>{enlace ? "Envíalo al puesto: lo abre en su móvil y entra." : "Que lo escaneen con la cámara del móvil o tablet del puesto."} {puesto.tiene_pin ? "Entra directo." : "La primera vez creará su PIN."}</div></div>
           <button onClick={onCerrar} style={K.btn} aria-label="Cerrar">✕</button>
         </div>
         <div data-scroll style={{ flex: 1, overflow: "auto", padding: 16, textAlign: "center" }}>
           {queda > 0 ? <>
-            <div style={{ display: "inline-block", background: "#fff", padding: 12, borderRadius: 16 }}><QrCodigo texto={url} mm={62} margen={1} /></div>
-            <div style={{ fontSize: 15, fontWeight: 800, marginTop: 12 }}>Vale una sola vez · caduca en {min}:{String(seg).padStart(2, "0")}</div>
-            <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6, lineHeight: 1.45 }}>El móvil queda dentro todo el evento. Para otro móvil del mismo puesto, genera otro QR.</div>
-          </> : <div style={{ fontSize: 15, color: "var(--amber)", fontWeight: 800, padding: "30px 0" }}>Este QR ha caducado.</div>}
+            {!enlace && <div style={{ display: "inline-block", background: "#fff", padding: 12, borderRadius: 16 }}><QrCodigo texto={url} mm={62} margen={1} /></div>}
+            {enlace && <div style={{ display: "grid", gap: 8, textAlign: "left" }}>
+              <div style={{ fontSize: 13, color: "var(--muted)", overflowWrap: "anywhere", padding: 12, border: "1px dashed var(--line)", borderRadius: 12 }}>{url}</div>
+              <a href={wa} target="_blank" rel="noopener noreferrer" style={{ ...K.prim, display: "grid", placeItems: "center", textDecoration: "none" }}>Enviar por WhatsApp</a>
+              <button onClick={copiar} style={K.btn}>{copiado ? "✓ Copiado" : "Copiar enlace"}</button>
+            </div>}
+            <div style={{ fontSize: 15, fontWeight: 800, marginTop: 12 }}>Vale una sola vez · caduca en {tiempo}</div>
+            <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6, lineHeight: 1.45 }}>El móvil queda vinculado todo el evento y pide el PIN del puesto cada 12 horas. Para otro móvil, genera otro {enlace ? "enlace" : "QR"}.</div>
+          </> : <div style={{ fontSize: 15, color: "var(--amber)", fontWeight: 800, padding: "30px 0" }}>Ha caducado. Genera otro.</div>}
         </div>
         <div style={{ borderTop: "1px solid var(--line)", padding: "10px 16px calc(12px + env(safe-area-inset-bottom))", display: "flex", gap: 8 }}>
-          <button onClick={onOtro} style={{ ...K.btn, flex: 1 }}>Otro QR (otro móvil)</button>
+          <button onClick={onOtro} style={{ ...K.btn, flex: 1 }}>{enlace ? "Otro enlace" : "Otro QR"} (otro móvil)</button>
           <button onClick={onCerrar} style={{ ...K.prim, flex: 1 }}>Hecho</button>
         </div>
       </div>
