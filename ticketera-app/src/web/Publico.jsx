@@ -2,6 +2,7 @@
 // /e/<enlace>            → página del evento: flyer, tramos, cuenta atrás y compra
 // /mis-entradas/<acceso> → las entradas del comprador con su QR y el PDF
 // /r/<token>             → reserva online de mesas VIP (plano en directo y pago del adelanto)
+// /b/<token>             → ficha de bebidas de un reservado (solo su mesa y las listas, nada más)
 // No necesita sesión. Solo habla con las funciones públicas del servidor (nunca con las tablas).
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
@@ -12,15 +13,17 @@ export { textoQR } from "./comun";
 import { useCarrito, BarraCarrito, HojaCarrito, ElegirEntradas, CompraVarios } from "./Carrito";
 import PaginaOrganizacion, { MasFiestas } from "./Microsite";
 const PaginaReservas = React.lazy(() => import("./Reservas"));
+const PaginaBebidas = React.lazy(() => import("./Bebidas"));
 
 export default function Publico() {
-  const m = window.location.pathname.match(/^\/(e|o|mis-entradas|compra|r)\/([^/?#]+)/);
+  const m = window.location.pathname.match(/^\/(e|o|mis-entradas|compra|r|b)\/([^/?#]+)/);
   if (!m) return <Mensaje titulo="Página no encontrada" />;
   const v = decodeURIComponent(m[2]);
   if (m[1] === "e") return <PaginaEvento slug={v.toLowerCase()} />;
   if (m[1] === "o") return <PaginaOrganizacion slug={v.toLowerCase()} />;
   if (m[1] === "compra") return <MisCompra acceso={v} />;
   if (m[1] === "r") return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><PaginaReservas token={v} /></React.Suspense>;
+  if (m[1] === "b") return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><PaginaBebidas token={v} /></React.Suspense>;
   return <MisEntradas acceso={v} />;
 }
 

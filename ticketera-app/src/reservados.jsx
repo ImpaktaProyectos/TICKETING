@@ -414,6 +414,11 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
           <PlanoReservados cfg={cfg} res={res} role={role} nombreEvento={ev.venue || ev.name || ""} isMobile={isMobile} onAbrir={(id) => setFicha({ id })}
             onCrearReservado={crearReservado} onGuardarPlano={async (plano) => { await onGuardarCfg({ ...cfg, plano }); flash("Plano guardado"); }} />
         </Suspense>}
+        {(() => { const sinBeb = res.reservados.filter(z => ["reservado", "llegado"].includes(z.estado) && !(pedidoDe(z)?.botellas?.length)); return !sinConfig && sinBeb.length > 0 && (
+          <div style={{ background: "rgba(255,180,0,.08)", border: "1px dashed rgba(255,180,0,.5)", borderRadius: 14, padding: "10px 12px", marginBottom: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ color: "var(--amber)", fontSize: 13.5, fontWeight: 800 }}><Icono n="aviso" s={14} style={IK} />{sinBeb.length === 1 ? "1 reserva sin bebidas apuntadas" : `${sinBeb.length} reservas sin bebidas apuntadas`} · pídelas antes del evento:</span>
+            {sinBeb.map(z => <button key={z.id} onClick={() => setFicha({ id: z.id })} style={{ ...R.small, minHeight: 44, borderColor: "rgba(255,180,0,.5)", color: "var(--amber)", fontWeight: 800 }}>{z.nombre}{z.cliente ? ` · ${z.cliente}` : ""}</button>)}
+          </div>); })()}
         {(vistaRes !== "plano" || sinConfig) && <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,minmax(0,1fr))" : "repeat(auto-fill, minmax(190px,1fr))", gap: isMobile ? 10 : 12, alignItems: isMobile ? "start" : "stretch" }}>
           {res.reservados.map(r => { const e = ESTADOS[r.estado] || ESTADOS.libre; const s = stats[r.id]; const t = tarifaDe(r); const P = calcPedido(r, cfg); return (
             <button key={r.id} onClick={() => setFicha({ id: r.id })} style={{ textAlign: "left", background: `linear-gradient(180deg, ${e.bg}, var(--surface))`, border: `2px solid ${e.c}`, borderRadius: 18, padding: 14, color: "var(--text)", cursor: "pointer", minHeight: isMobile && r.estado === "libre" ? 0 : 150, display: "flex", flexDirection: "column", gap: 4 }}>
@@ -469,12 +474,60 @@ const K_BORR = (evId) => `tixfast_res_borrador_${evId}`;
 export const leerBorrador = (evId) => { try { const b = JSON.parse(localStorage.getItem(K_BORR(evId)) || "null"); return b && Date.now() - b.ts < 36 * 3600e3 ? b : null; } catch { return null; } };
 export const borrarBorrador = (evId) => { try { localStorage.removeItem(K_BORR(evId)); } catch {} };
 const guardarBorrador = (evId, b) => { try { localStorage.setItem(K_BORR(evId), JSON.stringify({ ...b, ts: Date.now() })); } catch {} };
+/* ---------- Ficha de bebidas del cliente: enlace secreto /b/<token> ---------- */
+// El cliente solo ve su mesa, el evento y las listas de bebidas. Lo que elija se vuelca solo
+// en el pedido del reservado. Sirve para tener las bebidas apuntadas SIEMPRE antes del evento,
+// también en reservas que entraron por teléfono.
+function SolicitarBebidas({ ev, cfg, reservado, tarifaId, cliente, telefono, onCerrar }) {
+  const [enlace, setEnlace] = useState(null);   // null cargando · false error · texto listo
+  const [copiado, setCopiado] = useState(false);
+  useEffect(() => {
+    const t = cfg.tarifas.find(z => z.id === tarifaId);
+    const incl = t ? Math.max(0, parseInt(t.botellas, 10) || 0) : Math.max(1, pedidoDe(reservado)?.botellas?.length || 1);
+    const previas = (pedidoDe(reservado)?.botellas || []).flatMap(b => [b.bebida, b.mezcla]).filter(Boolean);
+    const datos = {
+      evento: ev.name, fecha: ev.date || null, mesa: reservado.nombre, cliente: cliente || "",
+      incluidas: incl, max_extra: 6, precio_extra: precioBotellaExtra(cfg),
+      bebidas: [...new Set([...BEBIDAS, ...previas.filter(v => !MEZCLAS.includes(v))])],
+      mezclas: [...new Set([...MEZCLAS, ...previas.filter(v => MEZCLAS.includes(v))])],
+    };
+    supabase.rpc("bebidas_solicitar", { p_reservado: reservado.id, p_datos: datos })
+      .then(({ data, error }) => setEnlace(!error && data?.ok ? `${window.location.origin}/b/${data.token}` : false), () => setEnlace(false));
+  }, []);
+  const copiar = async () => { try { await navigator.clipboard.writeText(enlace); setCopiado(true); setTimeout(() => setCopiado(false), 2000); } catch { window.prompt("Copia el enlace:", enlace); } };
+  const wa = waNumero(telefono);
+  const msgWa = `Hola${cliente ? ` ${cliente}` : ""}, soy de ${ev.name}. Elige las botellas de tu reservado ${reservado.nombre} aquí (1 minuto): ${enlace}`;
+  return (<Capa>
+    <div onClick={onCerrar} style={{ position: "fixed", inset: 0, zIndex: 180, background: "rgba(0,0,0,.6)", display: "grid", placeItems: "end center" }}>
+      <div role="dialog" aria-modal="true" aria-label="Ficha de bebidas para el cliente" onClick={e => e.stopPropagation()}
+        style={{ width: "100%", maxWidth: 520, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "22px 22px 0 0", padding: "16px 16px calc(18px + env(safe-area-inset-bottom))", boxSizing: "border-box" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1 }}><div style={{ fontWeight: 900, fontSize: 18 }}><Icono n="botella" s={16} style={IK} />Que el cliente elija sus bebidas</div>
+            <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}>Mándale este enlace: solo ve su mesa y las listas de bebidas, nada más. Lo que elija se apunta solo en esta ficha.</div></div>
+          <button onClick={onCerrar} aria-label="Cerrar" style={{ ...R.small, width: 44, justifyContent: "center", padding: 0 }}><Icono n="cerrar" s={15} /></button>
+        </div>
+        {enlace === null && <div style={{ color: "var(--muted)", padding: "18px 0", fontWeight: 700 }}>Preparando el enlace…</div>}
+        {enlace === false && <div style={{ color: "var(--red)", padding: "16px 0", fontWeight: 700 }}>No se ha podido crear el enlace. Guarda la reserva y prueba otra vez (hace falta internet).</div>}
+        {enlace && <>
+          <div style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: "11px 12px", fontSize: 13, marginTop: 14, wordBreak: "break-all", color: "var(--muted)" }}>{enlace}</div>
+          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+            {wa && <a href={`https://wa.me/${wa}?text=${encodeURIComponent(msgWa)}`} target="_blank" rel="noopener noreferrer" style={{ ...R.small, flex: "1 1 180px", justifyContent: "center", textDecoration: "none", background: "#22d3a6", color: "#04231a", border: "none", fontWeight: 900 }}><Icono n="chat" s={15} style={IK} />Enviar por WhatsApp</a>}
+            <button onClick={copiar} style={{ ...R.small, flex: "1 1 140px", justifyContent: "center", borderColor: copiado ? "var(--green)" : "var(--line)", color: copiado ? "var(--green)" : "var(--text)" }}>{copiado ? "✓ Copiado" : "Copiar enlace"}</button>
+          </div>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 10, lineHeight: 1.5 }}>El enlace vale hasta el día siguiente al evento y el cliente puede cambiar sus bebidas por el mismo enlace. Si tienes esta ficha abierta cuando conteste, ciérrala y vuelve a abrirla para ver sus botellas.</div>
+        </>}
+      </div>
+    </div>
+  </Capa>);
+}
+
 function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puedeCobrar, puntoNombre, onClose, onGuardar, onCobrar, onVentaSocio }) {
   const base = () => ({ ...r, senal: r.senal ? String(r.senal).replace(".", ",") : "", pedido: pedidoForm(pedidoDe(r)) });
   const [borr] = useState(() => { const b = leerBorrador(ev.id); return b && b.rid === r.id && !!b.nueva === !!nueva ? b : null; });
   const [x, setX] = useState(() => (borr ? borr.x : base()));
   const [destino, setDestino] = useState(() => (borr && reservados.some(z => z.id === borr.destino && (z.estado === "libre" || z.id === r.id)) ? borr.destino : r.id));
   const [recuperado, setRecuperado] = useState(!!borr);
+  const [pedirFicha, setPedirFicha] = useState(false);   // hoja con el enlace de bebidas del cliente
   const descartar = () => { borrarBorrador(ev.id); setX(base()); setDestino(r.id); setRecuperado(false); };
   const set = (k, v) => setX(o => ({ ...o, [k]: v }));
   const setP = (k, v) => setX(o => ({ ...o, pedido: { ...o.pedido, [k]: v } }));
@@ -555,7 +608,10 @@ function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puede
             {x.pedido.precioModo === "botella" && <input value={x.pedido.botellas[i].precio} inputMode="decimal" onChange={e => setB(b.id, { precio: e.target.value.replace(/[^\d.,]/g, "").slice(0, 8) })} placeholder={b.auto != null ? String(b.auto).replace(".", ",") : "€"} aria-label={`Precio de la botella ${i + 1}`} style={{ ...R.input, padding: "10px 8px", fontWeight: 800, textAlign: "right" }} />}
             <button onClick={() => delB(b.id)} aria-label={`Quitar la botella ${i + 1}`} style={{ ...R.small, padding: "9px 0", justifyContent: "center", color: "var(--muted)" }}><Icono n="cerrar" s={14} /></button>
           </div>))}
-        <button onClick={addB} style={{ ...R.ghost, width: "100%", padding: "10px", borderStyle: "dashed" }}>+ Añadir botella</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={addB} style={{ ...R.ghost, flex: "1 1 150px", padding: "10px", borderStyle: "dashed" }}>+ Añadir botella</button>
+          {!nueva && <button onClick={() => setPedirFicha(true)} title="Enlace para que el cliente elija bebida y mezcla él mismo" style={{ ...R.ghost, flex: "1 1 170px", padding: "10px", color: "var(--green)", borderColor: "rgba(34,211,166,.5)" }}><Icono n="web" s={14} style={IK} />Que las elija el cliente</button>}
+        </div>
 
         <div style={{ display: "flex", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 12, padding: 3, margin: "12px 0 8px" }}>
           {[["auto", "Automático"], ["botella", "Por botella"], ["total", "Precio total"]].map(([k, t]) => <button key={k} onClick={() => setP("precioModo", k)} aria-pressed={x.pedido.precioModo === k} style={seg(x.pedido.precioModo === k)}>{t}</button>)}
@@ -607,6 +663,7 @@ function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puede
         {r.estado !== "libre" && <button onClick={liberar} style={{ ...R.small, marginTop: 10, color: "var(--muted)" }}>Dejar libre (borra la reserva)</button>}
         {!puedeCobrar && C.total != null && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>El cobro en taquilla se hace desde los puntos de venta de reservados, no desde {puntoNombre}.</div>}
       </>}
+      {pedirFicha && <SolicitarBebidas ev={ev} cfg={cfg} reservado={dest} tarifaId={x.tarifaId} cliente={x.cliente} telefono={x.telefono} onCerrar={() => setPedirFicha(false)} />}
     </Hoja>
   );
 }

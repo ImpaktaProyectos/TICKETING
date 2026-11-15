@@ -170,6 +170,12 @@ begin
   select coalesce(jsonb_agg(jsonb_build_object('id', gen_random_uuid(), 'bebida', left(btrim(coalesce(b ->> 'bebida', '')), 60), 'mezcla', left(btrim(coalesce(b ->> 'mezcla', '')), 60))), '[]'::jsonb)
     into bots from jsonb_array_elements(case when jsonb_typeof(p_botellas) = 'array' then p_botellas else '[]'::jsonb end) b;
   nbot := jsonb_array_length(bots);
+  -- Imprescindible: todas las botellas del pack elegidas, y cada una con bebida y mezcla de la lista ofrecida
+  if nbot < incl then return jsonb_build_object('ok', false, 'motivo', 'botellas'); end if;
+  if exists (select 1 from jsonb_array_elements(bots) b
+             where not (w.bebidas ? (b ->> 'bebida')) or not (w.mezclas ? (b ->> 'mezcla'))) then
+    return jsonb_build_object('ok', false, 'motivo', 'botellas');
+  end if;
   if nbot > incl + w.max_extra then return jsonb_build_object('ok', false, 'motivo', 'botellas'); end if;
   extra := public.reservas_precio_extra(cfg);
   if nbot > incl and extra is null then return jsonb_build_object('ok', false, 'motivo', 'botellas'); end if;
