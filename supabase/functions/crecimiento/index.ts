@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
       const token = new URL(req.url).searchParams.get("baja") || "";
       if (!UUID.test(token)) return pagina("Enlace no válido", "Este enlace no es correcto o ha caducado.");
       await admin.from("ticket_cuentas").update({ correos_promo: false }).eq("baja_token", token);
-      return pagina("Listo, ya no te escribiremos", "No recibirás más correos comerciales de TIXFAST. Los avisos importantes de tu suscripción (cobros y fin de la prueba) te seguirán llegando.");
+      return pagina("Listo, ya no te escribiremos", "No recibirás más correos comerciales de TIXFAST. Los avisos importantes de tu suscripción (por ejemplo, si falla un cobro) te seguirán llegando.");
     }
     if (req.method !== "POST") return json({ ok: false }, 405);
     const b = await req.json().catch(() => ({}));
