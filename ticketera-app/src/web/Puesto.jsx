@@ -5,10 +5,16 @@
 // Cada canje lo decide SIEMPRE el servidor. Sin internet no se da nada por bueno: el ticket queda
 // «pendiente de comprobar», se comprueba solo al volver la red y hasta entonces NO se entrega.
 // Un ticket de un producto que este puesto no sirve sale «NO VÁLIDO AQUÍ» y sigue valiendo en su sitio.
+// Pensado para colas: el PIN (o el QR de activación) se pone UNA vez por móvil y el móvil queda dentro
+// todo el evento; la cámara no se apaga; varios tickets seguidos se suman en un «pedido»;
+// funciona con pistola lectora USB/Bluetooth y con la cámara delantera (móvil en un soporte).
+//   /p/<enlace>            → entrar con el PIN
+//   /p/activar?c=<código>  → entrar escaneando el QR de activación del organizador (sin PIN)
+//   /p/sesion              → volver a abrir (icono en la pantalla de inicio)
 import React, { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { leerToken } from "../qr/token";
-import { useSonido, useCamaraQR } from "../qr/lector";
+import { useSonido, useCamaraQR, useLectorTeclado } from "../qr/lector";
 
 const eur = (n) => (Number(n) || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
 const hora = (t) => { try { return new Date(t).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
@@ -34,15 +40,42 @@ function explicar(r) {
   }
 }
 
+// Este móvil recuerda su sesión (un puesto por móvil). Lo pendiente y el historial van con ella.
+const K_SES = "tixfast_puesto_ses", K_PEND = "tixfast_puesto_pend", K_HIST = "tixfast_puesto_hist";
+const sesionGuardada = () => { const x = leer(K_SES, null); return x?.sesion && new Date(x.caduca_en) > new Date() ? x : null; };
+
 export default function PaginaPuesto({ token }) {
-  const kSes = `tixfast_puesto_${token}`;
+  const activar = token === "activar", soloSesion = token === "sesion";
+  const [ses, setSes] = useState(() => { const x = sesionGuardada(); return x && (soloSesion || (!activar && (!x.token || x.token === token))) ? x : null; });
   const [portada, setPortada] = useState(undefined);   // undefined = cargando · null = enlace no válido
-  const [ses, setSes] = useState(() => { const s = leer(kSes, null); return s && new Date(s.caduca_en) > new Date() ? s.sesion : null; });
   const [aviso, setAviso] = useState(null);
-  useEffect(() => { supabase.rpc("puesto_portada", { p_token: token }).then(({ data, error }) => setPortada(error ? null : data || null), () => setPortada(null)); }, [token]);
-  const salir = (msg) => { guardar(kSes, null); setSes(null); if (msg) setAviso(msg); };
-  if (ses) return <Escaner token={token} sesion={ses} portada={portada} onSalir={salir} />;
-  return <Entrar token={token} portada={portada} aviso={aviso} onDentro={(r) => { guardar(kSes, { sesion: r.sesion, caduca_en: r.caduca_en }); setAviso(null); setSes(r.sesion); }} />;
+  const [activando, setActivando] = useState(activar);
+  const dentro = (r, tk = null) => {
+    const x = { sesion: r.sesion, caduca_en: r.caduca_en, puesto: r.puesto, color: r.color, evento: r.evento, token: tk };
+    guardar(K_PEND, null); guardar(K_HIST, null);   // nada de un puesto anterior se sube con la sesión nueva
+    guardar(K_SES, x); setAviso(null); setSes(x);
+    try { window.history.replaceState(null, "", "/p/sesion"); } catch {}
+  };
+  useEffect(() => {
+    if (!activar) return;
+    const c = new URLSearchParams(window.location.search).get("c") || "";
+    try { window.history.replaceState(null, "", "/p/sesion"); } catch {}   // el código no se queda en el historial
+    (async () => {
+      try {
+        const { data, error } = await conTiempo(supabase.rpc("puesto_activar", { p_codigo: c, p_dispositivo: dispositivo() }), 10000);
+        if (error) throw error;
+        if (data?.ok) dentro(data); else setAviso("Este QR de activación ya se ha usado o ha caducado (vale 15 minutos y una sola vez). Pide otro a la organización.");
+      } catch { setAviso(navigator.onLine ? "No se ha podido activar. Vuelve a escanear el QR." : "Sin conexión: para activar el móvil hace falta internet."); }
+      setActivando(false);
+    })();
+  }, []);
+  useEffect(() => { if (!activar && !soloSesion && !ses) supabase.rpc("puesto_portada", { p_token: token }).then(({ data, error }) => setPortada(error ? null : data || null), () => setPortada(null)); }, [token, ses]);
+  const salir = (msg) => { guardar(K_SES, null); guardar(K_PEND, null); setSes(null); if (msg) setAviso(msg); };
+  if (ses) return <Escaner sesion={ses.sesion} info={ses} onSalir={salir} />;
+  if (activando) return <Pantalla><div style={{ fontWeight: 800, fontSize: 18 }}>Activando este móvil…</div></Pantalla>;
+  if (activar || soloSesion) return <Pantalla><div style={{ fontSize: 42 }}>📲</div><div style={{ fontWeight: 900, fontSize: 20, marginTop: 8 }}>{aviso ? "No se ha podido entrar" : "Este móvil no tiene sesión"}</div>
+    <div style={{ color: "rgba(255,255,255,.75)", marginTop: 8, maxWidth: 330, lineHeight: 1.45 }}>{aviso || "Escanea el QR de activación que te enseña la organización, o abre el enlace de tu puesto y escribe el PIN."}</div></Pantalla>;
+  return <Entrar token={token} portada={portada} aviso={aviso} onDentro={(r) => dentro(r, token)} />;
 }
 
 /* ---------- Entrar con el PIN ---------- */
@@ -89,12 +122,13 @@ const Pantalla = ({ children }) => <div style={{ minHeight: "100dvh", background
   <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width="40" height="40" style={{ marginBottom: 14 }} />{children}</div>;
 
 /* ---------- Escanear ---------- */
-function Escaner({ token, sesion, portada, onSalir }) {
-  const kPend = `tixfast_puesto_pend_${token}`;
-  const kHist = `tixfast_puesto_hist_${token}`;
+function Escaner({ sesion, info, onSalir }) {
+  const kPend = K_PEND, kHist = K_HIST;
+  const portada = info;
   const snd = useSonido();
   const procesarRef = useRef(null);
-  const cam = useCamaraQR((t) => procesarRef.current?.(t), { alArrancar: () => snd.activar() });
+  const cam = useCamaraQR((t) => procesarRef.current?.(t), { alArrancar: () => snd.activar(), mantenerEncendida: true, claveCamara: "tixfast_puesto_camara" });
+  useLectorTeclado((t) => procesarRef.current?.(t));   // pistola lectora USB/Bluetooth
   const [panel, setPanel] = useState(null);         // lo que dice el servidor de este puesto
   const [res, setRes] = useState(null);
   const [comprobando, setComprobando] = useState(false);
@@ -102,6 +136,15 @@ function Escaner({ token, sesion, portada, onSalir }) {
   const [pend, setPend] = useState(() => leer(kPend, []));
   const [hist, setHist] = useState(() => leer(kHist, []));
   const [verVentas, setVerVentas] = useState(false);
+  // Pedido: los tickets escaneados seguidos se suman (el cliente da 3 tickets → «3 × Hamburguesa»)
+  const [pedido, setPedido] = useState(null);       // { items: { nombre: n }, total, t }
+  const timerPedido = useRef(null);
+  const sumarPedido = (nombre, n = 1) => {
+    setPedido(p => { const items = { ...(p?.items || {}) }; const k = limpio(nombre) || "Producto"; items[k] = (items[k] || 0) + n; return { items, total: (p?.total || 0) + n, t: Date.now() }; });
+    clearTimeout(timerPedido.current);
+    timerPedido.current = setTimeout(() => setPedido(null), 20000);   // 20 s sin escanear → pedido nuevo
+  };
+  const cerrarPedido = () => { clearTimeout(timerPedido.current); setPedido(null); };
   const ocupado = useRef(false), recientes = useRef({}), timerRes = useRef(null), subiendo = useRef(false);
 
   const cargarPanel = async () => {
@@ -126,7 +169,7 @@ function Escaner({ token, sesion, portada, onSalir }) {
     setRes(r); apuntar(r);
     if (r.tipo === "ok") snd.bien(); else if (r.tipo === "pend") snd.aviso(); else snd.mal();
     clearTimeout(timerRes.current);
-    timerRes.current = setTimeout(() => setRes(null), r.tipo === "ok" ? 1600 : r.tipo === "pend" ? 4000 : 3500);
+    timerRes.current = setTimeout(() => setRes(null), r.tipo === "ok" ? 900 : r.tipo === "pend" ? 4000 : 3500);   // verde breve: se sigue con el siguiente
   };
   const ponerPend = (q) => { guardar(kPend, q); setPend(q); };
 
@@ -140,7 +183,7 @@ function Escaner({ token, sesion, portada, onSalir }) {
   };
   const tratar = (r) => {
     if (r?.motivo === "sesion") { onSalir("Tu acceso ha cambiado o ha caducado. Vuelve a escribir tu PIN."); return null; }
-    if (r?.ok) { cargarPanel(); return { ...r, tipo: "ok" }; }
+    if (r?.ok) { if (!r.repetido) sumarPedido(r.nombre, r.unidades || 1); cargarPanel(); return { ...r, tipo: "ok" }; }
     return { ...r, tipo: "mal" };
   };
 
@@ -208,17 +251,18 @@ function Escaner({ token, sesion, portada, onSalir }) {
           <span style={{ width: 8, height: 8, borderRadius: 8, background: online && !pend.length ? "#22d3a6" : online ? "#ffb400" : "#ff4d4d" }} />
           {online ? (pend.length ? `${pend.length} por comprobar` : "En línea") : "Sin conexión"}
         </span>
+        {cam.empezado && !cam.camErr && <button onClick={cam.cambiarCamara} aria-label={cam.camara === "user" ? "Usar la cámara trasera" : "Usar la cámara delantera (modo mostrador)"} title="Cambiar de cámara" style={V.btnTop}>🔄</button>}
         <button onClick={() => { snd.activar(); snd.alternarMudo(); }} aria-pressed={snd.mudo} aria-label={snd.mudo ? "Activar el sonido" : "Silenciar"} style={{ ...V.btnTop, ...(snd.mudo ? { color: "#ff8a80", borderColor: "rgba(255,77,77,.6)" } : {}) }}>{snd.mudo ? "🔇" : "🔊"}</button>
       </header>
 
       {pend.length > 0 && <div role="alert" style={V.bandaPend}>⏳ {pend.length === 1 ? "1 ticket pendiente" : `${pend.length} tickets pendientes`} de comprobar: <b>no los entregues todavía</b>. Se comprueban solos al volver internet.</div>}
 
       <div style={V.cam}>
-        <video ref={cam.video} muted playsInline style={V.video} />
+        <video ref={cam.video} muted playsInline style={{ ...V.video, transform: cam.camara === "user" ? "scaleX(-1)" : "none" }} />
         {!cam.empezado && <div style={V.centro}>
           <div style={{ fontSize: 46, marginBottom: 10 }}>📷</div>
           <div style={{ fontWeight: 800, fontSize: 20, marginBottom: 6 }}>Escanea el QR de cada ticket</div>
-          <div style={{ fontSize: 14, color: "rgba(255,255,255,.72)", maxWidth: 330, margin: "0 auto 20px", lineHeight: 1.45 }}>Verde: entrega. Rojo: no entregues. Azul: sin conexión, espera a que se compruebe.{panel?.acepta?.length ? <><br /><br />Aquí se canjea: <b style={{ color: "#fff" }}>{panel.acepta.map(x => x.charAt(0).toUpperCase() + x.slice(1)).join(", ")}</b></> : null}</div>
+          <div style={{ fontSize: 14, color: "rgba(255,255,255,.72)", maxWidth: 330, margin: "0 auto 20px", lineHeight: 1.45 }}>Verde: entrega. Rojo: no entregues. Azul: sin conexión, espera a que se compruebe. Si el cliente te da varios tickets, escanéalos seguidos: arriba verás el pedido completo.{panel?.acepta?.length ? <><br /><br />Aquí se canjea: <b style={{ color: "#fff" }}>{panel.acepta.map(x => x.charAt(0).toUpperCase() + x.slice(1)).join(", ")}</b></> : null}</div>
           <button onClick={cam.arrancar} style={V.btnGrande}>Empezar a escanear</button>
         </div>}
         {cam.empezado && cam.camErr && <div style={V.centro}>
@@ -228,13 +272,21 @@ function Escaner({ token, sesion, portada, onSalir }) {
           <button onClick={cam.arrancar} style={V.btnGrande}>Reintentar</button>
         </div>}
         {cam.empezado && !cam.camErr && <><div style={V.marco} /><div style={V.pista}>Acerca el QR del ticket al recuadro</div></>}
+        {pedido && <div role="status" aria-live="polite" style={V.pedido}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, opacity: .8 }}>PEDIDO · ENTREGA</div>
+            <div style={{ fontSize: 20, fontWeight: 900, lineHeight: 1.2 }}>{Object.entries(pedido.items).map(([n, c]) => `${c} × ${n}`).join(" · ")}</div>
+          </div>
+          <button onClick={cerrarPedido} style={V.btnListo}>Listo ✓</button>
+        </div>}
         {comprobando && !res && <div style={V.comprobando} role="status">Comprobando…</div>}
         {res && <button onClick={() => { clearTimeout(timerRes.current); setRes(null); }} style={{ ...V.res, background: fondo }} aria-live="assertive">
           {res.tipo === "ok" && <>
             {res.comprobado && <div style={V.etq}>Comprobado al volver la conexión</div>}
             <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 2, marginTop: 8 }}>ENTREGA</div>
-            <div style={{ fontSize: limpio(res.nombre).length > 14 ? 40 : 58, fontWeight: 900, lineHeight: 1.05, margin: "8px 0", overflowWrap: "anywhere" }}>{limpio(res.nombre) || "1 UNIDAD"}</div>
+            <div style={{ fontSize: (n => n <= 7 ? 60 : n <= 10 ? 48 : n <= 14 ? 40 : 32)(limpio(res.nombre).length), fontWeight: 900, lineHeight: 1.05, margin: "8px 0", overflowWrap: "break-word", maxWidth: "100%" }}>{limpio(res.nombre) || "1 UNIDAD"}</div>
             {res.unidades > 1 && <div style={{ fontSize: 30, fontWeight: 900 }}>× {res.unidades}</div>}
+            {pedido?.total > 1 && <div style={V.etq}>Pedido: {pedido.total} en total</div>}
           </>}
           {res.tipo === "pend" && <>
             <div style={{ fontSize: 46 }}>⏳</div>
@@ -320,6 +372,8 @@ const V = {
   btnGrande: { background: "linear-gradient(160deg,#ff6a3d,#ff3d2e)", color: "#fff", border: 0, borderRadius: 14, padding: "16px 26px", fontWeight: 800, fontSize: 17, cursor: "pointer", fontFamily: "inherit", minHeight: 50 },
   marco: { position: "absolute", left: "50%", top: "46%", width: "min(64vw, 300px)", height: "min(64vw, 300px)", transform: "translate(-50%,-50%)", border: "4px solid rgba(255,255,255,.85)", borderRadius: 18, pointerEvents: "none" },
   pista: { position: "absolute", left: 0, right: 0, bottom: 18, textAlign: "center", fontSize: 14, fontWeight: 700, textShadow: "0 1px 4px rgba(0,0,0,.8)" },
+  pedido: { position: "absolute", left: 10, right: 10, top: 10, zIndex: 2, display: "flex", alignItems: "center", gap: 10, padding: "10px 10px 10px 14px", borderRadius: 16, background: "rgba(15,157,99,.95)", color: "#fff", boxShadow: "0 8px 24px rgba(0,0,0,.4)" },
+  btnListo: { minHeight: 48, padding: "0 16px", borderRadius: 12, border: "2px solid rgba(255,255,255,.85)", background: "transparent", color: "#fff", fontWeight: 900, fontSize: 16, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 },
   comprobando: { position: "absolute", left: "50%", top: 16, transform: "translateX(-50%)", background: "rgba(0,0,0,.7)", borderRadius: 20, padding: "8px 16px", fontSize: 15, fontWeight: 800 },
   res: { position: "absolute", inset: 0, border: 0, color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "24px 22px", cursor: "pointer", fontFamily: "inherit" },
   etq: { background: "rgba(0,0,0,.25)", borderRadius: 20, padding: "6px 14px", fontSize: 14, fontWeight: 700 },

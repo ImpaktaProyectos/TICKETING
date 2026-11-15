@@ -35,12 +35,14 @@ export function Puestos({ ev, flash }) {
   const [lista, setLista] = useState(null);
   const [editar, setEditar] = useState(null);     // puesto (o {} nuevo)
   const [acceso, setAcceso] = useState(null);     // { puesto, token, pin }
+  const [activar, setActivar] = useState(null);   // { puesto, codigo, caduca_en }
   const [busy, setBusy] = useState(false);
   const cargar = () => rpc("puestos_evento", { p_evento: ev.id }).then(x => setLista(x || [])).catch(() => setLista(false));
   useEffect(() => { setLista(null); cargar(); }, [ev.id]);
   const consumiciones = useMemo(() => consumicionesDelEvento(ev), [ev]);
   const nombreDe = (clave) => consumiciones.find(c => c.clave === clave)?.nombre || clave;
   const hacer = async (fn, ok) => { if (busy) return; setBusy(true); try { const r = await fn(); if (ok) flash(typeof ok === "function" ? ok(r) : ok); await cargar(); return r; } catch (e) { flash(e?.mostrar ? e.message : "No se ha podido completar", "warn"); } finally { setBusy(false); } };
+  const vincular = async (p) => { const r = await hacer(() => rpc("puesto_codigo_activar", { p_puesto: p.id })); if (r?.codigo) setActivar({ puesto: p, codigo: r.codigo, caduca_en: r.caduca_en }); };
   const nuevoAcceso = async (p) => {
     if (p.acceso && !window.confirm(`¿Crear un acceso nuevo para ${p.nombre}?\n\nEl enlace y el PIN anteriores dejan de valer al momento y se cierran sus ${p.sesiones || 0} sesiones abiertas.`)) return;
     const r = await hacer(() => rpc("puesto_acceso_nuevo", { p_puesto: p.id }));
@@ -70,11 +72,12 @@ export function Puestos({ ev, flash }) {
               {nombreDe(x.consumicion)}{x.comision_tipo ? ` · ${textoComision({ tipo: x.comision_tipo, valor: x.comision_valor })}` : ""}</span>)
               : <span style={{ fontSize: 13, color: "var(--amber)" }}>No puede canjear nada todavía</span>}
           </div>
-          <div style={{ fontSize: 12.5, marginTop: 8, color: p.acceso ? "var(--muted)" : "var(--amber)" }}>
-            {p.acceso ? `Acceso creado el ${fechaHora(p.acceso_creado_en)} · ${p.sesiones} ${p.sesiones === 1 ? "móvil conectado" : "móviles conectados"}${p.ultimo_uso ? ` · último uso ${fechaHora(p.ultimo_uso)}` : ""}` : "Sin acceso: crea su enlace y su PIN para que pueda escanear."}
+          <div style={{ fontSize: 12.5, marginTop: 8, color: p.sesiones ? "var(--muted)" : "var(--amber)" }}>
+            {p.sesiones ? `${p.sesiones} ${p.sesiones === 1 ? "móvil conectado" : "móviles conectados"}${p.ultimo_uso ? ` · último uso ${fechaHora(p.ultimo_uso)}` : ""}` : "Ningún móvil conectado: actívalo con el QR o envíale enlace y PIN."}{p.acceso ? ` · enlace creado el ${fechaHora(p.acceso_creado_en)}` : ""}
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
             <button disabled={busy} onClick={() => setEditar(p)} style={{ ...K.btn, flex: "1 1 100px", borderColor: "var(--accent)", color: "var(--accent)" }}>Editar</button>
+            {p.activo && <button disabled={busy} onClick={() => vincular(p)} style={{ ...K.btn, flex: "1 1 100%", minHeight: 50, borderColor: "var(--green)", color: "var(--green)" }}>📲 Activar un móvil con QR (sin PIN)</button>}
             {p.activo && <button disabled={busy} onClick={() => nuevoAcceso(p)} style={{ ...K.btn, flex: "1 1 150px" }}>{p.acceso ? "Nuevo enlace y PIN" : "Crear enlace y PIN"}</button>}
             {p.sesiones > 0 && <button disabled={busy} onClick={() => window.confirm(`¿Cerrar la sesión de ${p.nombre} en ${p.sesiones === 1 ? "su móvil" : `sus ${p.sesiones} móviles`}? Tendrán que volver a poner el PIN.`) && hacer(() => rpc("puesto_cerrar_sesiones", { p_puesto: p.id }), "✓ Sesiones cerradas")} style={{ ...K.btn, flex: "1 1 130px" }}>Cerrar sesiones</button>}
           </div>
@@ -83,6 +86,7 @@ export function Puestos({ ev, flash }) {
     </div>
     {editar && <EditorPuesto ev={ev} puesto={editar} consumiciones={consumiciones} flash={flash} onCerrar={(cambio) => { setEditar(null); if (cambio) cargar(); }} />}
     {acceso && <HojaAcceso {...acceso} ev={ev} onCerrar={() => setAcceso(null)} />}
+    {activar && <HojaActivar {...activar} onOtro={() => vincular(activar.puesto)} onCerrar={() => { setActivar(null); cargar(); }} />}
   </Escaparate>);
 }
 
@@ -214,6 +218,36 @@ function HojaAcceso({ puesto, token, pin, ev, onCerrar }) {
         </div>
         <div style={{ borderTop: "1px solid var(--line)", padding: "10px 16px calc(12px + env(safe-area-inset-bottom))" }}>
           <button onClick={() => window.confirm("¿Ya has copiado o enviado el enlace y el PIN? No se vuelven a mostrar.") && onCerrar()} style={{ ...K.prim, width: "100%" }}>Hecho</button>
+        </div>
+      </div>
+    </div>
+  </Capa>);
+}
+
+// QR de activación: el móvil del puesto lo escanea con su cámara y entra sin PIN (un solo uso, 15 min)
+function HojaActivar({ puesto, codigo, caduca_en, onOtro, onCerrar }) {
+  const url = `${window.location.origin}/p/activar?c=${encodeURIComponent(codigo)}`;
+  const [queda, setQueda] = useState(() => Math.max(0, new Date(caduca_en) - Date.now()));
+  useEffect(() => { const t = setInterval(() => setQueda(Math.max(0, new Date(caduca_en) - Date.now())), 1000); return () => clearInterval(t); }, [caduca_en]);
+  const min = Math.floor(queda / 60000), seg = Math.floor((queda % 60000) / 1000);
+  return (<Capa>
+    <div style={K.hojaWrap} onClick={onCerrar}>
+      <div role="dialog" aria-modal="true" aria-label={`Activar un móvil de ${puesto.nombre}`} onClick={e => e.stopPropagation()} style={K.hoja}>
+        <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid var(--line)", display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={{ flex: 1 }}><div style={{ fontWeight: 900, fontSize: 18 }}>Activar un móvil de {puesto.nombre}</div>
+            <div style={{ fontSize: 13, color: "var(--muted)" }}>Que lo escaneen con la cámara del móvil o tablet del puesto. Entra solo, sin PIN.</div></div>
+          <button onClick={onCerrar} style={K.btn} aria-label="Cerrar">✕</button>
+        </div>
+        <div data-scroll style={{ flex: 1, overflow: "auto", padding: 16, textAlign: "center" }}>
+          {queda > 0 ? <>
+            <div style={{ display: "inline-block", background: "#fff", padding: 12, borderRadius: 16 }}><QrCodigo texto={url} mm={62} margen={1} /></div>
+            <div style={{ fontSize: 15, fontWeight: 800, marginTop: 12 }}>Vale una sola vez · caduca en {min}:{String(seg).padStart(2, "0")}</div>
+            <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6, lineHeight: 1.45 }}>El móvil queda dentro todo el evento. Para otro móvil del mismo puesto, genera otro QR.</div>
+          </> : <div style={{ fontSize: 15, color: "var(--amber)", fontWeight: 800, padding: "30px 0" }}>Este QR ha caducado.</div>}
+        </div>
+        <div style={{ borderTop: "1px solid var(--line)", padding: "10px 16px calc(12px + env(safe-area-inset-bottom))", display: "flex", gap: 8 }}>
+          <button onClick={onOtro} style={{ ...K.btn, flex: 1 }}>Otro QR (otro móvil)</button>
+          <button onClick={onCerrar} style={{ ...K.prim, flex: 1 }}>Hecho</button>
         </div>
       </div>
     </div>

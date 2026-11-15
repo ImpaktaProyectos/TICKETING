@@ -67,16 +67,26 @@ export function useSonido() {
 
 // ===== Cámara =====
 // Android: lector nativo (BarcodeDetector); iPhone: lector en segundo plano (qr-scanner).
-// Si la cámara ya tiene permiso, se abre sola al entrar.
-export function useCamaraQR(onTexto, { alArrancar } = {}) {
+// Si la cámara ya tiene permiso, se abre sola al entrar, y si el móvil la cierra (pantalla bloqueada,
+// cambio de app), se vuelve a abrir sola al volver.
+// Opciones: alArrancar (p. ej. desbloquear el sonido) · mantenerEncendida (la pantalla no se apaga)
+//           · claveCamara (recuerda en este móvil si se usa la cámara trasera o la delantera)
+export function useCamaraQR(onTexto, { alArrancar, mantenerEncendida = false, claveCamara = null } = {}) {
   const video = useRef(null);
   const scanner = useRef(null);
   const cb = useRef(onTexto); cb.current = onTexto;
   const alArrancarRef = useRef(alArrancar); alArrancarRef.current = alArrancar;
+  const wake = useRef(null);
   const [empezado, setEmpezado] = useState(false);
   const [camErr, setCamErr] = useState(null);
   const [linterna, setLinterna] = useState(null);   // null = no disponible
   const [motor, setMotor] = useState("");
+  const [camara, setCamara] = useState(() => { try { return (claveCamara && localStorage.getItem(claveCamara)) || "environment"; } catch { return "environment"; } });
+  const camaraRef = useRef(camara); camaraRef.current = camara;
+  const pedirPantalla = async () => {
+    if (!mantenerEncendida || document.visibilityState !== "visible") return;
+    try { if (!wake.current || wake.current.released) wake.current = await navigator.wakeLock?.request("screen"); } catch {}
+  };
   const arrancar = async () => {
     alArrancarRef.current?.();
     setEmpezado(true); setCamErr(null);
@@ -85,11 +95,12 @@ export function useCamaraQR(onTexto, { alArrancar } = {}) {
       const QrScanner = (await import("qr-scanner")).default;
       if (scanner.current) { try { scanner.current.destroy(); } catch {} }
       const sc = new QrScanner(video.current, (r) => cb.current?.(r?.data || ""), {
-        preferredCamera: "environment", maxScansPerSecond: 12, returnDetailedScanResult: true,
+        preferredCamera: camaraRef.current, maxScansPerSecond: 15, returnDetailedScanResult: true,
         highlightScanRegion: false, highlightCodeOutline: false, onDecodeError: () => {},
       });
       scanner.current = sc;
       await sc.start();
+      pedirPantalla();
       try { setMotor(("BarcodeDetector" in window) ? "nativo" : "js"); } catch {}
       try { setLinterna((await sc.hasFlash()) ? false : null); } catch { setLinterna(null); }
     } catch (e) {
@@ -103,8 +114,40 @@ export function useCamaraQR(onTexto, { alArrancar } = {}) {
     // Se descarga ya el lector (y su versión para iPhone) para que funcione aunque luego se vaya internet
     import("qr-scanner").catch(() => {});
     import("qr-scanner/qr-scanner-worker.min.js").catch(() => {});
-    return () => { vivo = false; try { scanner.current?.destroy(); } catch {} };
+    // Al volver a la pantalla (tras bloquear el móvil o cambiar de app) la cámara y la pantalla se reactivan solas
+    const volver = () => { if (document.visibilityState !== "visible" || !scanner.current) return; scanner.current.start().catch(() => {}); pedirPantalla(); };
+    document.addEventListener("visibilitychange", volver);
+    return () => { vivo = false; document.removeEventListener("visibilitychange", volver); try { scanner.current?.destroy(); } catch {} try { wake.current?.release(); } catch {} };
   }, []);
   const toggleLinterna = async () => { try { await scanner.current?.toggleFlash(); setLinterna(!!scanner.current?.isFlashOn()); } catch {} };
-  return { video, empezado, camErr, linterna, motor, arrancar, toggleLinterna };
+  // Cámara trasera ↔ delantera (modo mostrador: el móvil en un soporte mirando a la cola)
+  const cambiarCamara = async () => {
+    const n = camaraRef.current === "user" ? "environment" : "user";
+    setCamara(n); camaraRef.current = n;
+    try { if (claveCamara) localStorage.setItem(claveCamara, n); } catch {}
+    try { await scanner.current?.setCamera(n); } catch {}
+  };
+  return { video, empezado, camErr, linterna, motor, arrancar, toggleLinterna, camara, cambiarCamara };
+}
+
+// ===== Pistola lectora (USB o Bluetooth en modo teclado) =====
+// Estas lectoras «escriben» el código muy deprisa y pulsan Intro. Se distingue de una persona
+// tecleando por la velocidad (menos de 60 ms entre letras). No se activa si se está escribiendo en un campo.
+export function useLectorTeclado(onTexto, activo = true) {
+  const cb = useRef(onTexto); cb.current = onTexto;
+  useEffect(() => {
+    if (!activo) return;
+    let buf = "", ultima = 0;
+    const tecla = (e) => {
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      const ahora = Date.now();
+      if (ahora - ultima > 60) buf = "";
+      ultima = ahora;
+      if (e.key === "Enter") { if (buf.length >= 10) { e.preventDefault(); cb.current?.(buf); } buf = ""; return; }
+      if (e.key.length === 1) buf += e.key;
+    };
+    window.addEventListener("keydown", tecla);
+    return () => window.removeEventListener("keydown", tecla);
+  }, [activo]);
 }

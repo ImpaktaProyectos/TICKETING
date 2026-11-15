@@ -14,7 +14,9 @@
 -- · Acceso del puesto: enlace secreto (/p/<token>) + PIN de 6 cifras. De los dos solo se guarda
 --   la huella (sha-256 del enlace, bcrypt del PIN): no se pueden volver a ver, solo regenerar.
 --   5 PIN fallidos → bloqueado 15 minutos. Al entrar se crea una sesión para ese móvil que
---   caduca al terminar el evento (12 h después del fin) y se puede cerrar desde el TPV.
+--   caduca al terminar el evento (12 h después del fin; sin fin, a los 3 días) y se puede cerrar desde el TPV.
+-- · Entrar SIN teclear el PIN: el organizador enseña un QR de activación (un solo uso, 15 minutos)
+--   y el móvil del puesto lo escanea. Pensado para montar los puestos en el evento en un momento.
 -- · El canje de un puesto SIEMPRE lo decide el servidor (sin internet no se da nada por bueno).
 --   Un ticket de un producto que el puesto no acepta → «no válido aquí» y el ticket NO se gasta.
 -- · El canje del TPV (ticket_canjear) sigue igual: ahora llama al mismo núcleo con puesto = null.
@@ -37,6 +39,8 @@ create table if not exists public.ticket_puestos (
   acceso_creado_en timestamptz,
   intentos int not null default 0,
   bloqueado_hasta timestamptz,
+  activar_huella text unique,                -- sha-256 del código de activación (un solo uso)
+  activar_caduca timestamptz,
   orden int not null default 0,
   creado_en timestamptz not null default now(),
   actualizado_en timestamptz not null default now(),
@@ -309,7 +313,10 @@ begin
       comision_tipo = v_tipo, comision_valor = v_val, actualizado_en = now()
     where id = v_id;
     -- Desactivar el puesto cierra sus sesiones al momento
-    if not coalesce((p ->> 'activo')::boolean, true) then update public.ticket_puesto_sesiones set revocada = true where puesto_id = v_id and not revocada; end if;
+    if not coalesce((p ->> 'activo')::boolean, true) then
+      update public.ticket_puesto_sesiones set revocada = true where puesto_id = v_id and not revocada;
+      update public.ticket_puestos set activar_huella = null, activar_caduca = null where id = v_id;
+    end if;
   end if;
   delete from public.ticket_puesto_productos where puesto_id = v_id;
   for x in select * from jsonb_array_elements(coalesce(p -> 'productos', '[]')) loop
@@ -455,9 +462,23 @@ $$;
 revoke all on function public.puesto_portada(text) from public;
 grant execute on function public.puesto_portada(text) to anon, authenticated;
 
+-- Abre una sesión para un móvil del puesto (la usan entrar con PIN y entrar con el QR de activación)
+create or replace function public.ticket_puesto_sesion_nueva(p_puesto uuid, p_dispositivo text)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare v_sec text; v_cad timestamptz; v_fin timestamptz; pu record;
+begin
+  select p.nombre, p.color, e.nombre as evento, e.fin into pu from public.ticket_puestos p join public.ticket_eventos e on e.id = p.evento_id where p.id = p_puesto;
+  v_sec := translate(encode(extensions.gen_random_bytes(32), 'base64'), '+/=', '-_');
+  v_cad := least(case when pu.fin is null then now() + interval '3 days' else greatest(pu.fin, now()) + interval '12 hours' end, now() + interval '7 days');
+  insert into public.ticket_puesto_sesiones (puesto_id, huella, dispositivo, caduca_en)
+  values (p_puesto, encode(extensions.digest(v_sec, 'sha256'), 'hex'), left(nullif(btrim(coalesce(p_dispositivo, '')), ''), 80), v_cad);
+  return jsonb_build_object('ok', true, 'sesion', v_sec, 'caduca_en', v_cad, 'puesto', pu.nombre, 'color', pu.color, 'evento', pu.evento);
+end $$;
+revoke all on function public.ticket_puesto_sesion_nueva(uuid, text) from public, anon, authenticated;
+
 create or replace function public.puesto_entrar(p_token text, p_pin text, p_dispositivo text default null)
 returns jsonb language plpgsql security definer set search_path = '' as $$
-declare p record; e record; v_sec text; v_cad timestamptz;
+declare p record; e record;
 begin
   if length(coalesce(p_token, '')) not between 20 and 64 then return jsonb_build_object('ok', false, 'motivo', 'enlace'); end if;
   select * into p from public.ticket_puestos where acceso_huella = encode(extensions.digest(p_token, 'sha256'), 'hex') for update;
@@ -473,14 +494,42 @@ begin
     return jsonb_build_object('ok', false, 'motivo', case when p.intentos + 1 >= 5 then 'bloqueado' else 'pin' end, 'quedan', greatest(0, 4 - p.intentos));
   end if;
   update public.ticket_puestos set intentos = 0, bloqueado_hasta = null where id = p.id;
-  v_sec := translate(encode(extensions.gen_random_bytes(32), 'base64'), '+/=', '-_');
-  v_cad := least(greatest(coalesce(e.fin, now()), now()) + interval '12 hours', now() + interval '7 days');
-  insert into public.ticket_puesto_sesiones (puesto_id, huella, dispositivo, caduca_en)
-  values (p.id, encode(extensions.digest(v_sec, 'sha256'), 'hex'), left(nullif(btrim(coalesce(p_dispositivo, '')), ''), 80), v_cad);
-  return jsonb_build_object('ok', true, 'sesion', v_sec, 'caduca_en', v_cad);
+  return public.ticket_puesto_sesion_nueva(p.id, p_dispositivo);
 end $$;
 revoke all on function public.puesto_entrar(text, text, text) from public;
 grant execute on function public.puesto_entrar(text, text, text) to anon, authenticated;
+
+-- QR de activación (organizador): un solo uso, 15 minutos. Se puede pedir otro cuando se quiera.
+create or replace function public.puesto_codigo_activar(p_puesto uuid)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare v_ev uuid; v_cod text; v_cad timestamptz := now() + interval '15 minutes';
+begin
+  select evento_id into v_ev from public.ticket_puestos where id = p_puesto and owner_id = (select auth.uid()) and activo;
+  if v_ev is null then raise exception using errcode = 'P0001', message = 'TIXFAST: el puesto no existe o está desactivado.'; end if;
+  perform public.ticket_dueno_evento(v_ev);
+  v_cod := translate(encode(extensions.gen_random_bytes(24), 'base64'), '+/=', '-_');
+  update public.ticket_puestos set activar_huella = encode(extensions.digest(v_cod, 'sha256'), 'hex'), activar_caduca = v_cad where id = p_puesto;
+  return jsonb_build_object('ok', true, 'codigo', v_cod, 'caduca_en', v_cad);
+end $$;
+revoke all on function public.puesto_codigo_activar(uuid) from public, anon;
+grant execute on function public.puesto_codigo_activar(uuid) to authenticated;
+
+-- El móvil del puesto escanea el QR de activación: entra sin PIN y el código deja de valer
+create or replace function public.puesto_activar(p_codigo text, p_dispositivo text default null)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare p record;
+begin
+  if length(coalesce(p_codigo, '')) not between 24 and 64 then return jsonb_build_object('ok', false, 'motivo', 'codigo'); end if;
+  select x.* into p from public.ticket_puestos x join public.ticket_eventos e on e.id = x.evento_id
+   where x.activar_huella = encode(extensions.digest(p_codigo, 'sha256'), 'hex') and x.activar_caduca > now()
+     and x.activo and e.ticket_style ->> 'modalidad' = 'multipuesto'
+   for update of x;
+  if not found then return jsonb_build_object('ok', false, 'motivo', 'codigo'); end if;
+  update public.ticket_puestos set activar_huella = null, activar_caduca = null where id = p.id;
+  return public.ticket_puesto_sesion_nueva(p.id, p_dispositivo);
+end $$;
+revoke all on function public.puesto_activar(text, text) from public;
+grant execute on function public.puesto_activar(text, text) to anon, authenticated;
 
 -- Sesión válida → el puesto (o nada). Apunta el último uso como mucho una vez por minuto.
 create or replace function public.ticket_puesto_de_sesion(p_sesion text)

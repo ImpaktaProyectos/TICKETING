@@ -29,6 +29,20 @@ capa del TPV: el CRM no cambia.
    - Registro de cada puesto (canjes y rechazos con la hora exacta).
    - Descarga en Excel (CSV).
 
+## Rápido en la cola
+- **El PIN no se pide en cada ticket:** una vez por móvil, y el móvil queda dentro todo el evento
+  (hasta 12 h después del fin; si el evento no tiene hora de fin, 3 días).
+- **Sin PIN:** «📲 Activar un móvil con QR». El organizador lo enseña en su móvil y el food truck lo
+  escanea con la cámara. Vale una vez y 15 minutos. Ideal para montar los puestos al empezar.
+- **Pantalla siempre encendida**, y la cámara se reabre sola al volver a la app o desbloquear el móvil.
+- **Pedido agrupado:** si el cliente da varios tickets, se escanean seguidos y arriba sale
+  «3 × Hamburguesa · 1 × Bebida» hasta pulsar «Listo» (o 20 s sin escanear). El verde dura menos de
+  1 segundo para seguir con el siguiente.
+- **Pistola lectora USB o Bluetooth** (modo teclado, 30–40 €): se escanea sin tocar el móvil.
+- **Modo mostrador:** botón 🔄 para usar la cámara delantera, con el móvil en un soporte mirando a la cola.
+- **Icono en la pantalla de inicio:** tras entrar, la dirección es `/p/sesion`. Añadida a la pantalla
+  de inicio, abre directamente el escáner.
+
 ## Seguridad
 - **Acceso:** enlace secreto (144 bits) + PIN de 6 cifras. En la base de datos solo se guarda su huella
   (SHA-256 y bcrypt). 5 PIN fallidos → 15 minutos bloqueado.
