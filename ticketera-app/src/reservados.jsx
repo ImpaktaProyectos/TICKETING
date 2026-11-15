@@ -6,9 +6,11 @@
 import { secretoDe, comprobar as comprobarPin, leerBloqueo, acierto, fallo } from "./pin";
 import { Capa } from "./Capa";
 import { enlacePedirBebidas, waNumero } from "./mensajesReservados";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import * as db from "./db";
-import { uid } from "./supabase";
+import { uid, supabase } from "./supabase";
+const PlanoReservados = lazy(() => import("./plano/VistaPlano"));
+const ReservaOnline = lazy(() => import("./ReservaOnlineConfig").then(m => ({ default: m.ReservaOnlineConfig })));
 
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const money = (n) => (Number(n) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
@@ -18,6 +20,7 @@ const COLORES = ["#a855f7", "#ffb400", "#ff5a3c", "#3b82f6", "#22d3a6", "#ec4899
 
 export const ESTADOS = {
   libre: { t: "Libre", c: "#838aa0", bg: "rgba(131,138,160,.12)" },
+  pendiente: { t: "Pagando online", c: "#c084fc", bg: "rgba(192,132,252,.14)" },
   reservado: { t: "Reservado", c: "#ffb400", bg: "rgba(255,180,0,.14)" },
   llegado: { t: "Ha llegado", c: "#22d3a6", bg: "rgba(34,211,166,.14)" },
   novino: { t: "No vino", c: "#ff4d4d", bg: "rgba(255,77,77,.12)" },
@@ -35,6 +38,7 @@ export function resCfg(ev) {
     extras: Array.isArray(c.extras) ? c.extras : [],
     promotores: Array.isArray(c.promotores) ? c.promotores : [],
     socios: Array.isArray(c.socios) ? c.socios : [],
+    plano: c.plano && typeof c.plano === "object" ? c.plano : null,   // plano de la sala (diseñador)
   };
 }
 export const resActivo = (ev) => { const c = resCfg(ev); return c.tarifas.length + c.extras.length > 0; };
@@ -149,8 +153,8 @@ export function itemPedido(r, cfg) {
   if (!c.hay || c.total == null) return null;
   return { id: c.tarifa?.id || "pedido", tipo: "tarifa", pedido: true, nombre: c.nombreVenta, precio: c.total, botellas: c.n, incluye: c.desc || c.tarifa?.incluye || "", emoji: c.tarifa?.emoji || "🛋️", color: c.tarifa?.color };
 }
-const BEBIDAS = ["Absolut", "Smirnoff", "Grey Goose", "Beefeater", "Puerto de Indias", "Bombay Sapphire", "Tanqueray", "Hendrick's", "Seagram's", "Barceló", "Brugal", "Bacardí", "Havana Club", "Ballantine's", "J&B", "Johnnie Walker", "Jack Daniel's", "Jägermeister", "Moët", "Champán"];
-const MEZCLAS = ["Coca-Cola", "Coca-Cola Zero", "Fanta Naranja", "Fanta Limón", "Sprite", "Seven Up", "Tónica", "Red Bull", "Zumo de piña", "Zumo de naranja", "Agua con gas", "Sin mezcla"];
+export const BEBIDAS = ["Absolut", "Smirnoff", "Grey Goose", "Beefeater", "Puerto de Indias", "Bombay Sapphire", "Tanqueray", "Hendrick's", "Seagram's", "Barceló", "Brugal", "Bacardí", "Havana Club", "Ballantine's", "J&B", "Johnnie Walker", "Jack Daniel's", "Jägermeister", "Moët", "Champán"];
+export const MEZCLAS = ["Coca-Cola", "Coca-Cola Zero", "Fanta Naranja", "Fanta Limón", "Sprite", "Seven Up", "Tónica", "Red Bull", "Zumo de piña", "Zumo de naranja", "Agua con gas", "Sin mezcla"];
 
 /* ============================================================
    ESTILOS (mismos colores y formas que el TPV)
@@ -306,6 +310,14 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
   const cfg = resCfg(ev);
   const [tab, setTab] = useState("mapa");
   const [ficha, setFicha] = useState(null);
+  // Vista de los reservados: tarjetas (de siempre) o plano de la sala
+  const [vistaRes, setVistaRes] = useState(() => { try { return localStorage.getItem("tixfast_res_vista") || "tarjetas"; } catch { return "tarjetas"; } });
+  const elegirVista = (v) => { setVistaRes(v); try { localStorage.setItem("tixfast_res_vista", v); } catch {} };
+  const crearReservado = async () => {
+    const n = res.reservados.length + 1;
+    const r = { id: uid(), nombre: `R${n}`, tamano: "pequeno", personas: null, orden: n, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: 0, senalMetodo: "", senalSocio: "", promotorId: "", llegadaEn: null };
+    await res.guardar(r); return r;
+  };
   const porUuid = useMemo(() => mapaVentas(sales), [sales]);
   const stats = useMemo(() => Object.fromEntries(res.reservados.map(r => [r.id, statsReservado(r, res.ventas, porUuid)])), [res.reservados, res.ventas, porUuid]);
   const cuenta = (e) => res.reservados.filter(r => r.estado === e).length;
@@ -391,7 +403,14 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
               : "El administrador aún no ha configurado los reservados de este evento."}
           </div>
         )}
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,minmax(0,1fr))" : "repeat(auto-fill, minmax(190px,1fr))", gap: isMobile ? 10 : 12, alignItems: isMobile ? "start" : "stretch" }}>
+        {!sinConfig && <div role="tablist" aria-label="Vista de los reservados" style={{ display: "inline-flex", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: 3, marginBottom: 12 }}>
+          {[["tarjetas", "▦ Tarjetas"], ["plano", "🗺️ Plano de la sala"]].map(([k, t]) => <button key={k} role="tab" aria-selected={vistaRes === k} onClick={() => elegirVista(k)} style={{ border: "none", borderRadius: 9, minHeight: 40, padding: "0 14px", fontWeight: 800, fontSize: 13.5, cursor: "pointer", background: vistaRes === k ? "var(--accent)" : "transparent", color: vistaRes === k ? "#fff" : "var(--text)" }}>{t}</button>)}
+        </div>}
+        {vistaRes === "plano" && !sinConfig && <Suspense fallback={<div style={{ color: "var(--muted)", padding: 20 }}>Cargando el plano…</div>}>
+          <PlanoReservados cfg={cfg} res={res} role={role} isMobile={isMobile} onAbrir={(id) => setFicha({ id })}
+            onCrearReservado={crearReservado} onGuardarPlano={async (plano) => { await onGuardarCfg({ ...cfg, plano }); flash("🗺️ Plano guardado"); }} />
+        </Suspense>}
+        {(vistaRes !== "plano" || sinConfig) && <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,minmax(0,1fr))" : "repeat(auto-fill, minmax(190px,1fr))", gap: isMobile ? 10 : 12, alignItems: isMobile ? "start" : "stretch" }}>
           {res.reservados.map(r => { const e = ESTADOS[r.estado] || ESTADOS.libre; const s = stats[r.id]; const t = tarifaDe(r); const P = calcPedido(r, cfg); return (
             <button key={r.id} onClick={() => setFicha({ id: r.id })} style={{ textAlign: "left", background: `linear-gradient(180deg, ${e.bg}, var(--surface))`, border: `2px solid ${e.c}`, borderRadius: 18, padding: 14, color: "var(--text)", cursor: "pointer", minHeight: isMobile && r.estado === "libre" ? 0 : 150, display: "flex", flexDirection: "column", gap: 4 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6 }}>
@@ -408,7 +427,7 @@ export function ReservadosVista({ ev, punto, role, res, sales, isMobile, flash, 
                 <span style={{ fontSize: 15, fontWeight: 900, color: s.total > 0 ? "var(--green)" : "var(--muted)" }}>{money(s.total)}</span>
               </div>
             </button>); })}
-        </div>
+        </div>}
       </>)}
 
       {tab === "config" && role === "admin" && <ConfigReservados ev={ev} cfg={cfg} res={res} isMobile={isMobile} flash={flash} onGuardarCfg={onGuardarCfg} />}
@@ -490,6 +509,10 @@ function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puede
         <span style={{ flex: 1 }}>✏️ Seguimos con lo que habías escrito{borr?.ts ? ` (${hora(new Date(borr.ts).toISOString())})` : ""}.</span>
         <button onClick={descartar} style={{ ...R.small, padding: "7px 10px" }}>Descartar</button>
       </div>}
+      {r.estado === "pendiente" && <div style={{ background: "rgba(192,132,252,.12)", border: "1px solid rgba(192,132,252,.45)", color: "#c084fc", borderRadius: 12, padding: "10px 12px", fontSize: 13.5, fontWeight: 700, marginBottom: 12 }}>
+        🌐 Un cliente está pagando esta mesa por la web. Si paga, quedará reservada con sus datos; si no, se libera sola en unos minutos.</div>}
+      {/^🌐 Reserva web/.test(r.nota || "") && <div style={{ background: "rgba(34,211,166,.1)", border: "1px solid rgba(34,211,166,.4)", color: "var(--green)", borderRadius: 12, padding: "10px 12px", fontSize: 13.5, fontWeight: 700, marginBottom: 12 }}>
+        🌐 Reservada por la web{r.senal > 0 ? ` · adelanto de ${money(r.senal)} pagado con tarjeta` : ""}.</div>}
       <Field label={nueva ? "Reservado" : mover ? "Reservado · toca otro para moverla" : "Reservado"}>
         <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4, WebkitOverflowScrolling: "touch" }}>
           {reservados.map(z => { const libre = z.estado === "libre" || z.id === r.id; const on = z.id === destino; const e = ESTADOS[z.id === r.id ? "libre" : z.estado] || ESTADOS.libre; const puede = libre && (mover || z.id === r.id); return (
@@ -502,7 +525,7 @@ function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puede
       </Field>
       {!nueva && <Field label="Estado">
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {Object.entries(ESTADOS).map(([k, e]) => <button key={k} onClick={() => set("estado", k)} style={{ ...R.chip, borderColor: x.estado === k ? e.c : "var(--line)", background: x.estado === k ? e.bg : "transparent", color: x.estado === k ? e.c : "var(--text)" }}>{e.t}</button>)}
+          {Object.entries(ESTADOS).filter(([k]) => k !== "pendiente" || x.estado === "pendiente").map(([k, e]) => <button key={k} onClick={() => set("estado", k)} style={{ ...R.chip, borderColor: x.estado === k ? e.c : "var(--line)", background: x.estado === k ? e.bg : "transparent", color: x.estado === k ? e.c : "var(--text)" }}>{e.t}</button>)}
         </div>
       </Field>}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -623,6 +646,9 @@ function ConfigReservados({ ev, cfg, res, isMobile, flash, onGuardarCfg }) {
         <label style={{ display: "inline-flex", alignItems: "center", gap: 8, marginLeft: "auto", fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>
           <input type="checkbox" checked={t.mostrar !== false} onChange={e => upd(k, t.id, { mostrar: e.target.checked })} style={{ width: 18, height: 18 }} />Mostrar en el TPV
         </label>
+        {k === "tarifas" && <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>
+          <input type="checkbox" checked={t.online !== false} onChange={e => upd(k, t.id, { online: e.target.checked })} style={{ width: 18, height: 18 }} />Reservable por la web
+        </label>}
         <button onClick={() => del(k, t.id)} style={{ ...R.small, color: "var(--red)" }}>Quitar</button>
       </div>
     </div>
@@ -691,6 +717,8 @@ function ConfigReservados({ ev, cfg, res, isMobile, flash, onGuardarCfg }) {
           <span>Añadir la línea «RESERVADO R3» al ticket<span style={{ display: "block", ...R.sub }}>El resto del ticket sale igual (misma plantilla y opciones). Si hay señal, se imprime también lo pagado antes y ahora.</span></span>
           <input type="checkbox" checked={d.lineaTicket} onChange={e => set("lineaTicket", e.target.checked)} style={{ width: 22, height: 22, flexShrink: 0 }} />
         </label>)}
+
+      <Suspense fallback={null}><ReservaOnline ev={ev} cfg={d} flash={flash} tieneplano={!!cfg.plano?.elementos?.length} /></Suspense>
 
       <div style={{ position: "sticky", bottom: 0, background: "var(--bg)", padding: "10px 0", display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
         {cambiado && <span style={{ color: "var(--amber)", fontWeight: 700, fontSize: 13 }}>Cambios sin guardar</span>}
@@ -835,7 +863,17 @@ export function InformeReservados({ ev, res, sales, isMobile }) {
 export async function copiarReservados(desdeId, haciaId) {
   try {
     const { reservados } = await db.loadReservados(desdeId);
-    for (const r of reservados) await db.guardarReservado({ ...r, id: uid(), eventId: haciaId, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: 0, senalMetodo: "", senalSocio: "", promotorId: "", llegadaEn: null, pedido: null });
+    const nuevos = {};
+    for (const r of reservados) { const id = uid(); nuevos[r.id] = id; await db.guardarReservado({ ...r, id, eventId: haciaId, estado: "libre", cliente: "", telefono: "", nota: "", tarifaId: "", senal: 0, senalMetodo: "", senalSocio: "", promotorId: "", llegadaEn: null, pedido: null }); }
+    // El plano copiado apunta a las mesas nuevas
+    try {
+      const { data } = await supabase.from("ticket_eventos").select("ticket_style").eq("id", haciaId).single();
+      const pl = data?.ticket_style?.reservados?.plano;
+      if (pl?.elementos) {
+        const plano = { ...pl, elementos: pl.elementos.map(e => (e.reservadoId ? { ...e, reservadoId: nuevos[e.reservadoId] || undefined } : e)) };
+        await supabase.from("ticket_eventos").update({ ticket_style: { ...data.ticket_style, reservados: { ...data.ticket_style.reservados, plano } } }).eq("id", haciaId);
+      }
+    } catch { /* el plano se vuelve a enlazar solo por el nombre de cada mesa */ }
     return reservados.length;
   } catch { return 0; }
 }

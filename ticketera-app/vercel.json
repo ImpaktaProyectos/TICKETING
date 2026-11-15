@@ -59,6 +59,10 @@
     {
       "source": "/compra/:acceso*",
       "destination": "/publico.html"
+    },
+    {
+      "source": "/r/:token*",
+      "destination": "/publico.html"
     }
   ]
 }
