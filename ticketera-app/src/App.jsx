@@ -66,7 +66,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.20b";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.20c";   // súbela al publicar cambios para verificar la actualización
 globalThis.TIXFAST_VERSION = APP_VERSION;
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
@@ -196,10 +196,10 @@ function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio, qr, n
       <Logo />
       {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 800, fontSize: 13, textTransform: "uppercase", color: "#000" }}>{ev.name}</div>}
       <Sub />
-      {ev.venue && <div style={{ textAlign: "center", fontSize: 11, color: "#000", fontWeight: 600 }}>{ev.venue}</div>}
+      {ev.venue && !qr && <div style={{ textAlign: "center", fontSize: 11, color: "#000", fontWeight: 600 }}>{ev.venue}</div>}
       {dashed}
       <div style={{ border: "3px solid #000", textAlign: "center", padding: "1.8mm 1.5mm", borderRadius: 2 }}><Name size={big} />{priceLine}{qtyLine}</div>
-      {dashed}
+      {!qr && dashed}
       {!qr && <div style={{ display: "flex", justifyContent: "space-between", ...metaStyle }}>{ev.showDate && <span>{dateFmt(ev.date).split(" de ")[0]}/{ev.date.slice(5, 7)}</span>}{ev.showTime && <span>{time}</span>}</div>}
       {ref && !qr && <div style={{ ...metaStyle, marginTop: "1mm" }}>{ref}</div>}
       {ev.footer && !qr && <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: qr ? 0 : "1.5mm", fontWeight: 600 }}>{ev.footer}</div>}
@@ -236,9 +236,9 @@ function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio, qr, n
       {dashed}
       <Name size={big} />
       {priceLine}{qtyLine}
-      {dashed}
+      {!qr && dashed}
       {!qr && <div style={{ display: "flex", justifyContent: "space-between", ...metaStyle }}>{ev.showDate && <span>{dateFmt(ev.date)}</span>}{ev.showTime && <span>{time}</span>}</div>}
-      {ev.venue && <div style={{ textAlign: "center", fontSize: 11, fontWeight: 600, marginTop: "1mm" }}>{ev.venue}</div>}
+      {ev.venue && !qr && <div style={{ textAlign: "center", fontSize: 11, fontWeight: 600, marginTop: "1mm" }}>{ev.venue}</div>}
       {ref && !qr && <div style={{ textAlign: "center", ...metaStyle, marginTop: "1mm" }}>{ref}</div>}
       {ev.footer && !qr && <div style={{ textAlign: "center", fontSize: 11, color: "#000", marginTop: "1.5mm", fontWeight: 600 }}>{ev.footer}</div>}
     </>);
@@ -253,7 +253,7 @@ function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio, qr, n
       {ev.showPrice && !(qty > 1) && <div style={{ fontWeight: 800, fontSize: priceSize, marginTop: "1.5mm" }}>{money(product?.price)}</div>}
       {qtyLine}
       <Sub />
-      <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />
+      {!qr && <div style={{ borderTop: "2px dashed #000", margin: "2mm 0" }} />}
       {!qr && <div style={{ ...metaStyle }}>{ev.showDate && dateFmt(ev.date)}{ev.showTime && ` · ${time}`}{ref && ` · ${ref}`}</div>}
       {ev.footer && !qr && <div style={{ fontSize: 11, color: "#000", marginTop: "1mm", fontWeight: 600 }}>{ev.footer}</div>}
     </>);
@@ -274,15 +274,17 @@ function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio, qr, n
     <div style={{ ...base, ...(st.border ? { border: "2px solid #000", borderRadius: 4 } : {}) }}>
       {inner}
       {qr && (
-        // Ticket validable: QR de un solo uso (se firma aquí mismo, sin internet) + folio para teclearlo si no se lee
-        <div className="qr-row" style={{ display: "flex", alignItems: "center", gap: "2mm", marginTop: "1.5mm", paddingTop: "1.5mm", borderTop: "2px dashed #000" }}>
-          <QrCodigo texto={qr} modulo={0.5} style={{ zoom: 1 }} />
+        // Ticket validable: QR grande (se firma aquí mismo, sin internet) + folio para teclearlo si no se lee.
+        // Cada cuadradito cae en puntos exactos de la impresora (8 puntos/mm): 0,75 mm = 6 puntos (rollo 80) · 0,625 mm = 5 puntos (rollo 58).
+        // ≈ 25 mm en 80 mm y ≈ 20,6 mm en 58 mm. Nunca se encoge: si el ticket se pasa de alto, se encoge lo demás.
+        <div className="qr-row" style={{ display: "flex", alignItems: "center", gap: ev.paper === 58 ? "1.5mm" : "2.5mm", marginTop: "1.5mm", paddingTop: "1.5mm", borderTop: "2px dashed #000" }}>
+          <QrCodigo texto={qr} modulo={ev.paper === 58 ? 0.625 : 0.75} style={{ zoom: 1 }} />
           <div style={{ flex: 1, minWidth: 0, color: "#000", lineHeight: 1.2 }}>
-            <div style={{ fontWeight: 900, fontSize: ev.paper === 58 ? 12 : 14, lineHeight: 1.1 }}>UN SOLO USO</div>
-            <div style={{ fontWeight: 700, fontSize: 10.5, marginTop: "0.5mm" }}>Las copias no valen</div>
-            {(ev.showDate || ev.showTime) && <div style={{ ...metaStyle, fontSize: 11, marginTop: "0.8mm" }}>{ev.showDate && `${dateFmt(ev.date).split(" de ")[0]}/${ev.date.slice(5, 7)}`}{ev.showDate && ev.showTime ? " · " : ""}{ev.showTime && time}</div>}
-            {folio && (ev.template !== "sello" || folio === "PRUEBA") && <div style={{ fontWeight: 900, fontSize: 12, marginTop: "0.5mm", overflowWrap: "anywhere" }}>{folio}</div>}
-            {ev.footer && <div style={{ fontSize: 10.5, fontWeight: 600, marginTop: "0.8mm", overflowWrap: "anywhere" }}>{ev.footer}</div>}
+            {(ev.showDate || ev.showTime) && (ev.paper === 58
+              ? <div style={{ fontWeight: 800, fontSize: 11, whiteSpace: "nowrap" }}>{ev.showDate && <div>{dateFmt(ev.date).split(" de ")[0]}/{ev.date.slice(5, 7)}</div>}{ev.showTime && <div>{time}</div>}</div>
+              : <div style={{ fontWeight: 800, fontSize: 13, whiteSpace: "nowrap" }}>{ev.showDate && `${dateFmt(ev.date).split(" de ")[0]}/${ev.date.slice(5, 7)}`}{ev.showDate && ev.showTime ? " · " : ""}{ev.showTime && time}</div>)}
+            {folio && (ev.template !== "sello" || folio === "PRUEBA") && <div style={{ fontWeight: 900, fontSize: ev.paper === 58 ? 13 : 16, marginTop: "1mm", letterSpacing: .3, overflowWrap: "anywhere", lineHeight: 1.1 }}>{folio}</div>}
+            {ev.footer && <div style={{ fontSize: ev.paper === 58 ? 10 : 11, fontWeight: 600, marginTop: "1mm", overflowWrap: "anywhere" }}>{ev.footer}</div>}
           </div>
         </div>
       )}
