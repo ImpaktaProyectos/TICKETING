@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import * as crm from "./crmdb";
 import { money, r2, parseImporte, fechaCorta, useIsMobile, C, Icon, Tile, Badge, Seg, Head, Sheet, Field, IconGrid, MoneyInput } from "./ui";
 import { Vacio, Switch } from "./Ingresos";
-import { FAMILIAS, famInfo, UNIDADES, uniTxt, TIPOS_MOV, tipoInfo, stockCfg, num, medidaTxt, cantTxt, factor, formato, materialDe, FORMATOS_TIPICOS, sugerirReceta, recetaTxt, calcularStock, CATALOGO_MONTEAGUDO, cuentasPedido, mezclaDe, normalizarMezcla, recomendarMezcla, botellasPorMezcla, costeMlMezcla, propuestaDevolucion } from "./stockModelo";
+import { repartoSobrante, FAMILIAS, famInfo, UNIDADES, uniTxt, TIPOS_MOV, tipoInfo, stockCfg, num, medidaTxt, cantTxt, factor, formato, materialDe, FORMATOS_TIPICOS, sugerirReceta, recetaTxt, calcularStock, CATALOGO_MONTEAGUDO, cuentasPedido, mezclaDe, normalizarMezcla, recomendarMezcla, botellasPorMezcla, costeMlMezcla, propuestaDevolucion } from "./stockModelo";
 import { SubirFactura, Documentos, Sobrante, Almacen, TraerAlmacen, useAlmacen, CuentasPedido } from "./StockDocs";
 
 const QUIEN = "Admin";
@@ -76,7 +76,7 @@ function Resumen({ ev, d, S, isMobile, ir, alm }) {
     { k: "entradas", i: "plus", t: "Entradas", sub: S.nMovs ? `${S.nMovs} apuntes · ${money(S.valorEntrada)}` : "Apunta lo que llega", hecho: S.nMovs > 0 },
     { k: "recetas", i: "glass", t: "Recetas", sub: prodVendidos.length ? `${prodOk} de ${prodVendidos.length} confirmadas` : `${S.productos.length} productos del TPV`, hecho: prodVendidos.length > 0 ? prodOk === prodVendidos.length : S.productos.length > 0 && S.productos.every(p => p.estado === "confirmada" || p.estado === "nogasta") },
     { k: "recuento", i: "clipboard", t: "Recuento final", sub: F.sellado ? (S.incompletas.length ? "Sellado · con artículos sin contar" : "Sellado") : d.conteo ? `${contados} de ${enRecuento.length} contados` : "Al cerrar el evento", hecho: F.sellado },
-    (() => { const pend = F.sellado ? propuestaDevolucion({ articulos: d.articulos, lineas: d.lineas, movimientos: d.movimientos }).filter(p => p.pendiente > 0).length : null;
+    (() => { const pend = F.sellado ? repartoSobrante({ articulos: d.articulos, lineas: d.lineas, movimientos: d.movimientos }).filter(p => p.pendiente > 0).length : null;
       return { k: "sobrante", i: "truck", t: "Lo que sobra", sub: !F.sellado ? "Después del recuento" : pend ? `${pend} por devolver o guardar` : "Todo decidido", hecho: F.sellado && pend === 0 }; })(),
   ];
   const siguiente = pasos.find(p => !p.hecho)?.k;

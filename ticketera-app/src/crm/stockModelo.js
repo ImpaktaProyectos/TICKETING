@@ -435,3 +435,51 @@ export function botellasPorMezcla(mlTotal, pct = {}, articulos = []) {
     .map(a => ({ a, pct: pct[a.id], ml: mlTotal * pct[a.id] / 100, botellas: Math.round(mlTotal * pct[a.id] / 100 / Number(a.ml) * 10) / 10 }))
     .sort((x, y) => y.pct - x.pct);
 }
+
+// ---- Reparto de lo que sobra tras el recuento: qué se puede devolver y qué va al almacén ----
+// Devolver: solo lo cerrado y lleno (botellas llenas; en packs, las cajas completas, aunque se pueden añadir sueltas llenas).
+// Almacén: lo abierto (¼, ½, ¾) y los packs incompletos, que el proveedor no recoge. Todo a precio de compra.
+export function repartoSobrante({ articulos = [], lineas = [], movimientos = [] }) {
+  const anulados = new Set(movimientos.filter(m => m.tipo === "anulacion").map(m => m.anulaId));
+  const salido = (tipo) => { const o = {}; movimientos.filter(m => m.tipo === tipo && m.trasRecuento && !anulados.has(m.id)).forEach(m => { o[m.articuloId] = (o[m.articuloId] || 0) + m.cantidad; }); return o; };
+  const yaDev = salido("devolucion"), yaAlm = salido("traspaso_salida");
+  return lineas.map(l => {
+    const a = articulos.find(x => x.id === l.articuloId);
+    if (!a || famInfo(a.familia).noAudita) return null;
+    const pc = a.porCaja || 1;
+    const cajas = Number(l.cajas) || 0, sueltas = Number(l.sueltas) || 0, abierta = Number(l.abierta) || 0;
+    const total = r2(cajas * pc + sueltas + abierta);
+    const llenas = r2(cajas * pc + sueltas);                       // cerradas y llenas
+    const yaDevuelto = yaDev[a.id] || 0, yaAlmacen = yaAlm[a.id] || 0;
+    const pendiente = r2(Math.max(0, total - yaDevuelto - yaAlmacen));
+    // Lo guardado en el almacén se entiende que fue primero lo abierto; lo abierto nunca se devuelve. Solo unidades enteras.
+    const abiertaQueda = Math.max(0, abierta - yaAlmacen);
+    const devolverMax = Math.floor(Math.max(0, Math.min(llenas - yaDevuelto, pendiente - abiertaQueda)) + 1e-9);
+    // Propuesta: cajas completas (o botellas llenas si se cuentan sueltas); los vasos y lo de «otros», al almacén
+    const completas = pc > 1 ? cajas * pc : sueltas;
+    const propDevolver = ["vaso", "otros"].includes(a.familia) ? 0 : Math.max(0, Math.min(Math.floor(completas - yaDevuelto + 1e-9), devolverMax));
+    return { a, cajas, sueltas, abierta, total, llenas, yaDevuelto, yaAlmacen, pendiente, devolverMax, propDevolver };
+  }).filter(x => x && x.total > 0);
+}
+
+// Cantidad legible con la botella abierta: 4,5 → «4 botellas + ½»; 0,25 → «¼ de botella»
+const FRAC = { 0.25: "¼", 0.5: "½", 0.75: "¾" };
+export function cantAbierta(a, u) {
+  const x = r2(Number(u) || 0), ent = Math.floor(x + 1e-9), fr = r2(x - ent), f = FRAC[fr];
+  const pc = a?.porCaja || 1;
+  // «2 cajas de 24 + 10 latas» / «10 latas» (sin el «= …» del recuento)
+  const enteras = (n) => { if (pc <= 1) return `${num(n, 0)} ${uniTxt(a?.unidad, n)}`; const c = Math.floor(n / pc + 1e-9), s = n - c * pc;
+    return [c ? `${num(c, 0)} ${c === 1 ? "caja" : "cajas"} de ${pc}` : null, s ? `${num(s, 0)} ${uniTxt(a?.unidad, s)}` : null].filter(Boolean).join(" + ") || `0 ${uniTxt(a?.unidad, 0)}`; };
+  if (!f) return fr ? cantTxt(a, x) : enteras(ent);
+  if (!ent) return `${f} de ${uniTxt(a?.unidad, 1)}`;
+  return `${enteras(ent)} + ${f}`;
+}
+
+// IVA habitual de venta de cada familia (para valorar lo que se lleva un socio con IVA)
+export const IVA_FAMILIA = { destilado: 21, cerveza: 21, refresco: 10, agua: 10, energetica: 10, vaso: 21, envase: 21, otros: 21 };
+// Valor de lo que hay (o se lleva alguien) del almacén, a precio de compra
+export function valorAlmacen(lineas = []) {
+  const out = { base: 0, iva: 0 };
+  lineas.forEach(({ a, q, coste }) => { const b = Math.max(0, q) * (coste || 0); out.base += b; out.iva += b * (IVA_FAMILIA[a.familia] ?? 21) / 100; });
+  return { base: r2(out.base), iva: r2(out.iva), total: r2(out.base + out.iva) };
+}

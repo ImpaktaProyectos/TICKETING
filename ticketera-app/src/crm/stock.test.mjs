@@ -30,7 +30,7 @@ ok("familias por la descripción", () => {
 });
 
 // ---------- Cuentas del pedido ----------
-const ron = { id: "ron", nombre: "Ron", familia: "destilado", ml: 700, coste: 10, porCaja: 1 };
+const ron = { id: "ron", nombre: "Ron", familia: "destilado", unidad: "botella", ml: 700, coste: 10, porCaja: 1 };
 const gin = { id: "gin", nombre: "Gin", familia: "destilado", ml: 700, coste: 14, porCaja: 1 };
 const cola = { id: "cola", nombre: "Cola 20cl ret", familia: "refresco", ml: 200, coste: 0.5, porCaja: 24, retornable: true };
 const caja = { id: "env", nombre: "Envase cola", familia: "envase", coste: 4, porCaja: 1 };
@@ -96,6 +96,34 @@ ok("falta: quedan 1 botella → faltan 1,9 botellas sin justificar, valoradas a 
     conteo: { estado: "sellado" }, lineas: [{ articuloId: "ron", total: 1 }], cfg: S.STOCK_DEF });
   const f = R.familias.find(x => x.k === "destilado");
   assert.equal(f.estado, "falta"); assert.equal(f.dif, 1300); assert.equal(f.difCoste, 18.57);
+});
+
+// ---------- Lo que sobra: devolver lo cerrado, al almacén lo abierto y los packs incompletos ----------
+const rb = { id: "rb", nombre: "Red Bull", familia: "energetica", unidad: "lata", ml: 250, coste: 1.2, porCaja: 24 };
+ok("reparto: 8 botellas + ½ → propone devolver 8; la ½ abierta va al almacén", () => {
+  const [x] = S.repartoSobrante({ articulos: [ron], lineas: [{ articuloId: "ron", cajas: 0, sueltas: 8, abierta: 0.5, total: 8.5 }] });
+  assert.equal(x.total, 8.5); assert.equal(x.devolverMax, 8); assert.equal(x.propDevolver, 8); assert.equal(x.pendiente, 8.5);
+});
+ok("reparto: Red Bull 2 cajas + 10 latas → propone devolver 48; las 10 sueltas al almacén (se pueden añadir)", () => {
+  const [x] = S.repartoSobrante({ articulos: [rb], lineas: [{ articuloId: "rb", cajas: 2, sueltas: 10, abierta: 0, total: 58 }] });
+  assert.equal(x.propDevolver, 48); assert.equal(x.devolverMax, 58); assert.equal(x.pendiente, 58);
+});
+ok("reparto: lo ya devuelto o guardado se descuenta", () => {
+  const movs = [M("1", "devolucion", "ron", 4, { trasRecuento: true }), M("2", "traspaso_salida", "ron", 2, { trasRecuento: true })];
+  const [x] = S.repartoSobrante({ articulos: [ron], lineas: [{ articuloId: "ron", cajas: 0, sueltas: 8, abierta: 0.5, total: 8.5 }], movimientos: movs });
+  assert.equal(x.pendiente, 2.5); assert.equal(x.devolverMax, 2); assert.equal(x.propDevolver, 2);
+});
+ok("la abierta nunca se devuelve: 3 llenas + ¾ → como mucho 3", () => {
+  const [x] = S.repartoSobrante({ articulos: [ron], lineas: [{ articuloId: "ron", cajas: 0, sueltas: 3, abierta: 0.75, total: 3.75 }] });
+  assert.equal(x.devolverMax, 3); assert.equal(x.pendiente, 3.75);
+});
+ok("cantidad con la abierta: «4 botellas + ½», «¾ de botella»", () => {
+  assert.equal(S.cantAbierta(rb, 10), "10 latas"); assert.equal(S.cantAbierta(rb, 58), "2 cajas de 24 + 10 latas");
+  assert.equal(S.cantAbierta(ron, 4.5), "4 botellas + ½"); assert.equal(S.cantAbierta(ron, 0.75), "¾ de botella"); assert.equal(S.cantAbierta(ron, 3), "3 botellas");
+});
+ok("valor del almacén a precio de compra, con el IVA de cada familia", () => {
+  const v = S.valorAlmacen([{ a: ron, q: 4.5, coste: 10 }, { a: rb, q: 10, coste: 1.2 }]);
+  assert.deepEqual(v, { base: 57, iva: 10.65, total: 67.65 });   // 45 × 21 % + 12 × 10 %
 });
 
 console.log(`\n${n} pruebas de stock correctas`);

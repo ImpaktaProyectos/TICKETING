@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import * as crm from "./crmdb";
 import { money, r2, fechaCorta, useIsMobile, C, Icon, Tile, Badge, Seg, Head, Sheet, Field } from "./ui";
 import { Vacio, Switch } from "./Ingresos";
-import { famInfo, uniTxt, num, cantTxt, formato, articuloDesdeLinea, propuestaDevolucion, cuentasPedido, FAMILIAS } from "./stockModelo";
+import { famInfo, uniTxt, num, cantTxt, formato, articuloDesdeLinea, repartoSobrante, cantAbierta, valorAlmacen, IVA_FAMILIA, cuentasPedido, FAMILIAS } from "./stockModelo";
 import { catsGasto } from "./categorias";
 import { interpretarMonteagudo, interpretarGenerico, leerPdf, unidadesLinea } from "./facturaPdf";
 
@@ -322,18 +322,24 @@ function DocDetalle({ x, d, busy, onClose, onAnular }) {
 /* ===================== QUÉ HACER CON LO QUE SOBRA (devolver o guardar en el almacén) ===================== */
 export function Sobrante({ ev, d, busy, run, isMobile, ir }) {
   const sellado = d.conteo?.estado === "sellado";
-  const base = useMemo(() => propuestaDevolucion({ articulos: d.articulos, lineas: d.lineas, movimientos: d.movimientos }), [d]);
-  const [plan, setPlan] = useState(() => Object.fromEntries(base.map(p => [p.a.id, { destino: p.a.familia === "vaso" ? "almacen" : "devolver", unidades: p.pendiente }])));
-  useEffect(() => { setPlan(Object.fromEntries(base.map(p => [p.a.id, { destino: plan[p.a.id]?.destino || (p.a.familia === "vaso" ? "almacen" : "devolver"), unidades: p.pendiente }]))); }, [base]);
+  // Reparto: lo cerrado y lleno se puede devolver; lo abierto y los packs incompletos van al almacén
+  const base = useMemo(() => repartoSobrante({ articulos: d.articulos, lineas: d.lineas, movimientos: d.movimientos }), [d]);
+  const filas = base.filter(p => p.pendiente > 0);
+  const [plan, setPlan] = useState({});            // { artId: { devolver: unidades, guardar: el resto va al almacén } }
+  useEffect(() => { setPlan(q => Object.fromEntries(filas.map(p => [p.a.id, { devolver: Math.min(q[p.a.id]?.devolver ?? p.propDevolver, p.devolverMax), guardar: q[p.a.id]?.guardar ?? true }]))); }, [base]);
+  const planDe = (p) => plan[p.a.id] || { devolver: p.propDevolver, guardar: true };
+  const devolverU = (p) => Math.max(0, Math.min(planDe(p).devolver, p.devolverMax));
+  const restoU = (p) => r2(p.pendiente - devolverU(p));
+  const almacenU = (p) => (planDe(p).guardar ? restoU(p) : 0);
+  const setDevolver = (p, v) => setPlan(q => ({ ...q, [p.a.id]: { ...planDe(p), devolver: Math.max(0, Math.min(p.devolverMax, Math.round(Number(v) || 0))) } }));
   const envases = d.articulos.filter(a => a.activo && famInfo(a.familia).noAudita);
   const [vacios, setVacios] = useState({});
   const costeDe = (a) => { const ms = d.movimientos.filter(m => m.articuloId === a.id && (m.tipo === "entrada" || m.tipo === "traspaso_entrada") && m.costeUnidad != null); const u = ms.reduce((t, m) => t + m.cantidad, 0); return u ? ms.reduce((t, m) => t + m.cantidad * m.costeUnidad, 0) / u : (a.coste || 0); };
   const devs = d.documentos.filter(x => x.tipo === "devolucion" && x.estado !== "anulado");
-  const filas = base.filter(p => p.pendiente > 0);
-  const aDevolver = filas.filter(p => plan[p.a.id]?.destino === "devolver" && plan[p.a.id]?.unidades > 0);
-  const aAlmacen = filas.filter(p => plan[p.a.id]?.destino === "almacen" && plan[p.a.id]?.unidades > 0);
-  const estimado = r2(aDevolver.reduce((t, p) => t + plan[p.a.id].unidades * costeDe(p.a), 0));
-  const valorAlm = r2(aAlmacen.reduce((t, p) => t + plan[p.a.id].unidades * costeDe(p.a), 0));
+  const aDevolver = filas.filter(p => devolverU(p) > 0);
+  const aAlmacen = filas.filter(p => almacenU(p) > 0);
+  const estimado = r2(aDevolver.reduce((t, p) => t + devolverU(p) * costeDe(p.a), 0));
+  const valorAlm = r2(aAlmacen.reduce((t, p) => t + almacenU(p) * costeDe(p.a), 0));
   const nVacios = Object.values(vacios).reduce((t, v) => t + (v || 0), 0);
   // Cajas vacías que siguen fuera (cargadas y aún no devueltas): se pueden devolver aunque no sobre bebida
   const anulados = useMemo(() => new Set(d.movimientos.filter(m => m.tipo === "anulacion").map(m => m.anulaId)), [d.movimientos]);
@@ -344,24 +350,25 @@ export function Sobrante({ ev, d, busy, run, isMobile, ir }) {
   const abonoTotal = r2(estimado + envVal);
   // Cuentas del pedido: lo que entró, lo que vuelve, lo que se guarda y lo que de verdad cuesta (sin IVA)
   const cuentas = useMemo(() => cuentasPedido({ articulos: d.articulos, movimientos: d.movimientos,
-    plan: [...aDevolver, ...aAlmacen].map(p => ({ articuloId: p.a.id, destino: plan[p.a.id].destino, unidades: plan[p.a.id].unidades })), vacios }), [d, plan, vacios]);
+    plan: [...aDevolver.map(p => ({ articuloId: p.a.id, destino: "devolver", unidades: devolverU(p) })), ...aAlmacen.map(p => ({ articuloId: p.a.id, destino: "almacen", unidades: almacenU(p) }))], vacios }), [d, plan, vacios]);
 
+  const queda = (p) => [p.cajas ? `${num(p.cajas, 0)} ${p.cajas === 1 ? "caja" : "cajas"} de ${p.a.porCaja}` : null, p.sueltas ? `${num(p.sueltas)} ${uniTxt(p.a.unidad, p.sueltas)}${p.cajas ? " sueltas" : ""}` : null, p.abierta ? `${({ 0.25: "¼", 0.5: "½", 0.75: "¾" })[p.abierta] || num(p.abierta)} abierta` : null].filter(Boolean).join(" + ") || cantAbierta(p.a, p.total);
   const lineaTxt = (a, u) => { const pc = a.porCaja || 1; if (pc <= 1) return `${num(u)} ${uniTxt(a.unidad, u)}`; const c = Math.floor(u / pc + 1e-9), s = r2(u - c * pc); return [c ? `${c} ${c === 1 ? "caja" : "cajas"} de ${pc}` : null, s ? `${num(s)} ${uniTxt(a.unidad, s)}` : null].filter(Boolean).join(" + ") || `${num(u)} ${uniTxt(a.unidad, u)}`; };
   const mensaje = () => {
-    const ls = aDevolver.map(p => `• ${lineaTxt(p.a, plan[p.a.id].unidades)} de ${p.a.nombre}${p.a.codigo ? ` (cód. ${p.a.codigo})` : ""}`);
+    const ls = aDevolver.map(p => `• ${lineaTxt(p.a, devolverU(p))} de ${p.a.nombre}${p.a.codigo ? ` (cód. ${p.a.codigo})` : ""}`);
     const vs = envases.filter(a => vacios[a.id] > 0).map(a => `• ${vacios[a.id]} ${vacios[a.id] === 1 ? "caja vacía" : "cajas vacías"} de ${a.nombre}`);
     return [`Hola, os devolvemos lo que ha sobrado de *${ev.name}*${ev.date ? ` (${ev.date.split("-").reverse().join("/")})` : ""}:`, "", ...ls, ...(vs.length ? ["", "Envases:", ...vs] : []), "", envVal > 0 && estimado > 0 ? `Abono estimado: ${money(estimado)} de bebida + ${money(envVal)} de envases = ${money(abonoTotal)} + IVA.` : `Abono estimado: ${money(abonoTotal)} + IVA.`, "Gracias."].join("\n");
   };
   const confirmar = () => run(async () => {
     let docId = null;
     if (aDevolver.length || nVacios) {
-      const lineas = [...aDevolver.map(p => ({ articuloId: p.a.id, nombre: p.a.nombre, codigo: p.a.codigo, unidades: plan[p.a.id].unidades, coste: costeDe(p.a) })),
+      const lineas = [...aDevolver.map(p => ({ articuloId: p.a.id, nombre: p.a.nombre, codigo: p.a.codigo, unidades: devolverU(p), coste: costeDe(p.a) })),
         ...envases.filter(a => vacios[a.id] > 0).map(a => ({ articuloId: a.id, nombre: a.nombre, codigo: a.codigo, unidades: Math.min(vacios[a.id], envPend[a.id] || 0), coste: costeDe(a), envase: true })).filter(l => l.unidades > 0)];
       const doc = await crm.crearDocumento({ eventoId: ev.id, proveedor: aDevolver[0]?.a.proveedor || envasesCon.find(a => vacios[a.id] > 0)?.proveedor || "Proveedor", tipo: "devolucion", estado: "entregada", base: abonoTotal, total: null, lineas });
       docId = doc.id;
       await crm.addMovimientos(lineas.map(l => ({ eventoId: ev.id, articuloId: l.articuloId, tipo: "devolucion", cantidad: l.unidades, costeUnidad: l.coste, documentoId: doc.id, trasRecuento: true, creadoPor: QUIEN, clave: `dev:${doc.id}:${l.articuloId}` })));
     }
-    if (aAlmacen.length) await crm.addMovimientos(aAlmacen.map(p => ({ eventoId: ev.id, articuloId: p.a.id, tipo: "traspaso_salida", cantidad: plan[p.a.id].unidades, costeUnidad: costeDe(p.a), trasRecuento: true, creadoPor: QUIEN, nota: "Sobrante guardado en el almacén", clave: `alm:${ev.id}:${p.a.id}:${Date.now()}` })));
+    if (aAlmacen.length) await crm.addMovimientos(aAlmacen.map(p => ({ eventoId: ev.id, articuloId: p.a.id, tipo: "traspaso_salida", cantidad: almacenU(p), costeUnidad: costeDe(p.a), trasRecuento: true, creadoPor: QUIEN, nota: p.abierta ? "Sobrante guardado en el almacén (con botella abierta)" : "Sobrante guardado en el almacén", clave: `alm:${ev.id}:${p.a.id}:${Date.now()}` })));
   }, aDevolver.length && aAlmacen.length ? "Devolución y almacén apuntados" : aAlmacen.length ? "Guardado en el almacén" : "Devolución apuntada");
 
   if (!sellado) return (
@@ -379,25 +386,47 @@ export function Sobrante({ ev, d, busy, run, isMobile, ir }) {
       </section>); })}
 
     {filas.length === 0 ? (
-      <section style={C.panel}><Vacio i="check" t="No queda nada cerrado por devolver ni guardar." sub={devs.length ? "Ya está todo apuntado." : "Según el recuento, no sobró nada cerrado."} /></section>
+      <section style={C.panel}><Vacio i="check" t="No queda nada por devolver ni guardar." sub={devs.length ? "Ya está todo apuntado." : "Según el recuento, no sobró nada."} /></section>
     ) : (<>
       <section style={{ ...C.hero, padding: isMobile ? 16 : 20 }}>
-        <div style={C.label}>Lo que sobró cerrado · {ev.name}</div>
-        <div style={{ fontSize: 14, color: "var(--muted)", marginTop: 4, lineHeight: 1.5 }}>Sale del recuento final. Decide qué se devuelve a {filas[0].a.proveedor || "proveedor"} y qué se guarda en el almacén para el próximo evento. Las botellas abiertas no cuentan.</div>
+        <div style={C.label}>Lo que sobró · {ev.name}</div>
+        <div style={{ fontSize: 14, color: "var(--muted)", marginTop: 4, lineHeight: 1.5 }}>Ya está repartido: <b style={{ color: "var(--text)" }}>lo cerrado y lleno se devuelve</b> a {filas[0].a.proveedor || "proveedor"} (te hará una factura de abono) y <b style={{ color: "var(--text)" }}>lo abierto y los packs incompletos van al almacén</b>. Si quieres devolver menos, baja el número: el resto pasa solo al almacén.</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
           <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)" }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Se devuelve</div><div style={{ fontWeight: 900, fontSize: 19, color: "var(--blue)" }}>{money(abonoTotal)}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>abono estimado, sin IVA{envVal > 0 ? ` (${money(envVal)} de envases)` : ""}</div></div>
-          <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)" }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Se guarda</div><div style={{ fontWeight: 900, fontSize: 19, color: "var(--teal)" }}>{money(valorAlm)}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>en el almacén, a coste</div></div>
+          <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)" }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Se guarda</div><div style={{ fontWeight: 900, fontSize: 19, color: "var(--teal)" }}>{money(valorAlm)}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>en el almacén, a precio de compra</div></div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+          <button onClick={() => setPlan(Object.fromEntries(filas.map(p => [p.a.id, { devolver: p.devolverMax, guardar: true }])))} style={C.btnSm}><Icon n="truck" s={14} />Devolver todo lo cerrado</button>
+          <button onClick={() => setPlan(Object.fromEntries(filas.map(p => [p.a.id, { devolver: 0, guardar: true }])))} style={C.btnSm}><Icon n="box" s={14} />Todo al almacén</button>
         </div>
       </section>
       <section style={C.panel}>
-        <Head i="box" t="Artículo por artículo" right={<span style={{ display: "flex", gap: 6 }}><button onClick={() => setPlan(p => Object.fromEntries(Object.entries(p).map(([k, v]) => [k, { ...v, destino: "devolver" }])))} style={C.btnSm}>Todo devolver</button><button onClick={() => setPlan(p => Object.fromEntries(Object.entries(p).map(([k, v]) => [k, { ...v, destino: "almacen" }])))} style={C.btnSm}>Todo al almacén</button></span>} />
-        {filas.map(p => { const f = famInfo(p.a.familia), x = plan[p.a.id] || { destino: "devolver", unidades: p.pendiente }; return (
-          <div key={p.a.id} style={{ ...C.row, flexWrap: "wrap" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: "1 1 220px" }}><Tile n={f.i} c={f.c} s={34} /><span style={{ minWidth: 0 }}><b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.a.nombre}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>{lineaTxt(p.a, x.unidades)} · {money(x.unidades * costeDe(p.a))}{p.yaDevuelto ? ` · ya salieron ${num(p.yaDevuelto)}` : ""}</span></span></span>
-            <span style={{ display: "flex", alignItems: "center", gap: 8, ...(isMobile ? { flex: "1 1 100%", minWidth: 0 } : { flexShrink: 0 }) }}>
-              <input inputMode="decimal" value={String(x.unidades).replace(".", ",")} onChange={e => { const v = Math.min(p.pendiente, parseFloat(e.target.value.replace(/[^\d.,]/g, "").replace(",", ".")) || 0); setPlan(q => ({ ...q, [p.a.id]: { ...x, unidades: v } })); }} style={{ ...C.input, width: 70, textAlign: "right", fontWeight: 900, padding: "8px 10px" }} aria-label={`Unidades de ${p.a.nombre}`} />
-              <span style={{ flex: isMobile ? "1 1 auto" : "none", minWidth: 0 }}><Seg full={isMobile} size="sm" valor={x.destino} onChange={(k) => setPlan(q => ({ ...q, [p.a.id]: { ...x, destino: k } }))} opciones={[{ k: "devolver", t: "Devolver", i: isMobile ? null : "truck", c: "#3b82f6" }, { k: "almacen", t: "Almacén", i: isMobile ? null : "box", c: "#14b8a6" }, { k: "nada", t: "Nada", c: "var(--surface)", ink: "var(--text)" }]} /></span>
-            </span>
+        <Head i="box" t="Artículo por artículo" sub="Toca − o + para decidir cuánto se devuelve. El resto va al almacén." />
+        {filas.map(p => { const f = famInfo(p.a.familia), dv = devolverU(p), al = almacenU(p), resto = restoU(p), c = costeDe(p.a), pl = planDe(p); return (
+          <div key={p.a.id} style={{ padding: "12px 0", borderTop: "1px solid var(--line)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, marginBottom: 10 }}>
+              <Tile n={f.i} c={f.c} s={34} />
+              <span style={{ minWidth: 0, flex: 1 }}><b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.a.nombre}</b>
+                <span style={{ fontSize: 12, color: "var(--muted)" }}>Queda {queda(p)} · {money(p.pendiente * c)}</span></span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div style={{ borderRadius: 12, padding: 10, border: `1px solid ${dv > 0 ? "color-mix(in srgb, var(--blue) 55%, var(--line))" : "var(--line)"}`, background: "var(--surface2)", minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 900, color: "var(--blue)", textTransform: "uppercase", letterSpacing: .6 }}>Devolver</div>
+                {p.devolverMax > 0 ? <>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 6 }}>
+                    <button type="button" onClick={() => setDevolver(p, dv - 1)} disabled={dv <= 0} aria-label={`Devolver una menos de ${p.a.nombre}`} style={pasoBtn}><Icon n="minus" s={18} w={2.6} /></button>
+                    <input inputMode="numeric" value={String(dv)} onChange={e => setDevolver(p, parseInt(e.target.value.replace(/\D/g, ""), 10) || 0)} onFocus={e => e.target.select()} aria-label={`Unidades a devolver de ${p.a.nombre}`} style={{ ...C.input, textAlign: "center", fontWeight: 900, fontSize: 18, padding: "8px 2px", minWidth: 0 }} />
+                    <button type="button" onClick={() => setDevolver(p, dv + 1)} disabled={dv >= p.devolverMax} aria-label={`Devolver una más de ${p.a.nombre}`} style={{ ...pasoBtn, background: "var(--blue)", color: "#fff", border: "none" }}><Icon n="plus" s={18} w={2.6} /></button>
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{dv > 0 ? `${lineaTxt(p.a, dv)} · ${money(dv * c)}` : "Nada"}{dv < p.devolverMax ? <> · <button type="button" onClick={() => setDevolver(p, p.devolverMax)} style={linkBtn}>máx. {num(p.devolverMax, 0)}</button></> : null}</div>
+                </> : <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 6 }}>Nada: está abierto o suelto</div>}
+              </div>
+              <div style={{ borderRadius: 12, padding: 10, border: `1px solid ${al > 0 ? "color-mix(in srgb, var(--teal) 55%, var(--line))" : "var(--line)"}`, background: "var(--surface2)", minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 900, color: "var(--teal)", textTransform: "uppercase", letterSpacing: .6 }}>Almacén</div>
+                <div style={{ fontWeight: 900, fontSize: 16, marginTop: 8, overflowWrap: "anywhere" }}>{resto > 0 ? (pl.guardar ? cantAbierta(p.a, resto) : "Nada") : "Nada"}</div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>{al > 0 ? money(al * c) : resto > 0 ? "No se guarda" : "—"}{resto > 0 ? <> · <button type="button" onClick={() => setPlan(q => ({ ...q, [p.a.id]: { ...pl, guardar: !pl.guardar } }))} style={linkBtn}>{pl.guardar ? "no guardar" : "guardar"}</button></> : null}</div>
+              </div>
+            </div>
           </div>); })}
       </section>
     </>)}
@@ -417,11 +446,14 @@ export function Sobrante({ ev, d, busy, run, isMobile, ir }) {
     {(filas.length > 0 || envasesCon.length > 0) && (
       <div style={{ position: "sticky", bottom: 0, paddingTop: 12, paddingBottom: 4, background: "linear-gradient(transparent, var(--bg) 30%)", display: "flex", gap: 8, flexWrap: isMobile ? "nowrap" : "wrap" }}>
         {(aDevolver.length > 0 || nVacios > 0) && <a href={`https://wa.me/?text=${encodeURIComponent(mensaje())}`} target="_blank" rel="noopener noreferrer" style={{ ...C.btnGhost, flex: isMobile ? "0 0 auto" : "1 1 180px", textDecoration: "none", background: "rgba(37,211,102,.14)", borderColor: "rgba(37,211,102,.55)", color: "var(--wa)", minHeight: 50 }} aria-label="Enviar la lista por WhatsApp"><Icon n="whatsapp" s={18} />{isMobile ? "WhatsApp" : "Enviar la lista por WhatsApp"}</a>}
-        <button disabled={busy || (!aDevolver.length && !aAlmacen.length && !nVacios)} onClick={confirmar} style={{ ...C.btnPrimary, flex: isMobile ? "1 1 auto" : "2 1 220px", minWidth: 0, minHeight: 50, opacity: busy || (!aDevolver.length && !aAlmacen.length && !nVacios) ? .45 : 1 }}><Icon n="check" s={18} w={2.4} />{(aDevolver.length || nVacios) && aAlmacen.length ? "Confirmar: entregado y guardado" : aAlmacen.length ? "Guardar en el almacén" : "Marcar como entregado"}</button>
+        <button disabled={busy || (!aDevolver.length && !aAlmacen.length && !nVacios)} onClick={confirmar} style={{ ...C.btnPrimary, flex: isMobile ? "1 1 auto" : "2 1 220px", minWidth: 0, minHeight: 50, opacity: busy || (!aDevolver.length && !aAlmacen.length && !nVacios) ? .45 : 1 }}><Icon n="check" s={18} w={2.4} />{isMobile ? "Confirmar" : (aDevolver.length || nVacios) && aAlmacen.length ? "Confirmar: devolver y guardar" : aAlmacen.length ? "Guardar en el almacén" : "Marcar como entregado"}</button>
       </div>
     )}
   </>);
 }
+
+const pasoBtn = { width: 40, height: 44, flexShrink: 0, borderRadius: 10, border: "1px solid var(--line)", background: "var(--surface)", color: "var(--text)", display: "grid", placeItems: "center", cursor: "pointer", padding: 0 };
+const linkBtn = { background: "none", border: "none", padding: "6px 2px", margin: "-6px 0", color: "var(--accent)", fontWeight: 800, fontSize: 12, cursor: "pointer", font: "inherit", textDecoration: "underline" };
 
 // Cuentas del pedido (sin IVA): entró − vuelve − se guarda = lo que cuesta el evento
 export function CuentasPedido({ c, titulo = "Cuentas del pedido" }) {
@@ -455,15 +487,19 @@ export function useAlmacen(dep) {
 export function Almacen({ d, busy, run, isMobile, alm, recargarAlm }) {
   const [ajuste, setAjuste] = useState(null);
   const [extra, setExtra] = useState(false);
+  const [socio, setSocio] = useState(false);
   if (!alm) return <div style={{ color: "var(--muted)", padding: 30, textAlign: "center" }}>Cargando almacén…</div>;
   const filas = d.articulos.map(a => ({ a, q: alm.saldo[a.id] || 0, c: alm.costeMedio[a.id] ?? a.coste ?? 0 })).filter(x => Math.abs(x.q) > 0.0001);
   const valor = r2(filas.reduce((t, x) => t + Math.max(0, x.q) * x.c, 0));
+  const V = valorAlmacen(filas.map(x => ({ a: x.a, q: x.q, coste: x.c })));
   const ajustar = async (a, nuevo) => { const ok = await run(() => crm.ajustarAlmacen(a.id, r2(nuevo - (alm.saldo[a.id] || 0)), "Recuento del almacén", QUIEN), "Almacén actualizado"); if (ok) { await recargarAlm(); setAjuste(null); } };
   return (<>
     <section style={{ ...C.hero, padding: isMobile ? 16 : 22 }}>
       <div style={C.label}>Almacén general · todos los eventos</div>
       <div style={{ fontSize: isMobile ? 36 : 46, fontWeight: 900, letterSpacing: "-.02em", lineHeight: 1.05, marginTop: 4 }}>{money(valor)}</div>
-      <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>{filas.length} {filas.length === 1 ? "artículo guardado" : "artículos guardados"}, a precio de coste. Lo que sobra de un evento se guarda aquí, y el siguiente lo toma desde «Traer del almacén».</div>
+      <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>{filas.length} {filas.length === 1 ? "artículo guardado" : "artículos guardados"}, a precio de compra y sin IVA (con IVA: {money(V.total)}). Las botellas abiertas cuentan por lo que queda: ½ botella = la mitad de su precio.</div>
+      <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>El próximo evento lo toma desde «Traer del almacén». Si un socio se queda algo, apúntalo aquí y verás lo que vale.</div>
+      {filas.length > 0 && <button onClick={() => setSocio(true)} style={{ ...C.btnPrimary, marginTop: 12, minHeight: 48 }}><Icon n="users" s={17} />Un socio se lo queda</button>}
     </section>
     <section style={C.panel}>
       <Head i="box" c="#14b8a6" t="Qué hay en el almacén" right={<button onClick={() => setExtra(true)} style={C.btnSm}><Icon n="plus" s={14} />Apuntar lo que ya había</button>} />
@@ -474,14 +510,54 @@ export function Almacen({ d, busy, run, isMobile, alm, recargarAlm }) {
           {xs.map(x => (
             <button key={x.a.id} onClick={() => setAjuste(x.a)} style={C.listBtn}>
               <Tile n={f.i} c={f.c} s={34} />
-              <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.a.nombre}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>{cantTxt(x.a, x.q)}</span></span>
+              <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.a.nombre}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>{cantAbierta(x.a, x.q)} · {money(x.c)} {x.a.unidad === "lata" ? "la lata" : "cada una"}</span></span>
               <span style={{ textAlign: "right", flexShrink: 0 }}><b style={{ display: "block" }}>{money(Math.max(0, x.q) * x.c)}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>Ajustar</span></span>
             </button>))}
         </div>); })}
     </section>
+    {socio && <SocioSeLoQueda filas={filas} busy={busy} onClose={() => setSocio(false)}
+      onConfirmar={async (nombre, sel) => {
+        const ok = await run(async () => { for (const x of filas) { const q = sel[x.a.id] || 0; if (q > 0) await crm.ajustarAlmacen(x.a.id, -q, `Se lo queda ${nombre} · ${money(q * x.c)} sin IVA`, QUIEN); } }, `Apuntado: ${nombre} se lo queda`);
+        if (ok) { await recargarAlm(); setSocio(false); }
+      }} />}
     {(ajuste || extra) && <AjusteSheet a={ajuste} articulos={d.articulos.filter(a => a.activo && !famInfo(a.familia).noAudita)} actual={ajuste ? (alm.saldo[ajuste.id] || 0) : 0} busy={busy} onClose={() => { setAjuste(null); setExtra(false); }} onSave={ajustar} />}
   </>);
 }
+// Un socio (o quien sea) compra lo que hay en el almacén: se elige qué y cuánto y se ve lo que vale a precio de compra
+function SocioSeLoQueda({ filas, busy, onClose, onConfirmar }) {
+  const [nombre, setNombre] = useState("");
+  const [sel, setSel] = useState({});
+  const elegidas = filas.filter(x => sel[x.a.id] > 0).map(x => ({ a: x.a, q: sel[x.a.id], coste: x.c }));
+  const V = valorAlmacen(elegidas);
+  const listo = nombre.trim() && elegidas.length > 0;
+  const texto = () => [`${nombre.trim()} se queda del almacén:`, ...elegidas.map(x => `• ${cantAbierta(x.a, x.q)} de ${x.a.nombre}: ${money(x.q * x.coste)}`), "", `Total a precio de compra: ${money(V.base)} sin IVA (${money(V.total)} con IVA).`].join("\n");
+  return (
+    <Sheet title="Un socio se lo queda" onClose={onClose}
+      footer={<div style={{ display: "grid", gap: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}><span style={{ fontWeight: 800 }}>Vale</span><span style={{ textAlign: "right" }}><b style={{ fontSize: 22 }}>{money(V.base)}</b><span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>sin IVA · {money(V.total)} con IVA</span></span></div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {listo && <a href={`https://wa.me/?text=${encodeURIComponent(texto())}`} target="_blank" rel="noopener noreferrer" style={{ ...C.btnGhost, textDecoration: "none", minHeight: 50, background: "rgba(37,211,102,.14)", borderColor: "rgba(37,211,102,.55)", color: "var(--wa)" }} aria-label="Enviar por WhatsApp"><Icon n="whatsapp" s={18} /></a>}
+          <button disabled={!listo || busy} onClick={() => onConfirmar(nombre.trim(), sel)} style={{ ...C.btnPrimary, flex: 1, minHeight: 50, opacity: listo && !busy ? 1 : .45 }}>{!nombre.trim() ? "Escribe quién se lo queda" : !elegidas.length ? "Elige qué se lleva" : "Apuntar y sacarlo del almacén"}</button>
+        </div>
+      </div>}>
+      <Field l="¿Quién se lo queda?"><input value={nombre} maxLength={60} onChange={e => setNombre(e.target.value)} placeholder="Nombre del socio" style={C.input} /></Field>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <div style={C.label}>Qué se lleva</div>
+        <button type="button" onClick={() => setSel(Object.fromEntries(filas.map(x => [x.a.id, Math.max(0, x.q)])))} style={C.btnSm}>Todo</button>
+      </div>
+      {filas.filter(x => x.q > 0).map(x => (
+        <div key={x.a.id} style={{ ...C.row, gap: 8 }}>
+          <span style={{ minWidth: 0, flex: 1 }}><b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.a.nombre}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>Hay {cantAbierta(x.a, x.q)} · {money(x.c)} cada una{sel[x.a.id] > 0 ? ` · ${money(sel[x.a.id] * x.c)}` : ""}</span></span>
+          <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            <input inputMode="decimal" placeholder="0" value={sel[x.a.id] ? String(sel[x.a.id]).replace(".", ",") : ""} onChange={e => { const v = Math.min(x.q, parseFloat(e.target.value.replace(/[^\d.,]/g, "").replace(",", ".")) || 0); setSel(s => ({ ...s, [x.a.id]: v })); }} aria-label={`Cuánto se lleva de ${x.a.nombre}`} style={{ ...C.input, width: 70, textAlign: "right", fontWeight: 900, padding: "8px 10px" }} />
+            <button type="button" onClick={() => setSel(s => ({ ...s, [x.a.id]: x.q }))} style={C.btnSm}>Todo</button>
+          </span>
+        </div>))}
+      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 10, lineHeight: 1.45 }}>Se valora a lo que costó comprarlo (las abiertas por lo que queda). Al apuntarlo sale del almacén con una nota con su nombre y el importe. El cobro, apúntalo en Ingresos o en el reparto entre socios.</div>
+    </Sheet>
+  );
+}
+
 function AjusteSheet({ a: a0, articulos, actual, busy, onClose, onSave }) {
   const [id, setId] = useState(a0?.id || "");
   const a = a0 || articulos.find(x => x.id === id);
