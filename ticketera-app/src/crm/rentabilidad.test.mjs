@@ -132,4 +132,15 @@ ok("margen por debajo del objetivo y productos pendientes (también los aún no 
   assert.ok(r.T.pendientes.some(f => f.nombre === "AGUA" && f.uds === 0), "agua está en la carta sin vender y sin coste");
 });
 
+ok("copa genérica con la mezcla: 75 % ron + 25 % gin", () => {
+  const gin = { id: "gin", nombre: "Gin", familia: "destilado", ml: 700, coste: 19 };
+  const ev3 = { id: "e3", puntos: [{ id: "b", products: [P("x", "Copa", 9)], combos: [] }] };
+  const rec = [{ producto: "COPA", items: [{ familia: "destilado", cantidad: 50 }] }];
+  const sin = R.calcularRentabilidad({ events: [ev3], sales: [V("e3", "b", "x", "COPA", 9)], articulos: [ron, gin], recetas: rec, ajustes: {} }).filas[0];
+  const con = R.calcularRentabilidad({ events: [ev3], sales: [V("e3", "b", "x", "COPA", 9)], articulos: [ron, gin], recetas: rec, ajustes: {}, mezcla: { ron: 75, gin: 25 } }).filas[0];
+  assert.equal(sin.coste, 1.1071);   // media simple (12 y 19 €)
+  assert.equal(con.coste, 0.9821);   // 50 ml × (0,75 × 12/700 + 0,25 × 19/700)
+  assert.equal(con.lineas[0].origen, "mezcla");
+});
+
 console.log(`\n${n} pruebas de rentabilidad correctas`);

@@ -5,9 +5,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import * as crm from "./crmdb";
 import { money, r2, fechaCorta, useIsMobile, C, Icon, Tile, Badge, Seg, Head, Sheet, Field } from "./ui";
 import { Vacio, Switch } from "./Ingresos";
-import { famInfo, uniTxt, num, cantTxt, formato, articuloDesdeLinea, propuestaDevolucion, FAMILIAS } from "./stockModelo";
+import { famInfo, uniTxt, num, cantTxt, formato, articuloDesdeLinea, propuestaDevolucion, cuentasPedido, FAMILIAS } from "./stockModelo";
 import { catsGasto } from "./categorias";
-import { interpretarMonteagudo, leerPdf, unidadesLinea } from "./facturaPdf";
+import { interpretarMonteagudo, interpretarGenerico, leerPdf, unidadesLinea } from "./facturaPdf";
 
 const QUIEN = "Admin";
 const TIPO_DOC = { factura: ["Factura", "var(--green)"], abono: ["Abono", "#3b82f6"], mixta: ["Factura con devoluciones", "#a855f7"], devolucion: ["Devolución", "#3b82f6"] };
@@ -46,7 +46,12 @@ export function SubirFactura({ ev, d, busy, run, onClose, onAplicada }) {
     d.documentos.filter(x => x.tipo === "devolucion" && x.estado === "entregada").forEach(x => (x.lineas || []).forEach(l => { out[l.articuloId] = (out[l.articuloId] || 0) + (l.unidades || 0); }));
     return out;
   }, [d.documentos]);
-  const artPorCodigo = (codigo, prov) => d.articulos.find(a => a.codigo === codigo && (!a.proveedor || a.proveedor === prov)) || d.articulos.find(a => a.codigo === codigo);
+  // Por código del proveedor; si la factura no trae códigos, por el nombre (el que se creó a partir de esta misma descripción)
+  const artPorCodigo = (codigo, prov, desc) => {
+    if (codigo) { const a = d.articulos.find(a => a.codigo === codigo && (!a.proveedor || a.proveedor === prov)) || d.articulos.find(a => a.codigo === codigo && !a.proveedor); if (a) return a; }
+    const n = desc ? articuloDesdeLinea(desc, "", prov).nombre.toLowerCase() : null;
+    return n ? d.articulos.find(a => a.nombre.toLowerCase() === n && (!a.proveedor || a.proveedor === prov)) || null : null;
+  };
 
   const decidir = (l, articulo) => {
     if (!articulo) return { ...l, articuloId: null, accion: "pendiente", unidades: null };
@@ -55,7 +60,7 @@ export function SubirFactura({ ev, d, busy, run, onClose, onAplicada }) {
     return { ...l, articuloId: articulo.id, accion, unidades: u.unidades, cajas: u.cajas, sueltas: u.sueltas, dudosa: u.dudosa || articulo.confirmar };
   };
   // Si se crean artículos nuevos, las líneas que estaban sin artículo se enlazan solas por su código
-  useEffect(() => { if (!doc) return; setLineas(ls => ls.map(l => (l.articuloId || l.accion === "ignorar") ? l : decidir(l, artPorCodigo(l.codigo, doc.proveedor)))); }, [d.articulos]);
+  useEffect(() => { if (!doc) return; setLineas(ls => ls.map(l => (l.articuloId || l.accion === "ignorar") ? l : decidir(l, artPorCodigo(l.codigo, doc.proveedor, l.descripcion)))); }, [d.articulos]);
 
   const leer = async (file) => {
     setError("");
@@ -66,12 +71,15 @@ export function SubirFactura({ ev, d, busy, run, onClose, onAplicada }) {
       const buf = await file.arrayBuffer();
       const h = await huellaDe(buf.slice(0));
       const pdfjs = await cargarPdfjs();
-      const r = interpretarMonteagudo(await leerPdf(buf, pdfjs));
-      if (!r) { setEstado("error"); setError("Este PDF no lo reconozco todavía. Por ahora leo las facturas de Distribuciones Monteagudo; las demás se apuntan a mano en Entradas."); return; }
+      const paginas = await leerPdf(buf, pdfjs);
+      if (!paginas.some(p => p.items.length > 5)) { setEstado("error"); setError("Este PDF no tiene texto: parece una foto o un escaneo. Esos no se pueden leer; apunta la entrada a mano o pide al proveedor la factura en PDF original."); return; }
+      // Monteagudo con su lector exacto; el resto, con el lector general (se revisa todo antes de aplicar)
+      const r = interpretarMonteagudo(paginas) || interpretarGenerico(paginas);
+      if (!r) { setEstado("error"); setError("No encuentro la tabla de productos en este PDF (necesito una cabecera tipo «Descripción · Cantidad · Importe»). Apunta la entrada a mano en Entradas y, si me pasas el PDF, lo enseño a leerlo."); return; }
       const ya = await crm.buscarDocumento({ huella: h, proveedor: r.proveedor, numero: r.numero }).catch(() => null);
       if (ya) { setEstado("error"); setError(`La ${r.tipo === "abono" ? "factura de abono" : "factura"} ${r.numero || ""} ya está importada${ya.evento_id !== ev.id ? " en otro evento" : " en este evento"}. Si la importaste mal, anúlala primero en su evento.`); return; }
-      setDoc(r); setHuella(h);
-      setLineas(r.lineas.map((l, i) => decidir({ ...l, idx: i }, artPorCodigo(l.codigo, r.proveedor))));
+      setDoc(r); setHuella(h); setConGasto((r.pie?.ivas || []).length > 0);
+      setLineas(r.lineas.map((l, i) => decidir({ ...l, idx: i }, artPorCodigo(l.codigo, r.proveedor, l.descripcion))));
       setEstado("revisar");
     } catch (e) { setEstado("error"); setError("No se ha podido leer el PDF. ¿Es una factura original (no una foto escaneada)?"); }
   };
@@ -89,7 +97,7 @@ export function SubirFactura({ ev, d, busy, run, onClose, onAplicada }) {
   const listo = doc && pendientes.length === 0 && lineas.some(l => l.accion !== "ignorar");
   const crearTodos = async () => {
     const nuevos = []; const vistos = new Set();
-    pendientes.forEach(l => { if (!vistos.has(l.codigo)) { vistos.add(l.codigo); nuevos.push(articuloDesdeLinea(l.descripcion, l.codigo, doc.proveedor)); } });
+    pendientes.forEach(l => { const k = l.codigo || l.descripcion; if (!vistos.has(k)) { vistos.add(k); nuevos.push(articuloDesdeLinea(l.descripcion, l.codigo, doc.proveedor)); } });
     setCreando(true);
     await run(() => crm.sembrarCatalogo(nuevos.map((x, i) => ({ ...x, orden: 100 + i }))), `${nuevos.length} ${nuevos.length === 1 ? "artículo creado" : "artículos creados"} en el catálogo`);
     setCreando(false);
@@ -98,17 +106,19 @@ export function SubirFactura({ ev, d, busy, run, onClose, onAplicada }) {
   const aplicar = () => run(async () => {
     const cat = (catsGasto(true).find(c => c.k === "Barra y producto") || catsGasto(true)[0] || { k: "Barra y producto" }).k;
     const lineasDoc = lineas.map(l => ({ idx: l.idx, pagina: l.pagina, codigo: l.codigo, descripcion: l.descripcion, cantidad: l.cantidad, precio: l.precio, dto: l.dto, iva: l.iva, importe: l.importe, repetida: !!l.repetida, articuloId: l.articuloId, unidades: l.unidades, accion: l.accion }));
-    const creado = await crm.crearDocumento({ eventoId: ev.id, proveedor: doc.proveedor, numero: doc.numero, fecha: doc.fecha, tipo: doc.tipo, estado: "aplicado", base: doc.checks.sumaLineas, total: doc.pie?.total ?? null, ivas, lineas: lineasDoc, huella });
+    const numero = doc.albaran ? `ALB ${doc.numero || ""}`.trim().slice(0, 40) : doc.numero;
+    const creado = await crm.crearDocumento({ eventoId: ev.id, proveedor: (doc.proveedor || "Proveedor").trim().slice(0, 80), numero, fecha: doc.fecha, tipo: doc.tipo, estado: "aplicado", base: doc.checks.sumaLineas, total: doc.pie?.total ?? null, ivas, lineas: lineasDoc, huella });
     try {
       const movs = lineas.filter(l => l.accion === "entrada" || l.accion === "devolucion").map(l => ({
         eventoId: ev.id, articuloId: l.articuloId, tipo: l.accion, cantidad: Math.abs(l.unidades), cajas: l.cajas != null ? Math.abs(l.cajas) : null, sueltas: l.sueltas != null ? Math.abs(l.sueltas) : null,
-        costeUnidad: l.unidades ? Math.abs(l.importe || 0) / Math.abs(l.unidades) : null, documento: doc.numero, documentoId: creado.id,
+        // Sin importe (albarán sin precios): sin coste en la entrada → se usa el del catálogo
+        costeUnidad: l.unidades && l.importe != null ? Math.abs(l.importe) / Math.abs(l.unidades) : null, documento: numero, documentoId: creado.id,
         trasRecuento: l.accion === "devolucion" && sellado, creadoPor: QUIEN, clave: `doc:${huella.slice(0, 24)}:${l.idx}`,
       }));
       await crm.addMovimientos(movs);
       if (actCoste) {
         const porArt = {};
-        lineas.filter(l => l.accion === "entrada" && l.unidades > 0).forEach(l => { const x = porArt[l.articuloId] = porArt[l.articuloId] || { u: 0, v: 0 }; x.u += l.unidades; x.v += Math.abs(l.importe || 0); });
+        lineas.filter(l => l.accion === "entrada" && l.unidades > 0 && l.importe != null).forEach(l => { const x = porArt[l.articuloId] = porArt[l.articuloId] || { u: 0, v: 0 }; x.u += l.unidades; x.v += Math.abs(l.importe || 0); });
         for (const [id, x] of Object.entries(porArt)) { const a = artById[id]; if (a && x.u > 0) await crm.saveArticulo({ ...a, coste: Math.round(x.v / x.u * 10000) / 10000 }); }
       }
       const gastos = [];
@@ -138,13 +148,14 @@ export function SubirFactura({ ev, d, busy, run, onClose, onAplicada }) {
         <input type="file" accept="application/pdf,.pdf" disabled={estado === "leyendo"} onChange={e => leer(e.target.files?.[0])} style={{ display: "none" }} />
       </label>
       {error && <div style={{ display: "flex", gap: 8, color: "var(--amber)", fontWeight: 700, fontSize: 13.5, lineHeight: 1.45 }}><Icon n="alert" s={18} style={{ marginTop: 1 }} />{error}</div>}
-      <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 12, lineHeight: 1.5 }}>Sirve para facturas normales, facturas con devoluciones y facturas de abono. Las cajas se convierten solas en botellas (por ejemplo, 10,583 cajas de 12 = 127 botellas).</div>
+      <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 12, lineHeight: 1.5 }}>Sirve para facturas, facturas con devoluciones, abonos y albaranes. Las de Distribuciones Monteagudo se leen al céntimo; las de otros proveedores, con un lector general que hay que revisar línea a línea. Las fotos o escaneos no se pueden leer. Las cajas se convierten solas en botellas (por ejemplo, 10,583 cajas de 12 = 127 botellas).</div>
     </Sheet>
   );
 
   const ch = doc.checks;
   const cuadra = ch.cuadraBase && ch.cuadraIva && ch.cuadraTotal;
-  const td = TIPO_DOC[doc.tipo];
+  const sinComprobar = doc.generico && !ch.comprobado;
+  const td = doc.albaran ? ["Albarán", "var(--green)"] : TIPO_DOC[doc.tipo];
   return (<>
     <Sheet title={`${td[0]} ${doc.numero || ""}`} onClose={onClose}
       footer={<div>
@@ -154,7 +165,9 @@ export function SubirFactura({ ev, d, busy, run, onClose, onAplicada }) {
       {/* Cabecera de la factura */}
       <div style={{ ...C.hero, padding: 14, borderRadius: 16, marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 10 }}><Tile n="file" c={td[1]} s={38} /><span><b style={{ display: "block", fontSize: 16 }}>{doc.proveedor}</b><span style={{ fontSize: 12.5, color: "var(--muted)" }}>{doc.fecha ? new Date(doc.fecha + "T12:00:00").toLocaleDateString("es-ES") : ""} · {doc.lineas.length} líneas · {ch.codigos} códigos</span></span></span>
+          <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: "1 1 200px" }}><Tile n="file" c={td[1]} s={38} /><span style={{ minWidth: 0, flex: 1 }}>{doc.generico
+            ? <input aria-label="Proveedor" value={doc.proveedor} maxLength={80} onChange={e => setDoc(x => ({ ...x, proveedor: e.target.value }))} style={{ ...C.input, fontWeight: 900, fontSize: 16, padding: "6px 10px", marginBottom: 4 }} />
+            : <b style={{ display: "block", fontSize: 16 }}>{doc.proveedor}</b>}<span style={{ fontSize: 12.5, color: "var(--muted)" }}>{doc.fecha ? new Date(doc.fecha + "T12:00:00").toLocaleDateString("es-ES") : ""} · {doc.lineas.length} líneas · {ch.codigos} códigos</span></span></span>
           <Badge c={td[1]}>{td[0]}</Badge>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(3,minmax(0,1fr))", gap: 8, marginTop: 12 }}>
@@ -162,8 +175,9 @@ export function SubirFactura({ ev, d, busy, run, onClose, onAplicada }) {
           <Mini l={ivas.length > 1 ? "IVA (21 % + 10 %)" : `IVA ${ivas[0]?.pct ?? ""} %`} v={eur(ivas.reduce((t, v) => t + (v.cuota || 0), 0))} />
           <Mini l="Total factura" v={eur(doc.pie?.total ?? 0)} />
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 13, fontWeight: 800, color: cuadra ? "var(--green)" : "var(--amber)" }}>
-          <Icon n={cuadra ? "check" : "alert"} s={16} w={2.4} />{cuadra ? "Las líneas suman exactamente el total de la factura" : "Las líneas no suman el total impreso: revisa antes de aplicar"}
+        {doc.generico && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 10, lineHeight: 1.45 }}>Leída con el lector general: comprueba el proveedor, cada artículo y las cantidades antes de aplicar.</div>}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 13, fontWeight: 800, color: cuadra && !sinComprobar ? "var(--green)" : "var(--amber)" }}>
+          <Icon n={cuadra && !sinComprobar ? "check" : "alert"} s={16} w={2.4} />{sinComprobar ? "No he podido leer el total impreso: compáralo tú con la base de arriba" : cuadra ? "Las líneas suman exactamente el total de la factura" : "Las líneas no suman el total impreso: revisa antes de aplicar"}
         </div>
         {doc.avisos.length > 0 && <div style={{ fontSize: 12, color: "var(--amber)", marginTop: 6 }}>{doc.avisos.join(" · ")}</div>}
       </div>
@@ -185,7 +199,9 @@ export function SubirFactura({ ev, d, busy, run, onClose, onAplicada }) {
       ))}
 
       <div style={{ borderTop: "1px solid var(--line)", paddingTop: 12, marginTop: 4 }}>
-        <label style={{ ...C.toggleRow, marginBottom: 10 }}><span><b style={{ display: "block" }}>Crear el gasto en Gastos</b><span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>{ivas.map(v => `${eur(r2((v.base || 0) + (v.cuota || 0)))} con IVA ${v.pct} %`).join(" + ")} · con factura{doc.tipo === "abono" ? " (resta)" : ""}</span></span><Switch on={conGasto} onClick={() => setConGasto(v => !v)} /></label>
+        {ivas.length > 0
+          ? <label style={{ ...C.toggleRow, marginBottom: 10 }}><span><b style={{ display: "block" }}>Crear el gasto en Gastos</b><span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>{ivas.map(v => `${eur(r2((v.base || 0) + (v.cuota || 0)))} con IVA ${v.pct} %`).join(" + ")} · con factura{doc.tipo === "abono" ? " (resta)" : ""}</span></span><Switch on={conGasto} onClick={() => setConGasto(v => !v)} /></label>
+          : <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>{doc.albaran ? "Es un albarán: el gasto se apunta cuando llegue la factura." : "No he leído el IVA de este documento: apunta el gasto a mano en Gastos."}</div>}
         {nEntra > 0 && <label style={C.toggleRow}><span><b style={{ display: "block" }}>Actualizar el coste del catálogo</b><span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>Con el precio de esta factura, ya con su descuento</span></span><Switch on={actCoste} onClick={() => setActCoste(v => !v)} /></label>}
       </div>
     </Sheet>
@@ -206,7 +222,7 @@ function LineaFactura({ l, a, onClick }) {
       {f ? <Tile n={f.i} c={f.c} s={34} /> : <Tile n="alert" c="var(--amber)" s={34} />}
       <span style={{ flex: 1, minWidth: 0 }}>
         <b style={{ display: "block", fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: a ? "var(--text)" : "var(--amber)" }}>{a ? a.nombre : "Sin artículo en el catálogo"}</b>
-        <span style={{ display: "block", fontSize: 12, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><span style={{ fontFamily: "monospace" }}>{l.codigo}</span> · {l.descripcion}</span>
+        <span style={{ display: "block", fontSize: 12, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.codigo ? <><span style={{ fontFamily: "monospace" }}>{l.codigo}</span> · </> : null}{l.descripcion}</span>
         {a && l.unidades != null && <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, marginTop: 2 }}>{origen}{pc > 1 ? ` = ${num(l.unidades, 3)} ${uniTxt(a.unidad, l.unidades)}` : ` ${uniTxt(a.unidad, l.unidades)}`}</span>}
         <span style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
           {l.repetida && <Badge c="var(--amber)">Línea repetida en la factura</Badge>}
@@ -214,7 +230,7 @@ function LineaFactura({ l, a, onClick }) {
         </span>
       </span>
       <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
-        <b style={{ fontSize: 14.5 }}>{money(l.importe || 0)}</b>
+        <b style={{ fontSize: 14.5, color: l.importe == null ? "var(--muted)" : undefined }}>{l.importe == null ? "Sin precio" : money(l.importe)}</b>
         <Badge c={ac[1]}>{ac[0]}</Badge>
       </span>
     </button>
@@ -228,7 +244,7 @@ function LineaSheet({ l, articulos, pendAbono, sellado, onClose, onSave, decidir
   const acciones = l.cantidad > 0 ? ["entrada", "ignorar"] : ["devolucion", ...(a && pendAbono[a.id] > 0 ? ["vincular"] : []), "ignorar"];
   const ok = x.accion === "ignorar" || (x.articuloId && x.unidades != null && Number(x.unidades) !== 0);
   return (
-    <Sheet title={`Línea · código ${l.codigo}`} onClose={onClose}
+    <Sheet title={l.codigo ? `Línea · código ${l.codigo}` : "Línea de la factura"} onClose={onClose}
       footer={<button disabled={!ok} onClick={() => onSave(x.articuloId || x.accion === "ignorar" ? x : { ...x, accion: "pendiente" })} style={{ ...C.btnPrimary, width: "100%", minHeight: 52, fontSize: 16, opacity: ok ? 1 : .45 }}>Listo</button>}>
       <div style={{ padding: 12, borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", marginBottom: 14 }}>
         <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Tal cual en la factura (página {l.pagina})</div>
@@ -319,19 +335,29 @@ export function Sobrante({ ev, d, busy, run, isMobile, ir }) {
   const estimado = r2(aDevolver.reduce((t, p) => t + plan[p.a.id].unidades * costeDe(p.a), 0));
   const valorAlm = r2(aAlmacen.reduce((t, p) => t + plan[p.a.id].unidades * costeDe(p.a), 0));
   const nVacios = Object.values(vacios).reduce((t, v) => t + (v || 0), 0);
+  // Cajas vacías que siguen fuera (cargadas y aún no devueltas): se pueden devolver aunque no sobre bebida
+  const anulados = useMemo(() => new Set(d.movimientos.filter(m => m.tipo === "anulacion").map(m => m.anulaId)), [d.movimientos]);
+  const envPend = Object.fromEntries(envases.map(a => { const ms = d.movimientos.filter(m => m.articuloId === a.id && !anulados.has(m.id));
+    const q = ms.reduce((t, m) => t + (m.tipo === "entrada" || m.tipo === "traspaso_entrada" ? m.cantidad : m.tipo === "devolucion" || m.tipo === "traspaso_salida" ? -m.cantidad : 0), 0); return [a.id, Math.max(0, r2(q))]; }));
+  const envasesCon = envases.filter(a => envPend[a.id] > 0);
+  const envVal = r2(envases.reduce((t, a) => t + (vacios[a.id] || 0) * costeDe(a), 0));
+  const abonoTotal = r2(estimado + envVal);
+  // Cuentas del pedido: lo que entró, lo que vuelve, lo que se guarda y lo que de verdad cuesta (sin IVA)
+  const cuentas = useMemo(() => cuentasPedido({ articulos: d.articulos, movimientos: d.movimientos,
+    plan: [...aDevolver, ...aAlmacen].map(p => ({ articuloId: p.a.id, destino: plan[p.a.id].destino, unidades: plan[p.a.id].unidades })), vacios }), [d, plan, vacios]);
 
   const lineaTxt = (a, u) => { const pc = a.porCaja || 1; if (pc <= 1) return `${num(u)} ${uniTxt(a.unidad, u)}`; const c = Math.floor(u / pc + 1e-9), s = r2(u - c * pc); return [c ? `${c} ${c === 1 ? "caja" : "cajas"} de ${pc}` : null, s ? `${num(s)} ${uniTxt(a.unidad, s)}` : null].filter(Boolean).join(" + ") || `${num(u)} ${uniTxt(a.unidad, u)}`; };
   const mensaje = () => {
     const ls = aDevolver.map(p => `• ${lineaTxt(p.a, plan[p.a.id].unidades)} de ${p.a.nombre}${p.a.codigo ? ` (cód. ${p.a.codigo})` : ""}`);
     const vs = envases.filter(a => vacios[a.id] > 0).map(a => `• ${vacios[a.id]} ${vacios[a.id] === 1 ? "caja vacía" : "cajas vacías"} de ${a.nombre}`);
-    return [`Hola, os devolvemos lo que ha sobrado de *${ev.name}*${ev.date ? ` (${ev.date.split("-").reverse().join("/")})` : ""}:`, "", ...ls, ...(vs.length ? ["", "Envases:", ...vs] : []), "", `Abono estimado: ${money(estimado)} + IVA.`, "Gracias."].join("\n");
+    return [`Hola, os devolvemos lo que ha sobrado de *${ev.name}*${ev.date ? ` (${ev.date.split("-").reverse().join("/")})` : ""}:`, "", ...ls, ...(vs.length ? ["", "Envases:", ...vs] : []), "", envVal > 0 && estimado > 0 ? `Abono estimado: ${money(estimado)} de bebida + ${money(envVal)} de envases = ${money(abonoTotal)} + IVA.` : `Abono estimado: ${money(abonoTotal)} + IVA.`, "Gracias."].join("\n");
   };
   const confirmar = () => run(async () => {
     let docId = null;
     if (aDevolver.length || nVacios) {
       const lineas = [...aDevolver.map(p => ({ articuloId: p.a.id, nombre: p.a.nombre, codigo: p.a.codigo, unidades: plan[p.a.id].unidades, coste: costeDe(p.a) })),
-        ...envases.filter(a => vacios[a.id] > 0).map(a => ({ articuloId: a.id, nombre: a.nombre, codigo: a.codigo, unidades: vacios[a.id], coste: a.coste || 0, envase: true }))];
-      const doc = await crm.crearDocumento({ eventoId: ev.id, proveedor: aDevolver[0]?.a.proveedor || envases[0]?.proveedor || "Proveedor", tipo: "devolucion", estado: "entregada", base: estimado, total: null, lineas });
+        ...envases.filter(a => vacios[a.id] > 0).map(a => ({ articuloId: a.id, nombre: a.nombre, codigo: a.codigo, unidades: Math.min(vacios[a.id], envPend[a.id] || 0), coste: costeDe(a), envase: true })).filter(l => l.unidades > 0)];
+      const doc = await crm.crearDocumento({ eventoId: ev.id, proveedor: aDevolver[0]?.a.proveedor || envasesCon.find(a => vacios[a.id] > 0)?.proveedor || "Proveedor", tipo: "devolucion", estado: "entregada", base: abonoTotal, total: null, lineas });
       docId = doc.id;
       await crm.addMovimientos(lineas.map(l => ({ eventoId: ev.id, articuloId: l.articuloId, tipo: "devolucion", cantidad: l.unidades, costeUnidad: l.coste, documentoId: doc.id, trasRecuento: true, creadoPor: QUIEN, clave: `dev:${doc.id}:${l.articuloId}` })));
     }
@@ -359,7 +385,7 @@ export function Sobrante({ ev, d, busy, run, isMobile, ir }) {
         <div style={C.label}>Lo que sobró cerrado · {ev.name}</div>
         <div style={{ fontSize: 14, color: "var(--muted)", marginTop: 4, lineHeight: 1.5 }}>Sale del recuento final. Decide qué se devuelve a {filas[0].a.proveedor || "proveedor"} y qué se guarda en el almacén para el próximo evento. Las botellas abiertas no cuentan.</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
-          <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)" }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Se devuelve</div><div style={{ fontWeight: 900, fontSize: 19, color: "var(--blue)" }}>{money(estimado)}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>abono estimado, sin IVA</div></div>
+          <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)" }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Se devuelve</div><div style={{ fontWeight: 900, fontSize: 19, color: "var(--blue)" }}>{money(abonoTotal)}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>abono estimado, sin IVA{envVal > 0 ? ` (${money(envVal)} de envases)` : ""}</div></div>
           <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)" }}><div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .8 }}>Se guarda</div><div style={{ fontWeight: 900, fontSize: 19, color: "var(--teal)" }}>{money(valorAlm)}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>en el almacén, a coste</div></div>
         </div>
       </section>
@@ -367,25 +393,55 @@ export function Sobrante({ ev, d, busy, run, isMobile, ir }) {
         <Head i="box" t="Artículo por artículo" right={<span style={{ display: "flex", gap: 6 }}><button onClick={() => setPlan(p => Object.fromEntries(Object.entries(p).map(([k, v]) => [k, { ...v, destino: "devolver" }])))} style={C.btnSm}>Todo devolver</button><button onClick={() => setPlan(p => Object.fromEntries(Object.entries(p).map(([k, v]) => [k, { ...v, destino: "almacen" }])))} style={C.btnSm}>Todo al almacén</button></span>} />
         {filas.map(p => { const f = famInfo(p.a.familia), x = plan[p.a.id] || { destino: "devolver", unidades: p.pendiente }; return (
           <div key={p.a.id} style={{ ...C.row, flexWrap: "wrap" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: "1 1 220px" }}><Tile n={f.i} c={f.c} s={34} /><span style={{ minWidth: 0 }}><b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.a.nombre}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>{lineaTxt(p.a, x.unidades)}{p.yaDevuelto ? ` · ya salieron ${num(p.yaDevuelto)}` : ""}</span></span></span>
-            <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, marginLeft: isMobile ? 44 : 0 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: "1 1 220px" }}><Tile n={f.i} c={f.c} s={34} /><span style={{ minWidth: 0 }}><b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.a.nombre}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>{lineaTxt(p.a, x.unidades)} · {money(x.unidades * costeDe(p.a))}{p.yaDevuelto ? ` · ya salieron ${num(p.yaDevuelto)}` : ""}</span></span></span>
+            <span style={{ display: "flex", alignItems: "center", gap: 8, ...(isMobile ? { flex: "1 1 100%", minWidth: 0 } : { flexShrink: 0 }) }}>
               <input inputMode="decimal" value={String(x.unidades).replace(".", ",")} onChange={e => { const v = Math.min(p.pendiente, parseFloat(e.target.value.replace(/[^\d.,]/g, "").replace(",", ".")) || 0); setPlan(q => ({ ...q, [p.a.id]: { ...x, unidades: v } })); }} style={{ ...C.input, width: 70, textAlign: "right", fontWeight: 900, padding: "8px 10px" }} aria-label={`Unidades de ${p.a.nombre}`} />
-              <Seg size="sm" valor={x.destino} onChange={(k) => setPlan(q => ({ ...q, [p.a.id]: { ...x, destino: k } }))} opciones={[{ k: "devolver", t: "Devolver", i: "truck", c: "#3b82f6" }, { k: "almacen", t: "Almacén", i: "box", c: "#14b8a6" }, { k: "nada", t: "Nada", c: "var(--surface)", ink: "var(--text)" }]} />
+              <span style={{ flex: isMobile ? "1 1 auto" : "none", minWidth: 0 }}><Seg full={isMobile} size="sm" valor={x.destino} onChange={(k) => setPlan(q => ({ ...q, [p.a.id]: { ...x, destino: k } }))} opciones={[{ k: "devolver", t: "Devolver", i: isMobile ? null : "truck", c: "#3b82f6" }, { k: "almacen", t: "Almacén", i: isMobile ? null : "box", c: "#14b8a6" }, { k: "nada", t: "Nada", c: "var(--surface)", ink: "var(--text)" }]} /></span>
             </span>
           </div>); })}
       </section>
-      {envases.length > 0 && aDevolver.length > 0 && (
-        <section style={C.panel}>
-          <Head i="crate" c="#64748b" t="Cajas vacías que devuelves" sub="Opcional. Bajan el saldo de envases, no el de bebida." />
-          {envases.map(a => <div key={a.id} style={C.row}><span style={{ display: "flex", alignItems: "center", gap: 10 }}><Tile n="crate" c="#64748b" s={32} /><b>{a.nombre}</b></span><input inputMode="numeric" value={vacios[a.id] || ""} placeholder="0" onChange={e => setVacios(v => ({ ...v, [a.id]: parseInt(e.target.value.replace(/\D/g, "").slice(0, 4), 10) || 0 }))} style={{ ...C.input, width: 80, textAlign: "right", fontWeight: 900, padding: "8px 10px" }} aria-label={`Cajas vacías de ${a.nombre}`} /></div>)}
-        </section>
-      )}
-      <div style={{ position: "sticky", bottom: 0, paddingTop: 12, paddingBottom: 4, background: "linear-gradient(transparent, var(--bg) 30%)", display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {aDevolver.length > 0 && <a href={`https://wa.me/?text=${encodeURIComponent(mensaje())}`} target="_blank" rel="noopener noreferrer" style={{ ...C.btnGhost, flex: "1 1 180px", textDecoration: "none", background: "rgba(37,211,102,.14)", borderColor: "rgba(37,211,102,.55)", color: "var(--wa)", minHeight: 50 }}><Icon n="whatsapp" s={18} />Enviar la lista por WhatsApp</a>}
-        <button disabled={busy || (!aDevolver.length && !aAlmacen.length && !nVacios)} onClick={confirmar} style={{ ...C.btnPrimary, flex: "2 1 220px", minHeight: 50, opacity: busy || (!aDevolver.length && !aAlmacen.length && !nVacios) ? .45 : 1 }}><Icon n="check" s={18} w={2.4} />{aDevolver.length && aAlmacen.length ? "Confirmar: entregado y guardado" : aAlmacen.length ? "Guardar en el almacén" : "Marcar como entregado"}</button>
-      </div>
     </>)}
+    {envasesCon.length > 0 && (
+      <section style={C.panel}>
+        <Head i="crate" c="#64748b" t="Cajas vacías que devuelves" sub="Recuperas su fianza. Bajan el saldo de envases, no el de bebida." />
+        {envasesCon.map(a => <div key={a.id} style={C.row}>
+          <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}><Tile n="crate" c="#64748b" s={32} /><span style={{ minWidth: 0 }}><b style={{ display: "block" }}>{a.nombre}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>Fuera: {num(envPend[a.id], 0)} · {money(costeDe(a))} cada una</span></span></span>
+          <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            <input inputMode="numeric" value={vacios[a.id] || ""} placeholder="0" onChange={e => setVacios(v => ({ ...v, [a.id]: Math.min(envPend[a.id], parseInt(e.target.value.replace(/\D/g, "").slice(0, 4), 10) || 0) }))} style={{ ...C.input, width: 70, textAlign: "right", fontWeight: 900, padding: "8px 10px" }} aria-label={`Cajas vacías de ${a.nombre}`} />
+            <button type="button" onClick={() => setVacios(v => ({ ...v, [a.id]: envPend[a.id] }))} style={C.btnSm}>Todas</button>
+          </span>
+        </div>)}
+      </section>
+    )}
+    <CuentasPedido c={cuentas} />
+    {(filas.length > 0 || envasesCon.length > 0) && (
+      <div style={{ position: "sticky", bottom: 0, paddingTop: 12, paddingBottom: 4, background: "linear-gradient(transparent, var(--bg) 30%)", display: "flex", gap: 8, flexWrap: isMobile ? "nowrap" : "wrap" }}>
+        {(aDevolver.length > 0 || nVacios > 0) && <a href={`https://wa.me/?text=${encodeURIComponent(mensaje())}`} target="_blank" rel="noopener noreferrer" style={{ ...C.btnGhost, flex: isMobile ? "0 0 auto" : "1 1 180px", textDecoration: "none", background: "rgba(37,211,102,.14)", borderColor: "rgba(37,211,102,.55)", color: "var(--wa)", minHeight: 50 }} aria-label="Enviar la lista por WhatsApp"><Icon n="whatsapp" s={18} />{isMobile ? "WhatsApp" : "Enviar la lista por WhatsApp"}</a>}
+        <button disabled={busy || (!aDevolver.length && !aAlmacen.length && !nVacios)} onClick={confirmar} style={{ ...C.btnPrimary, flex: isMobile ? "1 1 auto" : "2 1 220px", minWidth: 0, minHeight: 50, opacity: busy || (!aDevolver.length && !aAlmacen.length && !nVacios) ? .45 : 1 }}><Icon n="check" s={18} w={2.4} />{(aDevolver.length || nVacios) && aAlmacen.length ? "Confirmar: entregado y guardado" : aAlmacen.length ? "Guardar en el almacén" : "Marcar como entregado"}</button>
+      </div>
+    )}
   </>);
+}
+
+// Cuentas del pedido (sin IVA): entró − vuelve − se guarda = lo que cuesta el evento
+export function CuentasPedido({ c, titulo = "Cuentas del pedido" }) {
+  if (!c || !(c.entro > 0)) return null;
+  const L = ({ t, v, sub, signo = "", fuerte, color }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "9px 0", borderTop: fuerte ? "2px solid var(--text)" : "1px solid var(--line)", fontVariantNumeric: "tabular-nums" }}>
+      <span style={{ minWidth: 0 }}><span style={{ fontWeight: fuerte ? 900 : 700 }}>{t}</span>{sub && <span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>{sub}</span>}</span>
+      <b style={{ flexShrink: 0, fontSize: fuerte ? 18 : 15, color }}>{signo}{money(Math.abs(v))}</b>
+    </div>);
+  return (
+    <section style={C.panel}>
+      <Head i="receipt" t={titulo} sub="Sin IVA y a precio de coste. Se recalcula al decidir qué devuelves y qué guardas." />
+      <L t="Entró en el evento" v={c.entro} sub={`Compras y lo traído del almacén${c.entroEnvases > 0 ? ` · ${money(c.entroEnvases)} son fianza de envases` : ""}`} />
+      <L t="Vuelve al proveedor" v={c.vuelve} signo="− " color="var(--blue)" sub="Lo ya devuelto, lo que marcas para devolver y las cajas vacías" />
+      {c.almacen > 0 && <L t="Se guarda en el almacén" v={c.almacen} signo="− " color="var(--teal)" sub="Sigue siendo tuyo, para el próximo evento" />}
+      <L t="Te cuesta el evento" v={c.coste} fuerte />
+      {c.fianzaPendiente > 0 && <div style={{ fontSize: 12.5, color: "var(--amber)", fontWeight: 700, marginTop: 4 }}>De ello, {money(c.fianzaPendiente)} es fianza de cajas que aún no has devuelto: la recuperas al devolverlas.</div>}
+      <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 6 }}>Bebida consumida de verdad (ventas, invitaciones, mermas y lo que falte): <b style={{ color: "var(--text)" }}>{money(c.consumido)}</b>.</div>
+    </section>
+  );
 }
 
 /* ===================== ALMACÉN GENERAL (entre eventos) ===================== */

@@ -279,6 +279,29 @@ export async function loadStock(eventoId) {
     documentos: ok(ds).map(docFrom).sort((x, y) => String(y.creadoEn).localeCompare(String(x.creadoEn))),
   };
 }
+// Historial de stock de todos los eventos (para recomendar la mezcla de la copa): movimientos y recuentos sellados.
+// Por páginas: Supabase devuelve como mucho 1.000 filas por consulta.
+async function todasLasFilas(q, max = 50000) {
+  const out = [];
+  for (let from = 0; from < max; from += 1000) { const r = ok(await q().range(from, from + 999)); out.push(...(r || [])); if (!r || r.length < 1000) break; }
+  return out;
+}
+export async function loadHistoricoStock() {
+  const [ms, cs] = await Promise.all([
+    todasLasFilas(() => supabase.from("ticket_crm_stock_movimientos").select("id, evento_id, articulo_id, tipo, cantidad, anula_id, tras_recuento").order("creado_en", { ascending: true }).order("id", { ascending: true })),
+    todasLasFilas(() => supabase.from("ticket_crm_stock_conteos").select("id, evento_id, estado").order("id", { ascending: true })),
+  ]);
+  const sellados = cs.filter(c => c.estado === "sellado");
+  const ls = sellados.length ? await todasLasFilas(() => supabase.from("ticket_crm_stock_conteo_lineas").select("conteo_id, articulo_id, total").in("conteo_id", sellados.map(c => c.id)).order("conteo_id", { ascending: true }).order("articulo_id", { ascending: true })) : [];
+  const porEv = {};
+  const ev = (id) => porEv[id] = porEv[id] || { eventoId: id, sellado: false, movimientos: [], lineas: [] };
+  ms.forEach(m => ev(m.evento_id).movimientos.push({ id: m.id, articuloId: m.articulo_id, tipo: m.tipo, cantidad: m.cantidad != null ? n(m.cantidad) : 0, anulaId: m.anula_id || null, trasRecuento: !!m.tras_recuento }));
+  const conteoEv = Object.fromEntries(sellados.map(c => [c.id, c.evento_id]));
+  sellados.forEach(c => { ev(c.evento_id).sellado = true; });
+  ls.forEach(l => ev(conteoEv[l.conteo_id]).lineas.push({ articuloId: l.articulo_id, total: n(l.total) }));
+  return Object.values(porEv);
+}
+
 // Solo catálogo y recetas: lo que necesita Rentabilidad para poner coste a cada producto
 export async function loadCostes() {
   const [as, rs] = await Promise.all([

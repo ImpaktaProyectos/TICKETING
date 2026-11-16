@@ -142,3 +142,104 @@ export function unidadesLinea(cantidad, articulo) {
   const limpio = Math.abs(exacto - redondo) <= 0.06 ? redondo : Math.round(exacto * 1000) / 1000;
   return { unidades: limpio, cajas: pc > 1 ? Math.trunc(q) : null, sueltas: pc > 1 ? Math.round((limpio - Math.trunc(q) * pc) * 1000) / 1000 : null, dudosa: Math.abs(exacto - redondo) > 0.06 };
 }
+
+/* ===================== LECTOR GENERAL (otros proveedores) =====================
+   Para facturas y albaranes en PDF con texto (no fotos escaneadas) que tengan una tabla con cabecera.
+   Busca la fila de cabecera por sus palabras habituales y reparte cada número en su columna por posición.
+   Es menos exacto que el de Monteagudo: por eso todo se revisa línea a línea antes de aplicar. */
+const SIN = {
+  codigo: /^(c[oó]d(igo)?\.?|ref(erencia)?\.?|art(\.|[ií]culo)?\s*n?[ºo°]?|c[oó]d\.?\s*art\.?)$/i,
+  descripcion: /^(descripci[oó]n|concepto|denominaci[oó]n|producto|art[ií]culos?|detalle)$/i,
+  cantidad: /^(cantidad|cant\.?|uds\.?|unidades|unid\.?|u\.?|cajas|bultos|n[ºo°]\s*uds?\.?)$/i,
+  precio: /^(precio(\s*(ud|unit(ario)?|u\.?))?|p\.?\s*unit(ario)?\.?|pvp|p\/u|precio\/ud|tarifa)$/i,
+  dto: /^(%?\s*dto\.?|%?\s*desc(uento)?\.?|%\s*d)$/i,
+  iva: /^(%?\s*i\.?v\.?a\.?|tipo\s*iva)$/i,
+  importe: /^(importe|total|subtotal|neto|importe\s*neto|total\s*l[ií]nea|base)$/i,
+};
+const PIE = /^(base\s*imponible|total\s*(factura|albar[aá]n|a\s*pagar|bruto)|suma\s*y\s*sigue|subtotal\s*general|observaciones|forma\s*de\s*pago|vencimientos?)/i;
+
+function filasPorY(items, tol = 2.5) {
+  const fs = [];
+  [...items].sort((a, b) => b.y - a.y).forEach(i => { const f = fs.find(x => Math.abs(x.y - i.y) <= tol); if (f) f.items.push(i); else fs.push({ y: i.y, items: [i] }); });
+  fs.forEach(f => f.items.sort((a, b) => a.x - b.x));
+  return fs;
+}
+function cabeceraDe(items) {
+  for (const f of filasPorY(items, 3)) {
+    const cab = {};
+    f.items.forEach(i => { for (const k of Object.keys(SIN)) if (!cab[k] && SIN[k].test(i.s.trim())) { cab[k] = i; break; } });
+    if (cab.descripcion && cab.cantidad && (cab.importe || cab.precio)) return { y: f.y, cab };
+  }
+  return null;
+}
+const proveedorDe = (items) => {
+  const txt = items.filter(i => /[A-Za-zÁÉÍÓÚÑ]{3}/.test(i.s));
+  const sociedad = txt.find(i => /\b(S\.?\s?L\.?U?|S\.?\s?A\.?|S\.?\s?COOP\.?|SOCIEDAD|DISTRIBUCIONES|BEBIDAS|COMERCIAL)\b/i.test(i.s) && !/factura|cliente/i.test(i.s));
+  const arriba = [...txt].sort((a, b) => b.y - a.y).find(i => !/^(factura|albar[aá]n|abono|p[aá]gina|fecha|n[ºo°])/i.test(i.s) && i.s.length >= 4);
+  return (sociedad || arriba)?.s.replace(/\s+/g, " ").trim().slice(0, 80) || "";
+};
+
+export function interpretarGenerico(paginas) {
+  const todos = paginas.flatMap(p => p.items);
+  const texto = todos.map(i => i.s).join(" ");
+  const esAlbaran = /albar[aá]n/i.test(texto) && !/\bfactura\b/i.test(texto.slice(0, 400));
+  // Abono solo si un rótulo lo dice («FACTURA DE ABONO», «FACTURA RECTIFICATIVA», «ABONO»), no por «abono en cuenta»
+  const esAbono = todos.some(i => /^(factura\s*)?(de\s*)?(abono|rectificativa)(\s*n[ºo°]?.*)?$/i.test(i.s.trim()));
+  const lineas = [], avisos = [];
+  let cabeceras = 0;
+  paginas.forEach((pg, ip) => {
+    const h = cabeceraDe(pg.items); if (!h) return;
+    cabeceras++;
+    // Columnas: intervalos entre los centros de las cabeceras
+    const cols = Object.entries(h.cab).map(([k, i]) => ({ k, c: i.x + (i.w || 0) / 2 })).sort((a, b) => a.c - b.c);
+    const colDe = (it) => { const c = it.x + (it.w || 0) / 2; let mejor = cols[0]; cols.forEach(x => { if (Math.abs(x.c - c) < Math.abs(mejor.c - c)) mejor = x; }); return mejor.k; };
+    const finY = Math.max(-1, ...pg.items.filter(i => PIE.test(i.s.trim()) && i.y < h.y).map(i => i.y));
+    let previa = null;
+    filasPorY(pg.items.filter(i => i.y < h.y - 3 && i.y > finY + 3)).forEach(f => {
+      const l = { pagina: ip + 1, codigo: "", descripcion: "", cantidad: null, precio: null, dto: null, iva: null, importe: null };
+      const desc = [];
+      f.items.forEach(it => {
+        const k = colDe(it), v = numES(it.s.replace("%", ""));
+        if (k === "descripcion" || (v == null && k !== "codigo")) { desc.push(it.s); return; }
+        if (k === "codigo") { l.codigo = l.codigo ? `${l.codigo} ${it.s}` : it.s; return; }
+        if (l[k] == null) l[k] = v; else avisos.push(`Página ${ip + 1}: dos valores en la columna ${k}`);
+      });
+      l.descripcion = desc.join(" ").replace(/\s+/g, " ").trim();
+      if (l.cantidad == null && l.importe == null && previa && l.descripcion && !l.codigo) { previa.descripcion = `${previa.descripcion} ${l.descripcion}`.trim(); return; } // descripción en dos renglones
+      if (l.cantidad == null || !l.descripcion) return;                  // no es una línea de producto
+      if (l.importe == null && l.precio != null) l.importe = r2(l.cantidad * l.precio * (1 - (l.dto || 0) / 100));
+      l.codigo = l.codigo.slice(0, 40);
+      lineas.push(l); previa = l;
+    });
+  });
+  if (!cabeceras || !lineas.length) return null;
+
+  // Número y fecha
+  const mN = texto.match(/(?:n[ºo°]\.?\s*(?:de\s*)?(?:factura|albar[aá]n|documento)|(?:factura|albar[aá]n)\s*(?:n[ºo°]\.?|n[uú]mero)?)\s*[:#]?\s*([A-Z]{0,4}[-\/ ]?\d[\w\-\/]{1,24})/i);
+  const mF = texto.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/);
+  const fecha = mF ? `${mF[3].length === 2 ? "20" + mF[3] : mF[3]}-${mF[2].padStart(2, "0")}-${mF[1].padStart(2, "0")}` : null;
+  // IVA: de las líneas; si no, del pie («IVA 21 %»)
+  const sumaLineas = r2(lineas.reduce((t, l) => t + (l.importe || 0), 0));
+  const porIva = {};
+  lineas.forEach(l => { if (l.iva != null) porIva[l.iva] = r2((porIva[l.iva] || 0) + (l.importe || 0)); });
+  let ivas = Object.entries(porIva).map(([pct, base]) => ({ pct: Number(pct), base, cuota: r2(base * Number(pct) / 100) })).sort((a, b) => b.pct - a.pct);
+  if (!ivas.length) { const mI = texto.match(/I\.?V\.?A\.?\s*(\d{1,2})(?:[.,]\d+)?\s*%/i); if (mI) ivas = [{ pct: Number(mI[1]), base: sumaLineas, cuota: r2(sumaLineas * Number(mI[1]) / 100) }]; }
+  // Total impreso: el número más grande junto a «Total factura / Total a pagar / Total»
+  let total = null;
+  const etT = todos.filter(i => /^total(\s*(factura|a\s*pagar|albar[aá]n|€))?:?$/i.test(i.s.trim())).sort((a, b) => a.y - b.y)[0];
+  if (etT) { const cand = todos.filter(i => Math.abs(i.y - etT.y) < 14 && i.x > etT.x && numES(i.s) != null).map(i => numES(i.s)); if (cand.length) total = cand.reduce((m, v) => Math.abs(v) > Math.abs(m) ? v : m, cand[0]); }
+  const baseTotal = ivas.length ? r2(ivas.reduce((t, v) => t + v.base, 0)) : null;
+  const calcTotal = ivas.length ? r2(baseTotal + ivas.reduce((t, v) => t + v.cuota, 0)) : null;
+  const cuadraTotal = total != null && calcTotal != null && Math.abs(total - calcTotal) < 0.05;
+  const sinImporte = lineas.filter(l => l.importe == null).length;
+  if (sinImporte) avisos.push(esAlbaran ? "Albarán sin precios: se usará el coste del catálogo" : `${sinImporte} líneas sin importe leído`);
+  if (!ivas.length) avisos.push("No he leído el IVA: el gasto habrá que crearlo a mano");
+  const positivas = lineas.filter(l => l.cantidad > 0).length, negativas = lineas.filter(l => l.cantidad < 0).length;
+  if (esAbono && !negativas) lineas.forEach(l => { l.cantidad = -Math.abs(l.cantidad); if (l.importe != null) l.importe = -Math.abs(l.importe); });
+  const tipo = esAbono ? "abono" : negativas && positivas ? "mixta" : "factura";
+  return {
+    proveedor: proveedorDe(paginas[0]?.items || []) || "Proveedor", numero: mN ? mN[1].trim().slice(0, 34) : null, fecha, tipo, lineas, avisos,
+    pie: { bruto: null, ivas, total: total ?? calcTotal }, generico: true, albaran: esAlbaran,
+    checks: { sumaLineas, baseTotal, cuadraBase: ivas.length > 0, cuadraIva: ivas.length > 0, cuadraTotal, comprobado: total != null && calcTotal != null, codigos: new Set(lineas.map(l => l.codigo || l.descripcion)).size },
+  };
+}

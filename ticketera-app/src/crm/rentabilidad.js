@@ -77,6 +77,13 @@ export function ventasPorProducto(events, sales, { eventIds = null, puntoId = nu
   return Object.values(out);
 }
 
+// Coste de 1 ml de destilado con la mezcla de la copa (igual que costeMlMezcla de Stock)
+function costeMlMezclaR(pct, articulos) {
+  let t = 0, w = 0;
+  articulos.forEach(a => { const p = Number(pct?.[a.id]) || 0; if (!p || a.coste == null || !(Number(a.ml) > 0)) return; t += p * Number(a.coste) / Number(a.ml); w += p; });
+  return w ? t / w : null;
+}
+
 // ---- Coste de una unidad de producto ----
 // Coste medio por ml (o por unidad) de cada familia, con los artículos del catálogo que tienen coste
 export function costeFamilias(articulos = []) {
@@ -95,7 +102,8 @@ export function costeItem(it, artById, famCoste) {
     if (f) return { nombre: a.nombre, familia: a.familia, cantidad: q, coste: r4(Number(a.coste) / f * q), origen: "articulo" };
   }
   const m = famCoste[it.familia];
-  return { nombre: a?.nombre || null, familia: it.familia, cantidad: q, coste: m != null ? r4(m * q) : null, origen: m != null ? "media" : "sin" };
+  const mz = it.familia === "destilado" && famCoste.__mezcla != null;
+  return { nombre: a?.nombre || null, familia: it.familia, cantidad: q, coste: m != null ? r4(m * q) : null, origen: m == null ? "sin" : mz ? "mezcla" : "media" };
 }
 // Devuelve { coste, origen: manual|receta|estimado|nogasta|sin, lineas, familia }
 export function costeProducto(nombre, { recetaMap = {}, artById = {}, famCoste = {}, cfg = RENT_DEF, sugerir = null }) {
@@ -133,11 +141,14 @@ export function clasificar(filas) {
 }
 
 // ---- Cálculo completo ----
-export function calcularRentabilidad({ events, sales, eventIds = null, puntoId = null, incluirPunto = null, articulos = [], recetas = [], ajustes = {}, sugerir = null }) {
+// mezcla: reparto de la copa entre destilados ({ artId: % }). Si está, una «copa» genérica cuesta según ese reparto.
+export function calcularRentabilidad({ events, sales, eventIds = null, puntoId = null, incluirPunto = null, articulos = [], recetas = [], ajustes = {}, sugerir = null, mezcla = null }) {
   const cfg = rentCfg(ajustes);
   const recetaMap = Object.fromEntries(recetas.map(r => [clave(r.producto), r.items || []]));
   const artById = Object.fromEntries(articulos.map(a => [a.id, a]));
   const famCoste = costeFamilias(articulos);
+  const cMz = mezcla ? costeMlMezclaR(mezcla, articulos) : null;
+  if (cMz != null) { famCoste.destilado = cMz; famCoste.__mezcla = cMz; }
   const div = 1 + cfg.ivaBarra / 100;
   const filas = ventasPorProducto(events, sales, { eventIds, puntoId, incluirPunto }).map(v => {
     const c0 = costeProducto(v.nombre, { recetaMap, artById, famCoste, cfg, sugerir });

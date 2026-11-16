@@ -263,7 +263,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
               onGuardarAjustes={async (datos) => { await crm.saveAjustes(datos); await cargar(); }} />
           )}
           {data && tab === "stock" && (
-            <Stock ev={ev} sales={sales} ajustes={data.ajustes || {}} flash={flash} onRecargarCRM={cargar}
+            <Stock ev={ev} events={events} sales={sales} ajustes={data.ajustes || {}} flash={flash} onRecargarCRM={cargar}
               onGuardarAjustes={async (datos) => { await crm.saveAjustes(datos); await cargar(); }} />
           )}
           {data && tab === "liquidacion" && (

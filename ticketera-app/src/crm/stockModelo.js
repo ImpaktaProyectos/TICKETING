@@ -2,7 +2,9 @@
 // Consumo real       = entradas − devoluciones − recuento final
 // Consumo justificado = ventas TPV × receta + invitaciones × receta + mermas + consumo interno
 // Diferencia          = real − justificado   (se muestra a coste; nunca se llama "robo")
-import { r2, isInvite } from "./ui";
+// Sin depender de la interfaz (se puede probar con node)
+const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+const isInvite = (s) => !!(s && (s.invite || /^invitacion/.test(s.pago || "")));
 
 export const FAMILIAS = [
   { k: "destilado", t: "Destilados y licores", corto: "Destilados", i: "bottle", c: "#a855f7", medida: "ml" },
@@ -28,7 +30,8 @@ const TIPOS_EXTRA = [
   { k: "traspaso_salida", t: "Al almacén", largo: "Guardado en el almacén", i: "box", c: "#64748b", ink: "#fff" },
 ];
 export const tipoInfo = (k) => TIPOS_MOV.find(t => t.k === k) || TIPOS_EXTRA.find(t => t.k === k) || TIPOS_MOV[0];
-export const STOCK_DEF = { copaMl: 50, chupitoMl: 30, refrescoMl: 200, botellaMl: 700 };
+// toleranciaPct: diferencia que se da por normal al cuadrar (goteo, espuma, botellas «casi vacías»). Mínimo media botella.
+export const STOCK_DEF = { copaMl: 50, chupitoMl: 30, refrescoMl: 200, botellaMl: 700, toleranciaPct: 3 };
 export const stockCfg = (ajustes) => ({ ...STOCK_DEF, ...((ajustes || {}).stock || {}) });
 
 // Formato legible de un número (coma decimal, sin ceros sobrantes)
@@ -45,7 +48,47 @@ export function cantTxt(a, unidades) {
 }
 // Medida de un artículo en su familia: ml por unidad (familias en ml) o 1
 export const factor = (a) => (famInfo(a.familia).medida === "ml" ? (Number(a.ml) || 0) : 1);
-export const formato = (a) => [a.ml ? (a.ml >= 1000 ? `${num(a.ml / 1000, 2)} L` : `${a.ml} ml`) : null, a.porCaja > 1 ? `caja de ${a.porCaja}` : null, a.retornable ? "retornable" : null].filter(Boolean).join(" · ");
+// Envase de un artículo: cristal retornable (con fianza), cristal, plástico (PET), lata o brik. Sale de cómo se cuenta y del nombre.
+export function materialDe(a) {
+  if (!a) return null;
+  const n = String(a.nombre || "").toUpperCase(), f = a.familia;
+  if (f === "envase" || f === "vaso" || f === "otros") return null;
+  if (a.unidad === "lata" || /\bLATA\b/.test(n)) return "lata";
+  if (a.unidad === "brik" || /\bBRIK\b|TETRA/.test(n)) return "brik";
+  if (a.unidad === "barril" || /BARRIL|\bKEG\b/.test(n)) return "barril";
+  if (/\bPET\b|PL[AÁ]STICO/.test(n)) return "plástico (PET)";
+  if (a.retornable) return "cristal retornable";
+  if (f === "destilado" || /CRISTAL|VIDRIO|\bNR\b|NO RETORN/.test(n)) return "cristal";
+  return null;
+}
+export const formato = (a) => [a.ml ? (a.ml >= 1000 ? `${num(a.ml / 1000, 2)} L` : `${a.ml} ml`) : null, materialDe(a), a.porCaja > 1 ? `caja de ${a.porCaja}` : null].filter(Boolean).join(" · ");
+
+// Formatos habituales en hostelería en España, para dar de alta un artículo con un toque.
+// (Se pueden cambiar después: cada proveedor tiene los suyos.)
+export const FORMATOS_TIPICOS = {
+  destilado: [
+    { t: "Botella 70 cl", unidad: "botella", ml: 700, porCaja: 1 }, { t: "Botella 1 L", unidad: "botella", ml: 1000, porCaja: 1 },
+    { t: "Botella 1,5 L", unidad: "botella", ml: 1500, porCaja: 1 }, { t: "Caja de 6 × 70 cl", unidad: "botella", ml: 700, porCaja: 6 },
+  ],
+  refresco: [
+    { t: "20 cl cristal retornable · caja 24", unidad: "botella", ml: 200, porCaja: 24, retornable: true },
+    { t: "23,7 cl cristal retornable · caja 24", unidad: "botella", ml: 237, porCaja: 24, retornable: true },
+    { t: "Lata 33 cl · pack 24", unidad: "lata", ml: 330, porCaja: 24 },
+    { t: "PET 1 L · pack 12", unidad: "botella", ml: 1000, porCaja: 12, pet: true },
+    { t: "PET 2 L · pack 6", unidad: "botella", ml: 2000, porCaja: 6, pet: true },
+  ],
+  cerveza: [
+    { t: "Tercio (1/3) cristal retornable · caja 24", unidad: "botella", ml: 330, porCaja: 24, retornable: true },
+    { t: "Quinto (1/5) cristal retornable · caja 24", unidad: "botella", ml: 200, porCaja: 24, retornable: true },
+    { t: "Lata 33 cl · pack 24", unidad: "lata", ml: 330, porCaja: 24 },
+    { t: "Botellín 25 cl cristal · pack 24", unidad: "botella", ml: 250, porCaja: 24 },
+  ],
+  agua: [
+    { t: "33 cl cristal · caja 12", unidad: "botella", ml: 330, porCaja: 12 }, { t: "50 cl PET · pack 24", unidad: "botella", ml: 500, porCaja: 24, pet: true },
+    { t: "1,5 L PET · pack 6", unidad: "botella", ml: 1500, porCaja: 6, pet: true },
+  ],
+  energetica: [{ t: "Lata 25 cl · pack 24", unidad: "lata", ml: 250, porCaja: 24 }, { t: "Lata 50 cl · pack 12", unidad: "lata", ml: 500, porCaja: 12 }],
+};
 
 // ---- Recetas: sugerencia por el nombre del producto del TPV ----
 export function sugerirReceta(nombre, cfg = STOCK_DEF) {
@@ -168,7 +211,9 @@ export function calcularStock({ ev, sales, articulos, movimientos, recetas, cont
     const unidadesEntra = fs.reduce((t, f) => t + f.entrada, 0);
     const medidaMedia = unidadesEntra > 0 ? entra / unidadesEntra : (F.medida === "ml" ? 700 : 1);
     const costeMedida = entra > 0 ? fs.reduce((t, f) => t + f.costeEntrada, 0) / entra : 0;
-    const tolerancia = Math.max(Math.abs(real || 0) * 0.05, 2 * medidaMedia);
+    // Antes: 5 % o 2 botellas (escondía casi 2 botellas por familia). Ahora: el % de Medidas de la casa o media botella.
+    const tolPct = Number.isFinite(Number(cfg?.toleranciaPct)) ? Number(cfg.toleranciaPct) : STOCK_DEF.toleranciaPct;
+    const tolerancia = Math.max(Math.abs(real || 0) * tolPct / 100, 0.5 * medidaMedia);
     const usada = famUsadas.has(F.k);
     let estado = "pendiente";
     if (F.noAudita) estado = "info";
@@ -247,16 +292,24 @@ export function articuloDesdeLinea(desc, codigo, proveedor) {
     : /GINEBRA|\bGIN\b|\bRON\b|WHISK|VODKA|TEQUILA|LICOR|JAGER|BRANDY|CO[ÑN]AC|ANIS|PACHAR|BAILEYS|MARTINI|VERMUT/.test(d) ? "destilado"
     : /CERVEZA|ESTRELLA|MAHOU|HEINEKEN|ALHAMBRA|AMSTEL|CRUZCAMPO|DAMM|1\/3/.test(d) ? "cerveza"
     : /AGUA/.test(d) ? "agua" : /ENERG|RED ?BULL|MONSTER|CONTACT|BURN/.test(d) ? "energetica"
-    : /COCA|FANTA|SPRITE|SCHWEPPES|T[OÓ]NICA|NESTEA|AQUARIUS|REFRESCO|LIM[OÓ]N|NARANJA|7UP|PEPSI/.test(d) ? "refresco" : "otros";
-  const pack = d.match(/\*\s*(\d{1,3})\b/) || d.match(/\bX\s*(\d{1,3})\b/);
+    : /COCA|FANTA|SPRITE|SCHWEPPES|T[OÓ]NICA|NESTEA|AQUARIUS|REFRESCO|LIM[OÓ]N|NARANJA|7UP|PEPSI|ZUMO|MOSTO|BITTER|GINGER|LIMONADA|KAS\b|TRINARANJUS|SEVEN ?UP|CASERA|GASEOSA/.test(d) ? "refresco" : "otros";
+  // Pack: «24X33CL» / «24 X 33 CL» → 24 (el número de delante de la medida); «*24», «X24», «C/24», «CJ 24», «PACK 6», «24 UDS»
+  const packMedida = d.match(/\b(\d{1,3})\s*X\s*\d+(?:[.,]\d+)?\s*(?:CL|ML|L\b|LITROS?)/);
+  const pack = packMedida || d.match(/\*\s*(\d{1,3})\b/) || d.match(/\bX\s*(\d{1,3})\b(?!\s*(?:[.,]\d+)?\s*(?:CL|ML|L\b|LITROS?))/)
+    || d.match(/\bC\s*\/\s*(\d{1,3})\b/) || d.match(/\bCJ\.?\s*(\d{1,3})\b/) || d.match(/\bPACK\s*(?:DE\s*)?(\d{1,3})\b/) || d.match(/\b(\d{1,3})\s*(?:UDS|UNID(?:ADES)?)\b/);
   let ml = null;
-  const mL = d.match(/(\d+(?:[.,]\d+)?)\s*(?:L\b|LITROS?)/), mCl = d.match(/(\d+(?:[.,]\d+)?)\s*CL/), mMl = d.match(/(\d{3})\s*ML/), m13 = /1\/3/.test(d), m07 = d.match(/\b0[.,]70\b/);
-  if (mMl) ml = Number(mMl[1]); else if (mCl) ml = Math.round(parseFloat(mCl[1].replace(",", ".")) * 10); else if (mL) ml = Math.round(parseFloat(mL[1].replace(",", ".")) * 1000); else if (m13) ml = 330; else if (m07) ml = 700;
+  const mL = d.match(/(\d+(?:[.,]\d+)?)\s*(?:L\b|LITROS?)/), mCl = d.match(/(\d+(?:[.,]\d+)?)\s*CL/), mMl = d.match(/(\d{2,4})\s*ML/), m07 = d.match(/\b0[.,]70\b/);
+  const fr = d.match(/\b1\/([2345])\b/);                         // 1/3 tercio, 1/5 quinto, 1/4, 1/2
+  if (mMl) ml = Number(mMl[1]); else if (mCl) ml = Math.round(parseFloat(mCl[1].replace(",", ".")) * 10); else if (mL) ml = Math.round(parseFloat(mL[1].replace(",", ".")) * 1000);
+  else if (fr) ml = { 2: 500, 3: 330, 4: 250, 5: 200 }[fr[1]]; else if (/TERCIO/.test(d)) ml = 330; else if (/QUINTO/.test(d)) ml = 200; else if (m07) ml = 700;
   if (familia === "envase" || familia === "vaso") ml = null;
-  const unidad = familia === "envase" ? "caja" : /LATA/.test(d) || familia === "energetica" ? "lata" : familia === "vaso" || familia === "otros" ? "unidad" : "botella";
-  const porCaja = familia === "destilado" || familia === "envase" || familia === "vaso" ? 1 : pack ? Math.max(1, Number(pack[1])) : 1;
+  const unidad = familia === "envase" ? "caja" : /BARRIL|\bKEG\b/.test(d) ? "barril" : /LATA/.test(d) || (familia === "energetica" && !/BOT|PET|VIDRIO/.test(d)) ? "lata" : /BRIK|TETRA/.test(d) ? "brik" : familia === "vaso" || familia === "otros" ? "unidad" : "botella";
+  // Destilados: se facturan por botella salvo que diga claramente «6X70CL»
+  const porCaja = familia === "envase" || familia === "vaso" || unidad === "barril" ? 1 : familia === "destilado" ? (packMedida ? Math.max(1, Number(packMedida[1])) : 1) : pack ? Math.max(1, Number(pack[1])) : 1;
   const nombre = d.replace(/\s+/g, " ").replace(/[."]+$/g, "").trim().toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase()).slice(0, 80);
-  return { nombre, familia, unidad, ml, porCaja, codigo: String(codigo || ""), proveedor: proveedor || "", retornable: /RETORN/.test(d) && !/NO RETORN/.test(d), confirmar: familia === "vaso", activo: true };
+  // Retornable: «RETORNABLE», «RET.», «RET», «VR» (vidrio retornable) o «CASCO»; nunca si es lata, PET, brik o «NO RETORNABLE»/«NR»
+  const retornable = /RETORN|\bRET\b\.?|\bVR\b|CASCO/.test(d) && !/NO RETORN|\bNR\b|\bPET\b|LATA|BRIK/.test(d) && familia !== "envase";
+  return { nombre, familia, unidad, ml, porCaja, codigo: String(codigo || ""), proveedor: proveedor || "", retornable, confirmar: familia === "vaso" || familia === "otros", activo: true };
 }
 
 // ---- Propuesta de devolución del sobrante (lo que queda CERRADO en el recuento, menos lo ya devuelto) ----
@@ -271,4 +324,114 @@ export function propuestaDevolucion({ articulos, lineas, movimientos }) {
     const pendiente = r2(Math.max(0, cerradas - (yaDevuelto[a.id] || 0)));
     return { a, cerradas, yaDevuelto: yaDevuelto[a.id] || 0, pendiente };
   }).filter(x => x && (x.cerradas > 0));
+}
+
+// ---- Cuentas del pedido: lo que entró, lo que vuelve (bebida y envases), lo que se guarda y lo que de verdad cuesta el evento ----
+// Todo sin IVA, a precio de coste (el de cada entrada; si no lo tiene, el del catálogo).
+// plan: lo decidido en «Qué hacer con lo que sobra» y aún no confirmado: [{ articuloId, destino: "devolver"|"almacen", unidades }]
+// vacios: cajas vacías de envases que se van a devolver: { articuloId: unidades }
+export function cuentasPedido({ articulos = [], movimientos = [], plan = [], vacios = {} }) {
+  const artById = Object.fromEntries(articulos.map(a => [a.id, a]));
+  const anulados = new Set(movimientos.filter(m => m.tipo === "anulacion").map(m => m.anulaId));
+  const validos = movimientos.filter(m => m.tipo !== "anulacion" && !anulados.has(m.id));
+  const esEnvase = (id) => !!famInfo(artById[id]?.familia).noAudita;
+  // Coste medio de entrada por artículo (para valorar lo que vuelve)
+  const ent = {};
+  validos.filter(m => m.tipo === "entrada" || m.tipo === "traspaso_entrada").forEach(m => {
+    const x = ent[m.articuloId] = ent[m.articuloId] || { u: 0, v: 0 };
+    const c = m.costeUnidad ?? artById[m.articuloId]?.coste ?? 0; x.u += m.cantidad; x.v += m.cantidad * c;
+  });
+  const costeDe = (id) => (ent[id]?.u ? ent[id].v / ent[id].u : artById[id]?.coste ?? 0);
+  const val = (m) => m.cantidad * (m.costeUnidad ?? costeDe(m.articuloId));
+  const suma = (xs) => r2(xs.reduce((t, m) => t + val(m), 0));
+  const entradas = validos.filter(m => m.tipo === "entrada" || m.tipo === "traspaso_entrada");
+  const out = {
+    entroBebida: suma(entradas.filter(m => !esEnvase(m.articuloId))),
+    entroEnvases: suma(entradas.filter(m => esEnvase(m.articuloId))),
+    devueltoBebida: suma(validos.filter(m => m.tipo === "devolucion" && !esEnvase(m.articuloId))),
+    devueltoEnvases: suma(validos.filter(m => m.tipo === "devolucion" && esEnvase(m.articuloId))),
+    guardado: suma(validos.filter(m => m.tipo === "traspaso_salida")),
+    devolverAhora: r2(plan.filter(p => p.destino === "devolver").reduce((t, p) => t + (p.unidades || 0) * costeDe(p.articuloId), 0)),
+    guardarAhora: r2(plan.filter(p => p.destino === "almacen").reduce((t, p) => t + (p.unidades || 0) * costeDe(p.articuloId), 0)),
+    envasesAhora: r2(Object.entries(vacios).reduce((t, [id, u]) => t + (Number(u) || 0) * costeDe(id), 0)),
+  };
+  out.entro = r2(out.entroBebida + out.entroEnvases);
+  out.vuelve = r2(out.devueltoBebida + out.devueltoEnvases + out.devolverAhora + out.envasesAhora);   // abono (lo ya devuelto + lo que vas a devolver)
+  out.almacen = r2(out.guardado + out.guardarAhora);
+  // Fianza de envases que sigue en juego: cargada y aún sin devolver (se recupera al devolver las cajas)
+  out.fianzaPendiente = r2(Math.max(0, out.entroEnvases - out.devueltoEnvases - out.envasesAhora));
+  // Lo que te cuesta el evento de verdad: lo consumido (incluye mermas e invitaciones) + la fianza que aún no has recuperado
+  out.coste = r2(out.entro - out.vuelve - out.almacen);
+  out.consumido = r2(out.coste - out.fianzaPendiente);
+  return out;
+}
+
+// ---- Mezcla de la copa: qué destilado se sirve en cada «COPA» genérica ----
+// En el TPV se vende «COPA», no «RON COLA»: para saber cuánto ron o ginebra se gasta (y cuánto cuesta la copa)
+// se usa un reparto en % por botella. La app lo recomienda con lo que se consumió de verdad y se puede cambiar.
+// Guardado en los ajustes del CRM: stock.mezclas = { general: { artId: % }, eventos: { eventoId: { artId: % } } }
+export function normalizarMezcla(m) {
+  const xs = Object.entries(m || {}).map(([k, v]) => [k, Math.max(0, Number(v) || 0)]).filter(([, v]) => v > 0);
+  const t = xs.reduce((s, [, v]) => s + v, 0);
+  if (!t) return {};
+  const out = Object.fromEntries(xs.map(([k, v]) => [k, Math.round(v / t * 1000) / 10]));
+  return out;
+}
+export function mezclaDe(stockAjustes, eventoId) {
+  const M = stockAjustes?.mezclas || {};
+  const ev = eventoId ? M.eventos?.[eventoId] : null;
+  if (ev && Object.keys(ev).length) return { pct: normalizarMezcla(ev), de: "evento" };
+  if (M.general && Object.keys(M.general).length) return { pct: normalizarMezcla(M.general), de: "general" };
+  return { pct: {}, de: null };
+}
+// Consumo real de cada destilado (en ml) en eventos con recuento sellado: entró − devuelto antes del recuento − lo que quedó.
+// historico: [{ eventoId, recinto, sellado, movimientos, lineas }]
+export function consumoDestilados(historico = [], articulos = []) {
+  const dest = Object.fromEntries(articulos.filter(a => a.familia === "destilado" && Number(a.ml) > 0).map(a => [a.id, a]));
+  return historico.map(h => {
+    const anulados = new Set((h.movimientos || []).filter(m => m.tipo === "anulacion").map(m => m.anulaId));
+    const v = (h.movimientos || []).filter(m => m.tipo !== "anulacion" && !anulados.has(m.id) && dest[m.articuloId]);
+    const neto = {};
+    v.forEach(m => {
+      const t = m.tipo === "traspaso_entrada" ? "entrada" : m.tipo === "traspaso_salida" ? "devolucion" : m.tipo;
+      if (t === "entrada") neto[m.articuloId] = (neto[m.articuloId] || 0) + m.cantidad;
+      else if (t === "devolucion" && !m.trasRecuento) neto[m.articuloId] = (neto[m.articuloId] || 0) - m.cantidad;
+    });
+    const contado = Object.fromEntries((h.lineas || []).map(l => [l.articuloId, Number(l.total) || 0]));
+    const real = {}, compras = {};
+    Object.entries(neto).forEach(([id, u]) => {
+      compras[id] = Math.max(0, u) * dest[id].ml;
+      if (h.sellado && contado[id] !== undefined) real[id] = Math.max(0, u - contado[id]) * dest[id].ml;
+    });
+    return { eventoId: h.eventoId, recinto: h.recinto || "", real, compras, conRecuento: Object.keys(real).length > 0 };
+  });
+}
+// Mezcla recomendada: el consumo real de los recuentos sellados (primero los del mismo recinto); si no hay, lo comprado
+export function recomendarMezcla({ historico = [], articulos = [], recinto = "" }) {
+  const c = consumoDestilados(historico, articulos);
+  const mismo = (x) => recinto && x.recinto && x.recinto.trim().toLowerCase() === recinto.trim().toLowerCase();
+  const suma = (xs, k) => { const o = {}; xs.forEach(x => Object.entries(x[k]).forEach(([id, ml]) => { o[id] = (o[id] || 0) + ml; })); return o; };
+  const conR = c.filter(x => x.conRecuento);
+  const opciones = [
+    [conR.filter(mismo), "real", true], [conR, "real", false],
+    [c.filter(mismo).filter(x => Object.keys(x.compras).length), "compras", true], [c.filter(x => Object.keys(x.compras).length), "compras", false],
+  ];
+  for (const [xs, k, delRecinto] of opciones) {
+    if (!xs.length) continue;
+    const pct = normalizarMezcla(suma(xs, k));
+    if (Object.keys(pct).length) return { pct, fuente: k === "real" ? "recuentos" : "compras", eventos: xs.length, delRecinto };
+  }
+  return { pct: {}, fuente: null, eventos: 0, delRecinto: false };
+}
+// Coste medio de 1 ml de destilado con una mezcla (solo cuenta botellas con coste y medida)
+export function costeMlMezcla(pct = {}, articulos = []) {
+  let t = 0, w = 0;
+  articulos.forEach(a => { const p = pct[a.id]; if (!p || a.coste == null || !(Number(a.ml) > 0)) return; t += p * Number(a.coste) / Number(a.ml); w += p; });
+  return w ? t / w : null;
+}
+// Botellas de cada destilado que se gastan para unos ml de destilado (por ejemplo, copas × ml por copa)
+export function botellasPorMezcla(mlTotal, pct = {}, articulos = []) {
+  return articulos.filter(a => pct[a.id] > 0 && Number(a.ml) > 0)
+    .map(a => ({ a, pct: pct[a.id], ml: mlTotal * pct[a.id] / 100, botellas: Math.round(mlTotal * pct[a.id] / 100 / Number(a.ml) * 10) / 10 }))
+    .sort((x, y) => y.pct - x.pct);
 }

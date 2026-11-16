@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import * as crm from "./crmdb";
 import { money, useIsMobile, C, Icon, Tile, Badge, Seg, Sheet, Field, MoneyInput, parseImporte } from "./ui";
 import { Switch } from "./Ingresos";
-import { famInfo, FAMILIAS, sugerirReceta, stockCfg, num, botellasReservados, botellasDeNombre, recetaReservado } from "./stockModelo";
+import { famInfo, FAMILIAS, sugerirReceta, stockCfg, num, botellasReservados, botellasDeNombre, recetaReservado, mezclaDe } from "./stockModelo";
 import { fuenteAuto } from "./categorias";
 import { calcularRentabilidad, TIPOS, simular, precioMinimo } from "./rentabilidad";
 
@@ -45,7 +45,8 @@ export function Rentabilidad({ ev, events, sales, ajustes, fuentes = {}, flash, 
     const resBot = Object.assign({}, ...evs.map(botellasReservados));
     const sugerir = (n) => { const nb = botellasDeNombre(n, resBot); return nb !== null ? recetaReservado(nb, cfgStock) : sugerirReceta(n, cfgStock); };
     return calcularRentabilidad({ events, sales, eventIds: ambito === "evento" ? new Set([ev.id]) : null, puntoId: puntoId || null,
-      incluirPunto: (p) => !esTaquilla(p), articulos: d.articulos, recetas: d.recetas, ajustes, sugerir });
+      incluirPunto: (p) => !esTaquilla(p), articulos: d.articulos, recetas: d.recetas, ajustes, sugerir,
+      mezcla: mezclaDe(cfgStock, ambito === "evento" ? ev.id : null).pct });
   }, [d, events, sales, ev.id, ambito, puntoId, ajustes, fuentes]);
 
   const guardar = async (fn, okMsg) => {
@@ -278,7 +279,7 @@ function Ficha({ f, cfg, busy, onClose, onCoste, onConfirmar, onIrStock }) {
       <div style={{ ...C.card, marginBottom: 14 }}>
         <div style={{ fontWeight: 900, marginBottom: 4 }}>Qué cuesta una unidad</div>
         {f.lineas.length > 0 && f.origen !== "manual" && f.lineas.map((l, i) => <React.Fragment key={i}>{linea(
-          <span style={{ minWidth: 0 }}>{l.nombre || famInfo(l.familia).corto}<span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>{l.origen === "extra" ? "Ajustes de rentabilidad" : `${num(l.cantidad, 0)} ${famInfo(l.familia).medida === "ml" ? "ml" : "ud"}${l.origen === "media" ? " · precio medio de la familia" : ""}`}</span></span>,
+          <span style={{ minWidth: 0 }}>{l.nombre || famInfo(l.familia).corto}<span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>{l.origen === "extra" ? "Ajustes de rentabilidad" : `${num(l.cantidad, 0)} ${famInfo(l.familia).medida === "ml" ? "ml" : "ud"}${l.origen === "media" ? " · precio medio de la familia" : l.origen === "mezcla" ? " · según la mezcla de la copa (Stock › Recetas)" : ""}`}</span></span>,
           l.coste != null ? money(l.coste) : <span style={{ color: "var(--amber)", fontWeight: 800 }}>Sin precio</span>)}</React.Fragment>)}
         {f.origen === "proveedor" && <div style={{ fontSize: 13.5, color: "var(--muted)", padding: "6px 0" }}>Lo pone el proveedor: tú solo te quedas tu comisión, así que no tienes coste de producto.</div>}
         {f.origen === "nogasta" && <div style={{ fontSize: 13.5, color: "var(--muted)", padding: "6px 0" }}>Su receta dice que no gasta nada de stock (coste 0). Si tiene otro coste, escríbelo abajo.</div>}

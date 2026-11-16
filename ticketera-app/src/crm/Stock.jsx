@@ -5,8 +5,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import * as crm from "./crmdb";
 import { money, r2, parseImporte, fechaCorta, useIsMobile, C, Icon, Tile, Badge, Seg, Head, Sheet, Field, IconGrid, MoneyInput } from "./ui";
 import { Vacio, Switch } from "./Ingresos";
-import { FAMILIAS, famInfo, UNIDADES, uniTxt, TIPOS_MOV, tipoInfo, stockCfg, num, medidaTxt, cantTxt, factor, formato, sugerirReceta, recetaTxt, calcularStock, CATALOGO_MONTEAGUDO, propuestaDevolucion } from "./stockModelo";
-import { SubirFactura, Documentos, Sobrante, Almacen, TraerAlmacen, useAlmacen } from "./StockDocs";
+import { FAMILIAS, famInfo, UNIDADES, uniTxt, TIPOS_MOV, tipoInfo, stockCfg, num, medidaTxt, cantTxt, factor, formato, materialDe, FORMATOS_TIPICOS, sugerirReceta, recetaTxt, calcularStock, CATALOGO_MONTEAGUDO, cuentasPedido, mezclaDe, normalizarMezcla, recomendarMezcla, botellasPorMezcla, costeMlMezcla, propuestaDevolucion } from "./stockModelo";
+import { SubirFactura, Documentos, Sobrante, Almacen, TraerAlmacen, useAlmacen, CuentasPedido } from "./StockDocs";
 
 const QUIEN = "Admin";
 const ESTADO_FAM = {
@@ -20,7 +20,7 @@ const ESTADO_FAM = {
 };
 const NIVEL = { alta: { t: "Fiabilidad alta", c: "var(--green)" }, media: { t: "Fiabilidad media", c: "var(--amber)" }, baja: { t: "Fiabilidad baja", c: "var(--red)" } };
 
-export function Stock({ ev, sales, ajustes, onGuardarAjustes, onRecargarCRM, flash }) {
+export function Stock({ ev, events = [], sales, ajustes, onGuardarAjustes, onRecargarCRM, flash }) {
   const isMobile = useIsMobile();
   const [d, setD] = useState(null);
   const [error, setError] = useState(null);
@@ -42,7 +42,7 @@ export function Stock({ ev, sales, ajustes, onGuardarAjustes, onRecargarCRM, fla
   if (error) return <div style={{ ...C.panel, borderColor: "var(--amber)", color: "var(--amber)", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}><span style={{ display: "flex", alignItems: "center", gap: 8 }}><Icon n="alert" s={18} />{error}</span><button onClick={cargar} style={C.ghost}>Reintentar</button></div>;
   if (!d || !S) return <div style={{ color: "var(--muted)", padding: 30, textAlign: "center" }}>Cargando stock…</div>;
 
-  const props = { ev, d, S, cfg, busy, run, isMobile, ir: setVista, ajustes, onGuardarAjustes, alm, recargarAlm, onRecargarCRM };
+  const props = { ev, events, d, S, cfg, busy, run, isMobile, ir: setVista, ajustes, onGuardarAjustes, alm, recargarAlm, onRecargarCRM };
   const titulo = { entradas: ["Entradas y salidas", "plus"], recetas: ["Recetas", "glass"], recuento: ["Recuento final", "clipboard"], catalogo: ["Catálogo", "box"], sobrante: ["Qué hacer con lo que sobra", "truck"], almacen: ["Almacén general", "box"] }[vista];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -134,6 +134,7 @@ function Resumen({ ev, d, S, isMobile, ir, alm }) {
       </section>
     )}
 
+    {sellado && <CuentasPedido c={cuentasPedido({ articulos: d.articulos, movimientos: d.movimientos })} titulo={pasos[4].hecho ? "Cuentas del pedido" : "Cuentas del pedido (falta decidir lo que sobra)"} />}
     {(S.nMovs > 0) && (
       <section style={C.panel}>
         <Head i="shield" c={nv.c} t={nv.t} sub="Cuánto te puedes fiar del resultado." />
@@ -262,7 +263,7 @@ function Entradas({ ev, d, S, busy, run, isMobile, ir, alm, recargarAlm, onRecar
     {subir && <SubirFactura ev={ev} d={d} busy={busy} run={run} onClose={() => setSubir(false)} onAplicada={(conGasto) => { if (conGasto) onRecargarCRM?.(); }} />}
     {traer && <TraerAlmacen ev={ev} d={d} alm={alm} busy={busy} run={run} onClose={() => setTraer(false)} onHecho={recargarAlm} />}
     {form && <MovForm tipo0={form.tipo} articulos={activos} busy={busy} onClose={() => setForm(null)}
-      onSave={async (x, otro) => { const ok = await run(() => crm.addMovimiento({ ...x, eventoId: ev.id, creadoPor: QUIEN }), `${tipoInfo(x.tipo).t} apuntada`); if (ok && !otro) setForm(null); return ok; }} />}
+      onSave={async (x, otro, artNuevo) => { const ok = await run(async () => { await crm.addMovimiento({ ...x, eventoId: ev.id, creadoPor: QUIEN }); if (artNuevo) await crm.saveArticulo(artNuevo); }, `${tipoInfo(x.tipo).t} apuntada${artNuevo ? " y precio del catálogo actualizado" : ""}`); if (ok && !otro) setForm(null); return ok; }} />}
   </>);
 }
 
@@ -325,6 +326,7 @@ function MovForm({ tipo0, articulos, busy, onClose, onSave }) {
   const [costeTocado, setCosteTocado] = useState(false);
   const [doc, setDoc] = useState("");
   const [nota, setNota] = useState("");
+  const [alCatalogo, setAlCatalogo] = useState(true);
   const a = articulos.find(x => x.id === artId);
   useEffect(() => { setCajas(0); setSueltas(0); setCosteTocado(false); setCoste(a?.coste != null ? String(r2(a.coste * (a.porCaja || 1))).replace(".", ",") : ""); }, [artId]);
   const porCaja = a?.porCaja || 1;
@@ -335,7 +337,8 @@ function MovForm({ tipo0, articulos, busy, onClose, onSave }) {
   const costeUnidad = coste === "" ? null : !costeTocado && a?.coste != null ? a.coste : Math.round(parseImporte(coste) / porCaja * 10000) / 10000;
   const guardar = async (otro) => {
     if (!ok || busy) return;
-    const hecho = await onSave({ tipo, articuloId: a.id, cantidad: total, cajas: porCaja > 1 ? cajas : null, sueltas: porCaja > 1 ? sueltas : null, costeUnidad: tipo === "entrada" ? costeUnidad : null, documento: doc, nota }, otro);
+    const nuevoCoste = tipo === "entrada" && costeTocado && alCatalogo && costeUnidad != null && Math.abs(costeUnidad - (a.coste ?? -1)) >= 0.0001 ? costeUnidad : null;
+    const hecho = await onSave({ tipo, articuloId: a.id, cantidad: total, cajas: porCaja > 1 ? cajas : null, sueltas: porCaja > 1 ? sueltas : null, costeUnidad: tipo === "entrada" ? costeUnidad : null, documento: doc, nota }, otro, nuevoCoste != null ? { ...a, coste: nuevoCoste } : null);
     if (hecho && otro) { setArtId(null); setNota(""); }
   };
   return (
@@ -357,7 +360,8 @@ function MovForm({ tipo0, articulos, busy, onClose, onSave }) {
         </div>
         {tipo === "entrada" && <Field l={porCaja > 1 ? "Precio de la caja, sin IVA" : `Precio por ${uniTxt(a.unidad, 1)}, sin IVA`}>
           <MoneyInput value={coste} onChange={(v) => { setCoste(v); setCosteTocado(true); }} />
-          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{coste !== "" && total > 0 ? `Esta entrada vale ${money(costeUnidad * total)}.` : "Sirve para calcular el valor del stock y de las diferencias."}</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{coste !== "" && total > 0 ? `Esta entrada vale ${money(costeUnidad * total)}.` : "Sirve para calcular el valor del stock, el abono de lo que devuelvas y la rentabilidad."}</div>
+          {costeTocado && costeUnidad != null && Math.abs(costeUnidad - (a.coste ?? -1)) >= 0.0001 && <label style={{ ...C.toggleRow, marginTop: 10 }}><span>Guardar este precio en el catálogo<span style={{ display: "block", fontSize: 12, color: "var(--muted)", fontWeight: 500 }}>Antes: {a.coste != null ? `${money(a.coste)} por ${uniTxt(a.unidad, 1)}` : "sin precio"} · ahora {money(costeUnidad)}</span></span><Switch on={alCatalogo} onClick={() => setAlCatalogo(v => !v)} /></label>}
         </Field>}
         {(tipo === "entrada" || tipo === "devolucion") && <Field l="Nº de factura o albarán (opcional)"><input value={doc} maxLength={60} onChange={e => setDoc(e.target.value)} placeholder="Ej.: 2026/1862" style={C.input} /></Field>}
         <Field l="Nota (opcional)" mb={4}><input value={nota} maxLength={300} onChange={e => setNota(e.target.value)} placeholder={tipo === "merma" ? "Ej.: se cayó una botella en barra 2" : ""} style={C.input} /></Field>
@@ -378,7 +382,7 @@ const PRESETS = (cfg) => [
 ];
 const ESTADO_REC = { confirmada: ["Confirmada", "var(--green)"], nogasta: ["No gasta stock", "var(--muted)"], sugerida: ["Sugerida", "var(--amber)"], "nogasta-sugerida": ["Sugerida", "var(--amber)"], sinreceta: ["Falta receta", "var(--red)"] };
 
-function Recetas({ d, S, cfg, busy, run, isMobile, ajustes, onGuardarAjustes }) {
+function Recetas({ ev, events, d, S, cfg, busy, run, isMobile, ajustes, onGuardarAjustes }) {
   const [edit, setEdit] = useState(null);
   const sugeridas = S.productos.filter(p => p.estado === "sugerida" || p.estado === "nogasta-sugerida");
   const setCfg = (p) => run(() => onGuardarAjustes({ ...ajustes, stock: { ...cfg, ...p } }), "Medida guardada");
@@ -390,8 +394,11 @@ function Recetas({ d, S, cfg, busy, run, isMobile, ajustes, onGuardarAjustes }) 
         <Field l="Alcohol por chupito" mb={0}><Seg full size="sm" valor={String(cfg.chupitoMl)} onChange={(k) => setCfg({ chupitoMl: Number(k) })} opciones={[25, 30, 35, 40].map(v => ({ k: String(v), t: `${v} ml` }))} /></Field>
         <Field l="Refresco por copa" mb={0}><Seg full size="sm" valor={String(cfg.refrescoMl)} onChange={(k) => setCfg({ refrescoMl: Number(k) })} opciones={[150, 200, 237, 250].map(v => ({ k: String(v), t: `${v} ml` }))} /></Field>
         <Field l="Botella de reservado" mb={0}><Seg full size="sm" valor={String(cfg.botellaMl)} onChange={(k) => setCfg({ botellaMl: Number(k) })} opciones={[700, 750, 1000].map(v => ({ k: String(v), t: v >= 1000 ? `${v / 1000} L` : `${v} ml` }))} /></Field>
+        <Field l="Diferencia que se da por normal al cuadrar" mb={0}><Seg full size="sm" valor={String(cfg.toleranciaPct)} onChange={(k) => setCfg({ toleranciaPct: Number(k) })} opciones={[1, 2, 3, 5].map(v => ({ k: String(v), t: `${v} %` }))} />
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Goteo, espuma, culos de botella. Como mínimo, media botella. Más alto = más eventos salen «cuadra».</div></Field>
       </div>
     </section>
+    <MezclaCopa ev={ev} events={events} d={d} S={S} cfg={cfg} busy={busy} run={run} isMobile={isMobile} ajustes={ajustes} onGuardarAjustes={onGuardarAjustes} />
     {sugeridas.length > 0 && (
       <section style={{ ...C.panel, borderColor: "color-mix(in srgb, var(--amber) 55%, transparent)", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <Tile n="sparkle" c="var(--amber)" s={38} />
@@ -419,6 +426,86 @@ function Recetas({ d, S, cfg, busy, run, isMobile, ajustes, onGuardarAjustes }) 
       onSave={async (items) => { const ok = await run(() => crm.saveReceta(edit.nombre, items), "Receta guardada"); if (ok) setEdit(null); }}
       onQuitar={edit.estado === "confirmada" || edit.estado === "nogasta" ? async () => { const ok = await run(() => crm.borrarReceta(edit.nombre), "Receta quitada"); if (ok) setEdit(null); } : null} />}
   </>);
+}
+
+/* ===================== MEZCLA DE LA COPA =====================
+   En el TPV se vende «COPA», no «RON COLA». Para saber qué botellas se gastan (y cuánto cuesta una copa) hace falta
+   el reparto entre destilados. La app lo recomienda con lo que se consumió de verdad y se cambia aquí, general o por evento. */
+function MezclaCopa({ ev, events, d, S, cfg, busy, run, isMobile, ajustes, onGuardarAjustes }) {
+  const [hist, setHist] = useState(null);
+  const [ambito, setAmbito] = useState(() => cfg.mezclas?.eventos?.[ev.id] ? "evento" : "general");
+  const [abierta, setAbierta] = useState(false);
+  const [edit, setEdit] = useState({});
+  const [copas, setCopas] = useState("");
+  useEffect(() => { let vivo = true; crm.loadHistoricoStock().then(h => { if (vivo) setHist(h.map(x => ({ ...x, recinto: events.find(e => e.id === x.eventoId)?.venue || "" }))); }).catch(() => vivo && setHist([])); return () => { vivo = false; }; }, [ev.id]);
+  const destilados = d.articulos.filter(a => a.activo && a.familia === "destilado" && Number(a.ml) > 0);
+  const actual = mezclaDe(cfg, ev.id);
+  const guardada = ambito === "evento" ? normalizarMezcla(cfg.mezclas?.eventos?.[ev.id]) : normalizarMezcla(cfg.mezclas?.general);
+  const rec = useMemo(() => hist ? recomendarMezcla({ historico: hist, articulos: d.articulos, recinto: ev.venue }) : null, [hist, d.articulos, ev.venue]);
+  useEffect(() => { setEdit(Object.fromEntries(Object.entries(guardada).map(([k, v]) => [k, String(v).replace(".", ",")]))); }, [ambito, JSON.stringify(cfg.mezclas || {})]);
+  const total = Object.values(edit).reduce((t, v) => t + (parseFloat(String(v).replace(",", ".")) || 0), 0);
+  const guardar = (pct) => {
+    const M = { general: cfg.mezclas?.general || {}, eventos: { ...(cfg.mezclas?.eventos || {}) } };
+    if (ambito === "evento") { if (pct) M.eventos[ev.id] = pct; else delete M.eventos[ev.id]; } else M.general = pct || {};
+    return run(() => onGuardarAjustes({ ...ajustes, stock: { ...cfg, mezclas: M } }), pct ? "Mezcla de la copa guardada" : "Este evento vuelve a usar la mezcla general");
+  };
+  const deEdit = () => normalizarMezcla(Object.fromEntries(Object.entries(edit).map(([k, v]) => [k, parseFloat(String(v).replace(",", ".")) || 0])));
+  // Previsión de botellas: copas vendidas en este evento (lo del TPV en ml) o las que pongas
+  const mlTpv = S.familias.find(f => f.k === "destilado")?.tpv || 0;
+  const copasN = copas !== "" ? (parseInt(copas, 10) || 0) : Math.round(mlTpv / (cfg.copaMl || 50));
+  const prevision = botellasPorMezcla(copasN * (cfg.copaMl || 50), actual.pct, d.articulos);
+  const costeCopa = costeMlMezcla(actual.pct, d.articulos);
+  const fuenteTxt = rec?.fuente === "recuentos" ? `lo que se gastó de verdad en ${rec.eventos} ${rec.eventos === 1 ? "evento" : "eventos"} con recuento${rec.delRecinto ? ` en ${ev.venue}` : ""}` : rec?.fuente === "compras" ? `lo comprado en ${rec.eventos} ${rec.eventos === 1 ? "evento" : "eventos"}${rec.delRecinto ? ` en ${ev.venue}` : ""} (aún sin recuentos sellados)` : null;
+  const nombre = (id) => d.articulos.find(a => a.id === id)?.nombre || "Artículo";
+  const chips = (pct) => <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{Object.entries(pct).sort((a, b) => b[1] - a[1]).map(([id, p]) => <span key={id} style={C.tag}>{nombre(id)} <b>{num(p, 1)} %</b></span>)}</div>;
+  if (!destilados.length) return null;
+  return (
+    <section style={C.panel}>
+      <Head i="bottle" c="#a855f7" t="Qué se sirve en una «copa»" sub="En el TPV se vende «COPA», no «RON COLA». Este reparto dice qué botellas se gastan y cuánto cuesta una copa." />
+      {Object.keys(actual.pct).length > 0
+        ? <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 6 }}>{actual.de === "evento" ? `Mezcla de ${ev.name}` : "Mezcla general (todos los eventos)"}{costeCopa != null ? ` · el alcohol de una copa cuesta ≈ ${money(costeCopa * (cfg.copaMl || 50))}` : ""}</div>
+            {chips(actual.pct)}
+          </div>
+        : <div style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 12 }}>Aún no hay mezcla: se usa el precio medio de todos los destilados. Ponla para afinar el coste de la copa y la previsión de botellas.</div>}
+      {rec?.fuente && <div style={{ border: "1px solid color-mix(in srgb, var(--green) 45%, var(--line))", borderRadius: 14, padding: 12, marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900, marginBottom: 4 }}><Icon n="sparkle" s={16} c="var(--green)" />Recomendada</div>
+        <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 8 }}>Según {fuenteTxt}.</div>
+        {chips(rec.pct)}
+      </div>}
+      {hist === null && <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12 }}>Buscando lo consumido en otros eventos…</div>}
+      {hist && !rec?.fuente && <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 12 }}>Para recomendarte una mezcla necesito al menos un evento con entradas de destilados (mejor con el recuento sellado).</div>}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={() => setAbierta(v => !v)} style={{ ...C.btnGhost, minHeight: 44 }}><Icon n="edit" s={16} />{abierta ? "Cerrar" : "Cambiar la mezcla"}</button>
+        {rec?.fuente && !abierta && <button disabled={busy} onClick={() => guardar(rec.pct)} style={{ ...C.btnPrimary, minHeight: 44 }}><Icon n="check" s={16} w={2.4} />Usar la recomendada{ambito === "evento" ? " en este evento" : ""}</button>}
+      </div>
+      {abierta && <div style={{ marginTop: 12 }}>
+        <Seg full size="sm" valor={ambito} onChange={setAmbito} opciones={[{ k: "general", t: "Todos los eventos" }, { k: "evento", t: `Solo ${ev.name}` }]} />
+        <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "8px 0" }}>{ambito === "evento" ? "Para este evento o zona en concreto (por ejemplo, si aquí se pide más ron). Manda sobre la general." : "Se usa en todos los eventos que no tengan la suya."}</div>
+        {destilados.map(a => { const v = edit[a.id] ?? ""; const r = rec?.pct?.[a.id]; return (
+          <div key={a.id} style={{ ...C.row, gap: 8 }}>
+            <span style={{ minWidth: 0, flex: 1 }}><b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nombre}</b><span style={{ fontSize: 12, color: "var(--muted)" }}>{formato(a)}{r ? ` · recomendado ${num(r, 1)} %` : ""}</span></span>
+            <span style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}><input inputMode="decimal" value={v} placeholder="0" onChange={e => setEdit(x => ({ ...x, [a.id]: e.target.value.replace(/[^\d.,]/g, "").slice(0, 5) }))} aria-label={`Porcentaje de ${a.nombre}`} style={{ ...C.input, width: 74, textAlign: "right", fontWeight: 900, padding: "8px 10px" }} /><b style={{ color: "var(--muted)" }}>%</b></span>
+          </div>); })}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+          <b style={{ color: Math.abs(total - 100) < 0.6 ? "var(--green)" : "var(--amber)" }}>Suma {num(total, 1)} %{Math.abs(total - 100) >= 0.6 && total > 0 ? " · al guardar se ajusta a 100 %" : ""}</b>
+          <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {rec?.fuente && <button type="button" onClick={() => setEdit(Object.fromEntries(Object.entries(rec.pct).map(([k, v]) => [k, String(v).replace(".", ",")])))} style={C.btnSm}>Copiar la recomendada</button>}
+            {ambito === "evento" && cfg.mezclas?.eventos?.[ev.id] && <button type="button" disabled={busy} onClick={() => guardar(null)} style={C.btnSm}>Usar la general</button>}
+          </span>
+        </div>
+        <button disabled={busy || total <= 0} onClick={async () => { if (await guardar(deEdit())) setAbierta(false); }} style={{ ...C.btnPrimary, width: "100%", minHeight: 48, marginTop: 10, opacity: total > 0 ? 1 : .45 }}>Guardar mezcla{ambito === "evento" ? ` de ${ev.name}` : ""}</button>
+      </div>}
+      {Object.keys(actual.pct).length > 0 && <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+          <b>Botellas que se gastan</b>
+          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>para <input inputMode="numeric" value={copas} placeholder={String(copasN)} onChange={e => setCopas(e.target.value.replace(/\D/g, "").slice(0, 6))} aria-label="Copas" style={{ ...C.input, width: 84, textAlign: "right", fontWeight: 900, padding: "6px 8px" }} /> copas de {cfg.copaMl} ml</span>
+        </div>
+        <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>{copas === "" ? "Con las copas vendidas en este evento. Escribe otra cifra para preparar un pedido." : "Previsión para preparar el pedido (añade un margen por si acaso)."}</div>
+        {prevision.map(x => <div key={x.a.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 14, padding: "4px 0", fontVariantNumeric: "tabular-nums" }}><span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.a.nombre}</span><b style={{ flexShrink: 0 }}>≈ {num(x.botellas, 1)} {x.botellas === 1 ? "botella" : "botellas"}</b></div>)}
+      </div>}
+    </section>
+  );
 }
 
 function RecetaSheet({ p, cfg, articulos, busy, onClose, onSave, onQuitar }) {
@@ -611,6 +698,9 @@ function Catalogo({ d, busy, run, isMobile }) {
   </>);
 }
 
+// Aplica un formato típico; si es PET y el nombre no lo dice, se añade para que se vea el envase
+const formatoA = (t, nombre) => ({ unidad: t.unidad, ml: String(t.ml), porCaja: String(t.porCaja), retornable: !!t.retornable,
+  ...(t.pet && nombre && !/\bPET\b/i.test(nombre) ? { nombre: `${nombre.trim()} PET` } : {}) });
 function ArtSheet({ a, busy, onClose, onSave }) {
   const isMobile = useIsMobile();
   const [f, setF] = useState(() => ({ ...a, coste: a.coste != null ? String(a.coste).replace(".", ",") : "", ml: a.ml != null ? String(a.ml) : "", porCaja: String(a.porCaja || 1) }));
@@ -624,10 +714,16 @@ function ArtSheet({ a, busy, onClose, onSave }) {
     <Sheet title={a.id ? "Editar artículo" : "Nuevo artículo"} onClose={onClose}
       footer={<button disabled={!valido || busy} onClick={() => onSave({ ...f, coste: costeN, ml: f.ml === "" ? null : parseImporte(f.ml), porCaja })} style={{ ...C.btnPrimary, width: "100%", minHeight: 52, fontSize: 16, opacity: valido && !busy ? 1 : .45 }}>{busy ? "Guardando…" : valido ? "Guardar" : "Escribe el nombre"}</button>}>
       <Field l="Nombre"><input autoFocus={!a.id} value={f.nombre} maxLength={80} onChange={e => set({ nombre: e.target.value })} placeholder="Ej.: Ginebra Larios 1 L" style={C.input} /></Field>
-      <Field l="Familia"><IconGrid cols={isMobile ? 4 : 4} items={FAMILIAS.map(x => ({ k: x.k, t: x.corto, i: x.i, c: x.c }))} valor={f.familia} onChange={(k) => set({ familia: k })} /></Field>
-      <Field l="Se cuenta por"><Seg full size="sm" valor={f.unidad} onChange={(k) => set({ unidad: k })} opciones={UNIDADES.slice(0, 4).map(u => ({ k: u.k, t: u.t }))} /></Field>
-      {fam.medida === "ml" || f.unidad === "botella" || f.unidad === "lata" ? <Field l="Contenido de cada una (ml)">
-        <Chips vals={[200, 237, 250, 330, 500, 700, 1000, 1500, 2000]} v={f.ml} onPick={(v) => set({ ml: v })} fmt={(x) => x >= 1000 ? `${String(x / 1000).replace(".", ",")} L` : `${x} ml`} />
+      <Field l="Familia"><IconGrid cols={isMobile ? 4 : 4} items={FAMILIAS.map(x => ({ k: x.k, t: x.corto, i: x.i, c: x.c }))} valor={f.familia} onChange={(k) => { const t = !a.id && FORMATOS_TIPICOS[k]?.[0]; set({ familia: k, ...(t ? formatoA(t, f.nombre) : {}) }); }} /></Field>
+      {FORMATOS_TIPICOS[f.familia] && <Field l="Formatos habituales (toca uno para rellenarlo)">
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {FORMATOS_TIPICOS[f.familia].map(t => { const on = f.unidad === t.unidad && String(f.ml) === String(t.ml) && String(f.porCaja) === String(t.porCaja) && !!f.retornable === !!t.retornable; return (
+            <button key={t.t} type="button" onClick={() => set(formatoA(t, f.nombre))} style={{ ...C.seg, minHeight: 40, ...(on ? C.segOn : {}) }}>{t.t}</button>); })}
+        </div>
+      </Field>}
+      <Field l="Se cuenta por"><Seg full size="sm" valor={f.unidad} onChange={(k) => set({ unidad: k })} opciones={UNIDADES.filter(u => u.k !== "caja" || f.familia === "envase").map(u => ({ k: u.k, t: u.t }))} /></Field>
+      {fam.medida === "ml" || ["botella", "lata", "brik", "barril"].includes(f.unidad) ? <Field l="Contenido de cada una (ml)">
+        <Chips vals={[200, 237, 250, 330, 500, 700, 750, 1000, 1500, 2000]} v={f.ml} onPick={(v) => set({ ml: v })} fmt={(x) => x >= 1000 ? `${String(x / 1000).replace(".", ",")} L` : `${x} ml`} />
         <input inputMode="numeric" value={f.ml} onChange={e => set({ ml: e.target.value.replace(/\D/g, "").slice(0, 6) })} placeholder="ml" style={{ ...C.input, width: 140 }} />
       </Field> : null}
       <Field l="Unidades por caja">
@@ -642,7 +738,7 @@ function ArtSheet({ a, busy, onClose, onSave }) {
         <Field l="Proveedor"><input value={f.proveedor || ""} maxLength={80} onChange={e => set({ proveedor: e.target.value })} style={C.input} /></Field>
         <Field l="Código del proveedor"><input value={f.codigo || ""} maxLength={40} onChange={e => set({ codigo: e.target.value })} style={{ ...C.input, fontFamily: "monospace" }} /></Field>
       </div>
-      <label style={{ ...C.toggleRow, marginBottom: 12 }}><span>Retornable (lleva envase con fianza)</span><Switch on={!!f.retornable} onClick={() => set({ retornable: !f.retornable })} /></label>
+      <label style={{ ...C.toggleRow, marginBottom: 12 }}><span>Cristal retornable (la caja lleva fianza)<span style={{ display: "block", fontSize: 12, color: "var(--muted)", fontWeight: 500 }}>{materialDe({ ...f, ml: Number(f.ml) || null }) ? `Envase: ${materialDe({ ...f, ml: Number(f.ml) || null })}` : "Las latas, el PET y los briks no son retornables."}</span></span><Switch on={!!f.retornable} onClick={() => set({ retornable: !f.retornable })} /></label>
       <label style={{ ...C.toggleRow, marginBottom: 12 }}><span>Pendiente de confirmar con el proveedor</span><Switch on={!!f.confirmar} onClick={() => set({ confirmar: !f.confirmar })} /></label>
       {a.id && <label style={{ ...C.toggleRow, marginBottom: 4 }}><span>Visible en el catálogo</span><Switch on={f.activo !== false} onClick={() => set({ activo: f.activo === false })} /></label>}
     </Sheet>
