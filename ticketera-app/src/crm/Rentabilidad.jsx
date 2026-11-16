@@ -5,18 +5,19 @@ import React, { useEffect, useMemo, useState } from "react";
 import * as crm from "./crmdb";
 import { money, useIsMobile, C, Icon, Tile, Badge, Seg, Sheet, Field, MoneyInput, parseImporte } from "./ui";
 import { Switch } from "./Ingresos";
-import { famInfo, FAMILIAS, sugerirReceta, stockCfg, num } from "./stockModelo";
+import { famInfo, FAMILIAS, sugerirReceta, stockCfg, num, botellasReservados, botellasDeNombre, recetaReservado } from "./stockModelo";
+import { fuenteAuto } from "./categorias";
 import { calcularRentabilidad, TIPOS, simular, precioMinimo } from "./rentabilidad";
 
 const ORIGEN = {
   receta: { t: "Receta", c: "var(--green)" }, manual: { t: "A mano", c: "var(--green)" }, nogasta: { t: "Sin coste", c: "var(--muted)" },
-  estimado: { t: "Estimado", c: "var(--amber)" }, sin: { t: "Falta coste", c: "var(--amber)" },
+  estimado: { t: "Estimado", c: "var(--amber)" }, sin: { t: "Falta coste", c: "var(--amber)" }, proveedor: { t: "Lo pone el proveedor", c: "var(--green)" },
 };
 const ORDEN = [["beneficio", "Más beneficio"], ["margen", "Más margen"], ["uds", "Más vendidos"], ["margenAsc", "Menos margen"], ["nombre", "Nombre"]];
 const pct = (v) => (v == null ? "—" : `${v} %`);
 const coma = (v) => (v == null ? "" : String(v).replace(".", ","));
 
-export function Rentabilidad({ ev, events, sales, ajustes, flash, onGuardarAjustes, onIrStock }) {
+export function Rentabilidad({ ev, events, sales, ajustes, fuentes = {}, flash, onGuardarAjustes, onIrStock }) {
   const isMobile = useIsMobile();
   const [d, setD] = useState(null);
   const [error, setError] = useState(null);
@@ -35,10 +36,17 @@ export function Rentabilidad({ ev, events, sales, ajustes, flash, onGuardarAjust
   useEffect(() => { setPuntoId(""); }, [ev.id, ambito]);
 
   const cfgStock = stockCfg(ajustes);
-  const R = useMemo(() => d ? calcularRentabilidad({
-    events, sales, eventIds: ambito === "evento" ? new Set([ev.id]) : null, puntoId: puntoId || null,
-    articulos: d.articulos, recetas: d.recetas, ajustes, sugerir: (n) => sugerirReceta(n, cfgStock),
-  }) : null, [d, events, sales, ev.id, ambito, puntoId, ajustes]);
+  // La taquilla de entradas no es barra: se deja fuera (su tipo se cambia en Ingresos)
+  const esTaquilla = (p) => ((fuentes || {})[p.id] || fuenteAuto(p)) === "entradas";
+  const R = useMemo(() => {
+    if (!d) return null;
+    const evs = ambito === "evento" ? events.filter(e => e.id === ev.id) : events;
+    // Reservados: la receta sugerida sale de sus botellas, igual que en Stock
+    const resBot = Object.assign({}, ...evs.map(botellasReservados));
+    const sugerir = (n) => { const nb = botellasDeNombre(n, resBot); return nb !== null ? recetaReservado(nb, cfgStock) : sugerirReceta(n, cfgStock); };
+    return calcularRentabilidad({ events, sales, eventIds: ambito === "evento" ? new Set([ev.id]) : null, puntoId: puntoId || null,
+      incluirPunto: (p) => !esTaquilla(p), articulos: d.articulos, recetas: d.recetas, ajustes, sugerir });
+  }, [d, events, sales, ev.id, ambito, puntoId, ajustes, fuentes]);
 
   const guardar = async (fn, okMsg) => {
     if (busy) return false;
@@ -70,8 +78,9 @@ export function Rentabilidad({ ev, events, sales, ajustes, flash, onGuardarAjust
       return nb(b, "beneficio") - nb(a, "beneficio") || b.sinIva - a.sinIva;
     });
   const familias = FAMILIAS.filter(F => R.activas.some(f => f.familia === F.k));
-  const pendientes = [...T.sinCoste, ...T.estimados];
-  const puntos = ambito === "evento" ? ev.puntos.filter(p => !p.archivado || sales.some(s => s.puntoId === p.id)) : [];
+  const pendientes = T.pendientes;
+  const puntos = ambito === "evento" ? ev.puntos.filter(p => !esTaquilla(p) && (!p.archivado || sales.some(s => s.puntoId === p.id))) : [];
+  const hayTaquilla = (ambito === "evento" ? [ev] : events).some(e => e.puntos.some(esTaquilla));
 
   const exportar = () => {
     const filas = [["Producto", "Vendidas", "Invitaciones", "Precio medio", "Coste por unidad", "Origen del coste", "Beneficio por unidad", "Margen %", "Ventas sin IVA", "Beneficio", "Tipo"],
@@ -89,7 +98,7 @@ export function Rentabilidad({ ev, events, sales, ajustes, flash, onGuardarAjust
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <Seg size="sm" valor={ambito} onChange={setAmbito} opciones={[{ k: "evento", t: "Este evento" }, { k: "todo", t: "Todos los eventos" }]} />
         {puntos.length > 1 && <select aria-label="Barra" value={puntoId} onChange={e => setPuntoId(e.target.value)} style={sel}><option value="">Todas las barras</option>{puntos.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
-        {familias.length > 1 && <select aria-label="Familia" value={familia} onChange={e => setFamilia(e.target.value)} style={sel}><option value="">Todas las familias</option>{familias.map(F => <option key={F.k} value={F.k}>{F.corto}</option>)}{R.activas.some(f => f.familia === "otros") && !familias.some(F => F.k === "otros") && <option value="otros">Otros</option>}</select>}
+        {familias.length > 1 && <select aria-label="Familia" value={familia} onChange={e => setFamilia(e.target.value)} style={sel}><option value="">Todas las familias</option>{familias.map(F => <option key={F.k} value={F.k}>{F.corto}</option>)}</select>}
         <select aria-label="Ordenar" value={orden} onChange={e => setOrden(e.target.value)} style={sel}>{ORDEN.map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select>
         <span style={{ flex: 1 }} />
         <button onClick={exportar} disabled={!lista.length} style={{ ...C.btnSm, fontSize: 13.5 }}><Icon n="download" s={16} />{isMobile ? "" : "Exportar"}</button>
@@ -99,12 +108,12 @@ export function Rentabilidad({ ev, events, sales, ajustes, flash, onGuardarAjust
       {/* Resumen */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, minmax(0,1fr))", gap: 10 }}>
         <Cifra l="Ventas sin IVA" v={money(T.sinIva)} sub={`${num(T.uds, 0)} unidades`} />
-        <Cifra l="Coste de lo vendido" v={money(T.costeVendido)} sub={T.pctCoste != null ? `${T.pctCoste} % de coste` : "—"} />
+        <Cifra l="Coste de lo vendido" v={money(T.costeVendido)} sub={T.paraProveedor > 0 ? `${money(T.paraProveedor)} es de proveedores` : T.pctCoste != null ? `${T.pctCoste} % de coste` : "—"} />
         <Cifra l="Beneficio de barra" v={money(T.beneficio)} c={T.beneficio >= 0 ? "var(--green)" : "var(--red)"} sub={T.margen != null ? `${T.margen} % de margen` : "—"} />
         <Cifra l="Invitaciones" v={money(T.costeInv)} c={T.costeInv > 0 ? "var(--amber)" : undefined} sub={`${num(T.inv, 0)} unidades a coste`} />
       </div>
       <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: -4 }}>
-        Sin IVA ({cfg.ivaBarra} %){cfg.datafono && cfg.tarjetaPct > 0 ? ` y descontado el datáfono (${num(cfg.tarjetaPct)} %)` : ""}. Es el beneficio de la barra: no incluye personal, alquiler ni artistas.
+        Sin IVA ({cfg.ivaBarra} %){cfg.datafono && cfg.tarjetaPct > 0 ? ` y descontado el datáfono (${num(cfg.tarjetaPct)} %)` : ""}. Es el beneficio de la barra: no incluye personal, alquiler ni artistas{hayTaquilla ? ", ni la taquilla de entradas" : ""}.
       </div>
 
       {/* Avisos */}
@@ -125,6 +134,13 @@ export function Rentabilidad({ ev, events, sales, ajustes, flash, onGuardarAjust
           <button onClick={() => setCompletar(true)} style={{ ...C.btnGhost, minHeight: 44 }}>Revisar</button>
         </div>
       )}
+      {T.bajoObjetivo.length > 0 && (
+        <div style={{ ...C.panel, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <Tile n="trend" c="var(--red)" s={36} />
+          <div style={{ flex: "1 1 220px", minWidth: 0, fontSize: 14 }}><b>{T.bajoObjetivo.length === 1 ? "1 producto deja" : `${T.bajoObjetivo.length} productos dejan`} menos de tu objetivo ({cfg.objetivo} % de margen):</b> {T.bajoObjetivo.slice(0, 3).map(f => f.nombre).join(", ")}{T.bajoObjetivo.length > 3 ? "…" : ""}. Ábrelos para ver a qué precio llegarías.</div>
+          {orden !== "margenAsc" && <button onClick={() => setOrden("margenAsc")} style={{ ...C.btnGhost, minHeight: 44 }}>Ver primero</button>}
+        </div>
+      )}
       {d.articulos.length === 0 && (
         <div style={{ ...C.panel, fontSize: 14, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           <Tile n="box" s={36} />
@@ -137,9 +153,10 @@ export function Rentabilidad({ ev, events, sales, ajustes, flash, onGuardarAjust
       <section style={{ ...C.panel, padding: isMobile ? 12 : 16 }}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
           <b style={{ fontSize: 16, flex: 1 }}>Productos <span style={{ color: "var(--muted)", fontWeight: 700 }}>({lista.length})</span></b>
+          {pendientes.length > 0 && <button onClick={() => setCompletar(true)} style={{ ...C.btnSm, fontSize: 13.5 }}><Icon n="edit" s={15} />Completar costes ({pendientes.length})</button>}
           <input aria-label="Buscar producto" value={buscar} onChange={e => setBuscar(e.target.value)} placeholder="Buscar…" style={{ ...C.input, width: isMobile ? "100%" : 220, minHeight: 44, fontSize: 16 }} />
         </div>
-        {!lista.length && <div style={C.empty}>{R.activas.length ? "Ningún producto coincide con el filtro." : "Aún no hay ventas en el TPV para este evento."}</div>}
+        {!lista.length && <div style={C.empty}>{R.activas.length ? "Ningún producto coincide con el filtro." : pendientes.length ? "Aún no hay ventas. Puedes ir poniendo el coste de los productos con «Completar costes»." : "Aún no hay ventas en el TPV para este evento."}</div>}
         {lista.length > 0 && (isMobile
           ? <div>{lista.map(f => <Tarjeta key={f.nombre} f={f} onClick={() => setFicha(f.nombre)} />)}</div>
           : <Tabla lista={lista} onClick={(f) => setFicha(f.nombre)} />)}
@@ -148,7 +165,7 @@ export function Rentabilidad({ ev, events, sales, ajustes, flash, onGuardarAjust
       {/* Qué hacer con cada producto */}
       <Matriz filas={R.activas} onClick={(f) => setFicha(f.nombre)} />
 
-      {ficha && (() => { const f = R.filas.find(x => x.nombre === ficha); return f ? <Ficha f={f} cfg={cfg} busy={busy} onClose={() => setFicha(null)} onCoste={costeAMano} onConfirmar={confirmarReceta} onIrStock={onIrStock ? () => { setFicha(null); onIrStock(); } : null} /> : null; })()}
+      {ficha && (() => { const f = R.filas.find(x => x.nombre === ficha); return f ? <Ficha key={f.nombre} f={f} cfg={cfg} busy={busy} onClose={() => setFicha(null)} onCoste={costeAMano} onConfirmar={confirmarReceta} onIrStock={onIrStock ? () => { setFicha(null); onIrStock(); } : null} /> : null; })()}
       {completar && <Completar pendientes={pendientes} busy={busy} onClose={() => setCompletar(false)} onCoste={costeAMano} onConfirmar={confirmarReceta} />}
       {verAjustes && <AjustesRent cfg={cfg} rent={rent} busy={busy} onClose={() => setVerAjustes(false)} onGuardar={async (p) => { if (await guardarRent(p, "Ajustes de rentabilidad guardados")) setVerAjustes(false); }} />}
     </div>
@@ -163,7 +180,10 @@ const Cifra = ({ l, v, sub, c }) => (
   </div>
 );
 const Muestra = ({ c }) => <span style={{ width: 10, height: 10, borderRadius: 3, background: c || "var(--muted)", flexShrink: 0, display: "inline-block" }} />;
-const TipoBadge = ({ f }) => f.tipo ? <Badge c={TIPOS[f.tipo].c}>{TIPOS[f.tipo].t}</Badge> : f.coste == null ? <Badge c="var(--amber)">Falta coste</Badge> : null;
+const TipoBadge = ({ f }) => <>
+  {f.tipo ? <Badge c={TIPOS[f.tipo].c}>{TIPOS[f.tipo].t}</Badge> : f.coste == null ? <Badge c="var(--amber)">Falta coste</Badge> : null}
+  {f.provUds > 0 && <Badge c="var(--muted)">Proveedor</Badge>}
+</>;
 
 function Tabla({ lista, onClick }) {
   const th = { padding: "9px 10px", fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: .4, textAlign: "right", whiteSpace: "nowrap", borderBottom: "1px solid var(--line)" };
@@ -171,7 +191,7 @@ function Tabla({ lista, onClick }) {
   return (
     <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-        <thead><tr><th style={{ ...th, textAlign: "left" }}>Producto</th><th style={th}>Vendidas</th><th style={th}>Precio</th><th style={th}>Coste/ud</th><th style={th}>Beneficio/ud</th><th style={th}>Margen</th><th style={th}>Beneficio</th><th style={{ ...th, textAlign: "left" }}>Tipo</th></tr></thead>
+        <thead><tr><th style={{ ...th, textAlign: "left" }}>Producto</th><th style={th}>Vendidas</th><th style={th}>Precio medio</th><th style={th}>Coste/ud</th><th style={th}>Beneficio/ud</th><th style={th}>Margen</th><th style={th}>Beneficio</th><th style={{ ...th, textAlign: "left" }}>Tipo</th></tr></thead>
         <tbody>{lista.map(f => (
           <tr key={f.nombre} onClick={() => onClick(f)} onKeyDown={e => { if (e.key === "Enter") onClick(f); }} tabIndex={0} style={{ cursor: "pointer" }}>
             <td style={{ ...td, textAlign: "left" }}><span style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800 }}><Muestra c={f.color} />{f.nombre}</span></td>
@@ -179,7 +199,7 @@ function Tabla({ lista, onClick }) {
             <td style={td}>{f.precioMedio != null ? money(f.precioMedio) : "—"}</td>
             <td style={td}>{f.coste != null ? <>{money(f.coste)}{f.origen === "estimado" && <span title="Estimado" style={{ color: "var(--amber)" }}> ≈</span>}</> : <span style={{ color: "var(--amber)", fontWeight: 800 }}>Sin coste</span>}</td>
             <td style={{ ...td, color: f.benUd != null && f.benUd < 0 ? "var(--red)" : undefined }}>{f.benUd != null ? money(f.benUd) : "—"}</td>
-            <td style={td}>{pct(f.margen)}</td>
+            <td style={{ ...td, color: f.bajoObjetivo ? "var(--red)" : undefined, fontWeight: f.bajoObjetivo ? 800 : undefined }} title={f.bajoObjetivo ? "Por debajo de tu margen objetivo" : undefined}>{pct(f.margen)}</td>
             <td style={{ ...td, fontWeight: 900, color: f.beneficio != null && f.beneficio < 0 ? "var(--red)" : undefined }}>{f.beneficio != null ? money(f.beneficio) : "—"}</td>
             <td style={{ ...td, textAlign: "left" }}><TipoBadge f={f} /></td>
           </tr>))}</tbody>
@@ -195,7 +215,7 @@ function Tarjeta({ f, onClick }) {
       <span style={{ flex: 1, minWidth: 0 }}>
         <span style={{ display: "block", fontWeight: 800, overflowWrap: "anywhere" }}>{f.nombre}</span>
         <span style={{ display: "block", fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>
-          {num(f.uds, 0)} vendidas{f.inv > 0 ? ` · ${f.inv} inv.` : ""}{f.benUd != null ? ` · ${money(f.benUd)} por unidad · ${pct(f.margen)}` : ""}
+          {num(f.uds, 0)} vendidas{f.inv > 0 ? ` · ${f.inv} inv.` : ""}{f.benUd != null ? ` · ${money(f.benUd)} por unidad · ` : ""}{f.benUd != null && <span style={f.bajoObjetivo ? { color: "var(--red)", fontWeight: 800 } : undefined}>{pct(f.margen)}</span>}
         </span>
         <span style={{ display: "flex", gap: 6, marginTop: 5, flexWrap: "wrap" }}><TipoBadge f={f} />{f.origen === "estimado" && <Badge c="var(--amber)">Coste estimado</Badge>}</span>
       </span>
@@ -249,7 +269,8 @@ function Ficha({ f, cfg, busy, onClose, onCoste, onConfirmar, onIrStock }) {
         {linea(<span style={{ color: "var(--muted)" }}>Vendidas</span>, `${num(f.uds, 0)}${f.inv ? ` + ${f.inv} invitaciones` : ""}`)}
         {linea(<span style={{ color: "var(--muted)" }}>Ventas sin IVA</span>, money(f.sinIva))}
         {f.datafono > 0 && linea(<span style={{ color: "var(--muted)" }}>Datáfono</span>, `−${money(f.datafono)}`)}
-        {f.costeVendido != null && linea(<span style={{ color: "var(--muted)" }}>Coste de lo vendido</span>, `−${money(f.costeVendido)}`)}
+        {f.paraProveedor > 0 && linea(<span style={{ color: "var(--muted)" }}>Para el proveedor ({f.proveedor}, {num(f.provUds, 0)} uds.)</span>, `−${money(f.paraProveedor)}`)}
+        {f.costeVendido != null && f.costeVendido - f.paraProveedor > 0.004 && linea(<span style={{ color: "var(--muted)" }}>Coste de lo vendido</span>, `−${money(f.costeVendido - f.paraProveedor)}`)}
         {f.costeInv > 0 && linea(<span style={{ color: "var(--muted)" }}>Coste de las invitaciones</span>, `−${money(f.costeInv)}`)}
         {linea(<b>Beneficio</b>, <b style={{ color: f.beneficio == null ? "var(--muted)" : f.beneficio < 0 ? "var(--red)" : "var(--green)" }}>{f.beneficio != null ? money(f.beneficio) : "Falta el coste"}</b>, { borderTopWidth: 2 })}
       </div>
@@ -259,24 +280,25 @@ function Ficha({ f, cfg, busy, onClose, onCoste, onConfirmar, onIrStock }) {
         {f.lineas.length > 0 && f.origen !== "manual" && f.lineas.map((l, i) => <React.Fragment key={i}>{linea(
           <span style={{ minWidth: 0 }}>{l.nombre || famInfo(l.familia).corto}<span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>{l.origen === "extra" ? "Ajustes de rentabilidad" : `${num(l.cantidad, 0)} ${famInfo(l.familia).medida === "ml" ? "ml" : "ud"}${l.origen === "media" ? " · precio medio de la familia" : ""}`}</span></span>,
           l.coste != null ? money(l.coste) : <span style={{ color: "var(--amber)", fontWeight: 800 }}>Sin precio</span>)}</React.Fragment>)}
+        {f.origen === "proveedor" && <div style={{ fontSize: 13.5, color: "var(--muted)", padding: "6px 0" }}>Lo pone el proveedor: tú solo te quedas tu comisión, así que no tienes coste de producto.</div>}
         {f.origen === "nogasta" && <div style={{ fontSize: 13.5, color: "var(--muted)", padding: "6px 0" }}>Su receta dice que no gasta nada de stock (coste 0). Si tiene otro coste, escríbelo abajo.</div>}
         {f.origen === "sin" && !f.lineas.length && <div style={{ fontSize: 13.5, color: "var(--muted)", padding: "6px 0" }}>No sabemos qué lleva. Escribe lo que te cuesta una unidad o ponle receta en Stock.</div>}
         {f.faltaPrecio && <div style={{ fontSize: 13.5, color: "var(--amber)", padding: "6px 0" }}>Algún ingrediente no tiene precio de compra en el catálogo de Stock.</div>}
         {f.coste != null && linea(<b>Coste por unidad</b>, <b>{money(f.coste)}{f.pctCoste != null ? <span style={{ color: "var(--muted)", fontWeight: 700 }}> · {f.pctCoste} %</span> : null}</b>, { borderTopWidth: 2 })}
         {f.origen === "estimado" && f.items?.length > 0 && <button disabled={busy} onClick={() => onConfirmar(f)} style={{ ...C.btnGhost, width: "100%", minHeight: 44, marginTop: 10 }}><Icon n="check" s={16} />Confirmar esta receta</button>}
-        {onIrStock && <button onClick={onIrStock} style={{ ...C.btnGhost, width: "100%", minHeight: 44, marginTop: 8 }}><Icon n="glass" s={16} />Cambiar la receta en Stock</button>}
+        {onIrStock && f.origen !== "proveedor" && <button onClick={onIrStock} style={{ ...C.btnGhost, width: "100%", minHeight: 44, marginTop: 8 }}><Icon n="glass" s={16} />Cambiar la receta en Stock</button>}
       </div>
 
-      <div style={{ ...C.card, marginBottom: 14 }}>
+      {f.origen !== "proveedor" && <div style={{ ...C.card, marginBottom: 14 }}>
         <Field l="Coste a mano (sin IVA, por unidad)" mb={8}><MoneyInput value={manual} onChange={setManual} placeholder={f.coste != null && f.origen !== "manual" ? coma(f.coste) : "0,00"} /></Field>
         <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>Si lo escribes, manda sobre la receta. Útil para guardarropa, comida o merchandising.</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button disabled={busy || manual === ""} onClick={() => onCoste(f.nombre, parseImporte(manual))} style={{ ...C.btnPrimary, flex: 1, minHeight: 44, opacity: manual === "" ? .5 : 1 }}>Guardar coste</button>
           {f.origen === "manual" && <button disabled={busy} onClick={() => { setManual(""); onCoste(f.nombre, null); }} style={{ ...C.btnGhost, minHeight: 44 }}>Quitar</button>}
         </div>
-      </div>
+      </div>}
 
-      {f.coste != null && (
+      {f.coste != null && f.origen !== "proveedor" && (
         <div style={C.card}>
           <div style={{ fontWeight: 900, marginBottom: 8 }}>¿Y si cambio el precio?</div>
           <Field l="Precio de venta (con IVA)" mb={10}><MoneyInput value={precio} onChange={setPrecio} /></Field>
@@ -305,7 +327,7 @@ function Completar({ pendientes, busy, onClose, onCoste, onConfirmar }) {
         <div key={f.nombre} style={{ padding: "12px 0", borderTop: "1px solid var(--line)" }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
             <Muestra c={f.color} /><b style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>{f.nombre}</b>
-            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>{num(f.uds, 0)} vendidas · {money(f.sinIva)} sin IVA</span>
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>{f.uds ? `${num(f.uds, 0)} vendidas · ${money(f.sinIva)} sin IVA` : "Aún sin vender"}</span>
           </div>
           {f.origen === "estimado" && <button disabled={busy} onClick={() => onConfirmar(f)} style={{ ...C.btnGhost, width: "100%", minHeight: 44, marginBottom: 8, justifyContent: "space-between" }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 8, textAlign: "left" }}><Icon n="check" s={16} />{f.items?.length ? "Confirmar receta" : "Confirmar: no gasta stock"}</span><span style={{ color: "var(--muted)" }}>{f.items?.length ? `≈ ${money(f.coste)}` : "0 €"}</span></button>}

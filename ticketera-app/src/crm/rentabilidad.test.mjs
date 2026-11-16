@@ -94,4 +94,42 @@ ok("simulador y precio mínimo para el margen objetivo", () => {
   assert.equal(R.precioMinimo({ coste: 1.13, objetivo: 80, ivaBarra: 10 }), 6.3);
 });
 
+ok("producto de proveedor: solo es tuyo su %, el resto se descuenta y no pones el coste", () => {
+  const evP = { id: "ep", style: { comisiones: { m1: [{ desde: 0, proveedor: "FOODTRUCK", pct: 20 }] } },
+    puntos: [{ id: "b", products: [P("m1", "Hamburguesa", 11)], combos: [] }] };
+  const r = R.calcularRentabilidad({ events: [evP], sales: [V("ep", "b", "m1", "HAMBURGUESA", 11, { ts: 5 }), V("ep", "b", "m1", "HAMBURGUESA", 11, { ts: 6 })], articulos, recetas: [], ajustes: {} });
+  const f = r.filas[0];
+  // 22 € / 1,1 = 20 € sin IVA; 80 % para el proveedor = 16 €; sin coste propio → 4 € tuyos
+  assert.equal(f.origen, "proveedor"); assert.equal(f.paraProveedor, 16); assert.equal(f.beneficio, 4); assert.equal(f.margen, 20);
+  assert.equal(r.T.sinCoste.length, 0);
+});
+
+ok("la comisión de proveedor se aplica según la fecha de cada venta", () => {
+  const evP = { id: "ep", style: { comisiones: { p1: [{ desde: 0, proveedor: "X", pct: 50 }, { desde: 100, proveedor: "", pct: null }] } },
+    puntos: [{ id: "b", products: [P("p1", "Copa ron", 11)], combos: [] }] };
+  const v = R.ventasPorProducto([evP], [V("ep", "b", "p1", "COPA RON", 11, { ts: 10 }), V("ep", "b", "p1", "COPA RON", 11, { ts: 200 })]);
+  assert.equal(v[0].provUds, 1); assert.equal(v[0].paraProveedor, 5.5);
+});
+
+ok("se puede dejar fuera una barra (la taquilla de entradas)", () => {
+  const evT = { id: "et", puntos: [{ id: "bar", name: "Barra", products: [P("c", "Cerveza", 4)], combos: [] }, { id: "taq", name: "Taquilla", products: [P("t", "Entrada", 15)], combos: [] }] };
+  const ss = [V("et", "bar", "c", "CERVEZA", 4), V("et", "taq", "t", "ENTRADA", 15)];
+  const v = R.ventasPorProducto([evT], ss, { incluirPunto: (p) => p.name !== "Taquilla" });
+  assert.deepEqual(v.map(x => x.nombre), ["CERVEZA"]);
+});
+
+ok("los productos sin coste (guardarropa) no entran en la clasificación", () => {
+  const f = (nombre, uds, benUd, coste = 1) => ({ nombre, uds, benUd, coste });
+  const c = R.clasificar([f("A", 100, 8), f("B", 100, 2), f("C", 5, 9), f("G", 120, 2.7, 0)]);
+  assert.equal(c.find(x => x.nombre === "G").tipo, undefined);
+  assert.equal(c.find(x => x.nombre === "A").tipo, "estrella");
+});
+
+ok("margen por debajo del objetivo y productos pendientes (también los aún no vendidos)", () => {
+  const r = R.calcularRentabilidad({ events: [ev], sales, articulos, recetas, ajustes: { rentabilidad: { objetivo: 85 } } });
+  assert.ok(r.T.bajoObjetivo.some(f => f.nombre === "CERVEZA"));        // 3,01 € de 3,64 € → 83 %
+  assert.ok(!r.T.bajoObjetivo.some(f => f.nombre === "COPA RON"));
+  assert.ok(r.T.pendientes.some(f => f.nombre === "AGUA" && f.uds === 0), "agua está en la carta sin vender y sin coste");
+});
+
 console.log(`\n${n} pruebas de rentabilidad correctas`);

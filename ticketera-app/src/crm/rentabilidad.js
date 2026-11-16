@@ -29,25 +29,41 @@ export function rentCfg(ajustes = {}) {
   };
 }
 
+// Comisión de proveedor vigente cuando se vendió (style.comisiones[productId] = [{ desde, proveedor, pct }], igual que en Liquidación)
+export function comisionEnFecha(ev, productId, ts) {
+  const l = (ev?.style?.comisiones || {})[productId]; if (!l || !l.length) return null;
+  let e = null; for (const x of l) { if ((x.desde || 0) <= (ts || 0)) e = x; else break; }
+  return e && e.proveedor && e.pct != null ? e : null;
+}
+
 // ---- Ventas por producto (los bonos se reparten entre sus productos según su precio de carta) ----
-export function ventasPorProducto(events, sales, { eventIds = null, puntoId = null } = {}) {
+// incluirPunto: qué barras cuentan (por defecto todas; el CRM deja fuera la taquilla de entradas).
+// Productos de proveedor: de cada venta solo es tuyo su %; el resto («paraProveedor») es para el proveedor.
+export function ventasPorProducto(events, sales, { eventIds = null, puntoId = null, incluirPunto = null } = {}) {
   const out = {};
   const evs = events.filter(e => !eventIds || eventIds.has(e.id));
   const evById = Object.fromEntries(evs.map(e => [e.id, e]));
+  const vale = (p) => p && (!puntoId || p.id === puntoId) && (!incluirPunto || incluirPunto(p));
   const fila = (nombre, pr) => {
     const k = clave(nombre); if (!k) return null;
-    const x = out[k] = out[k] || { nombre: k, uds: 0, inv: 0, ingresos: 0, tarjeta: 0, color: null, precioCarta: null };
+    const x = out[k] = out[k] || { nombre: k, uds: 0, inv: 0, ingresos: 0, tarjeta: 0, provUds: 0, paraProveedor: 0, proveedor: null, color: null, precioCarta: null };
     if (pr) { if (!x.color) x.color = pr.color || null; if (x.precioCarta == null && Number(pr.price) > 0) x.precioCarta = Number(pr.price); }
     return x;
   };
   // Los productos que están en la carta aparecen aunque no se hayan vendido
-  evs.forEach(e => e.puntos.forEach(p => { if (puntoId && p.id !== puntoId) return; (p.products || []).forEach(pr => fila(pr.name, pr)); }));
+  evs.forEach(e => e.puntos.forEach(p => { if (!vale(p)) return; (p.products || []).forEach(pr => fila(pr.name, pr)); }));
   sales.forEach(s => {
     const e = evById[s.eventId]; if (!e || s.voided) return;
-    if (puntoId && s.puntoId !== puntoId) return;
     const punto = e.puntos.find(p => p.id === s.puntoId);
+    if (!vale(punto)) return;
     const inv = esInv(s), precio = Number(s.price) || 0, tar = s.pago === "tarjeta";
-    const sumar = (pr, nombre, q, importe) => { const x = fila(nombre, pr); if (!x) return; if (inv) x.inv += q; else { x.uds += q; x.ingresos += importe; if (tar) x.tarjeta += importe; } };
+    const sumar = (pr, nombre, q, importe) => {
+      const x = fila(nombre, pr); if (!x) return;
+      if (inv) { x.inv += q; return; }
+      x.uds += q; x.ingresos += importe; if (tar) x.tarjeta += importe;
+      const com = pr && comisionEnFecha(e, pr.id, s.ts);
+      if (com) { x.provUds += q; x.paraProveedor += importe * (1 - Math.min(100, Math.max(0, Number(com.pct))) / 100); x.proveedor = com.proveedor; }
+    };
     const combo = !s.productId && (punto?.combos || []).find(c => c.name === s.name);
     if (combo) {
       const items = (combo.items || []).map(it => ({ pr: punto.products.find(x => x.id === it.productId), q: it.qty || 1 })).filter(it => it.pr);
@@ -106,7 +122,8 @@ export const TIPOS = {
   perro: { t: "Revisar", c: "var(--red)", consejo: "Ni se vende mucho ni deja mucho. Piensa en quitarlo de la carta o meterlo en un bono." },
 };
 export function clasificar(filas) {
-  const c = filas.filter(f => f.coste != null && f.uds > 0 && f.benUd != null);
+  // Solo productos con coste real (el guardarropa o un servicio sin coste no se comparan con las bebidas)
+  const c = filas.filter(f => f.coste != null && f.coste > 0 && f.uds > 0 && f.benUd != null);
   if (c.length < 3) return filas;
   const uds = c.reduce((t, f) => t + f.uds, 0);
   const corteUds = 0.7 * uds / c.length;
@@ -116,31 +133,36 @@ export function clasificar(filas) {
 }
 
 // ---- Cálculo completo ----
-export function calcularRentabilidad({ events, sales, eventIds = null, puntoId = null, articulos = [], recetas = [], ajustes = {}, sugerir = null }) {
+export function calcularRentabilidad({ events, sales, eventIds = null, puntoId = null, incluirPunto = null, articulos = [], recetas = [], ajustes = {}, sugerir = null }) {
   const cfg = rentCfg(ajustes);
   const recetaMap = Object.fromEntries(recetas.map(r => [clave(r.producto), r.items || []]));
   const artById = Object.fromEntries(articulos.map(a => [a.id, a]));
   const famCoste = costeFamilias(articulos);
   const div = 1 + cfg.ivaBarra / 100;
-  const filas = ventasPorProducto(events, sales, { eventIds, puntoId }).map(v => {
-    const c = costeProducto(v.nombre, { recetaMap, artById, famCoste, cfg, sugerir });
+  const filas = ventasPorProducto(events, sales, { eventIds, puntoId, incluirPunto }).map(v => {
+    const c0 = costeProducto(v.nombre, { recetaMap, artById, famCoste, cfg, sugerir });
+    const propias = v.uds - v.provUds;                   // unidades que pones tú (las del proveedor las pone él)
+    // Si todo lo vendido es del proveedor y no hay invitaciones, no hace falta saber su coste
+    const c = c0.coste == null && propias <= 0 && v.inv <= 0 && v.uds > 0 ? { ...c0, coste: 0, origen: "proveedor" } : c0;
     const sinIva = v.ingresos / div;
+    const provSinIva = v.paraProveedor / div;
     const datafono = cfg.datafono ? v.tarjeta * cfg.tarjetaPct / 100 : 0;
     const precioMedio = v.uds ? v.ingresos / v.uds : v.precioCarta;
     const precioSinIva = precioMedio != null ? precioMedio / div : null;
-    const benUd = c.coste != null && v.uds ? (sinIva - datafono) / v.uds - c.coste : c.coste != null && precioSinIva != null ? precioSinIva - c.coste : null;
+    const costeVendido = c.coste != null ? c.coste * propias + provSinIva : null;
+    const benUd = c.coste == null ? null : v.uds ? (sinIva - datafono - costeVendido) / v.uds : precioSinIva != null ? precioSinIva - c.coste : null;
     const costeInv = c.coste != null ? c.coste * v.inv : null;
     return {
-      ...v, ...c, ingresos: r2(v.ingresos), sinIva: r2(sinIva), datafono: r2(datafono), precioMedio: precioMedio != null ? r2(precioMedio) : null,
-      precioSinIva: precioSinIva != null ? r2(precioSinIva) : null,
-      costeVendido: c.coste != null ? r2(c.coste * v.uds) : null, costeInv: costeInv != null ? r2(costeInv) : null,
+      ...v, ...c, ingresos: r2(v.ingresos), sinIva: r2(sinIva), datafono: r2(datafono), paraProveedor: r2(provSinIva),
+      precioMedio: precioMedio != null ? r2(precioMedio) : null, precioSinIva: precioSinIva != null ? r2(precioSinIva) : null,
+      costeVendido: costeVendido != null ? r2(costeVendido) : null, costeInv: costeInv != null ? r2(costeInv) : null,
       benUd: benUd != null ? r2(benUd) : null,
       margen: benUd != null && precioSinIva ? Math.round(benUd / precioSinIva * 100) : null,
-      pctCoste: c.coste != null && precioSinIva ? Math.round(c.coste / precioSinIva * 100) : null,
-      beneficio: c.coste != null ? r2(sinIva - datafono - c.coste * v.uds - (costeInv || 0)) : null,
-      tipo: null,
+      pctCoste: c.coste != null && precioSinIva ? Math.round(c.coste / precioSinIva * 100) : null,   // % de coste de la receta (el del sector)
+      beneficio: costeVendido != null ? r2(sinIva - datafono - costeVendido - (costeInv || 0)) : null,
+      bajoObjetivo: false, tipo: null,
     };
-  });
+  }).map(f => ({ ...f, bajoObjetivo: f.margen != null && f.uds > 0 && f.coste > 0 && f.margen < cfg.objetivo }));
   const conDatos = clasificar(filas);
   const activas = conDatos.filter(f => f.uds > 0 || f.inv > 0);
   const conCoste = activas.filter(f => f.coste != null);
@@ -149,10 +171,14 @@ export function calcularRentabilidad({ events, sales, eventIds = null, puntoId =
     uds: activas.reduce((t, f) => t + f.uds, 0), inv: activas.reduce((t, f) => t + f.inv, 0),
     ingresos: sum(activas, "ingresos"), sinIva: sum(activas, "sinIva"),
     costeVendido: sum(conCoste, "costeVendido"), costeInv: sum(conCoste, "costeInv"), datafono: sum(conCoste, "datafono"),
-    beneficio: sum(conCoste, "beneficio"), sinIvaConCoste: sum(conCoste, "sinIva"),
+    beneficio: sum(conCoste, "beneficio"), sinIvaConCoste: sum(conCoste, "sinIva"), paraProveedor: sum(conCoste, "paraProveedor"),
+    bajoObjetivo: activas.filter(f => f.bajoObjetivo),
     sinCoste: activas.filter(f => f.coste == null), estimados: activas.filter(f => f.origen === "estimado" && f.coste != null),
   };
   T.ventasSinCoste = sum(T.sinCoste, "sinIva");
+  // Para «Completar costes»: lo vendido primero y después lo que está en la carta pero aún no se ha vendido
+  T.pendientes = conDatos.filter(f => f.coste == null || (f.origen === "estimado" && f.coste != null))
+    .sort((a, b) => (b.sinIva - a.sinIva) || a.nombre.localeCompare(b.nombre));
   T.margen = T.sinIvaConCoste > 0 ? Math.round(T.beneficio / T.sinIvaConCoste * 100) : null;
   T.pctCoste = T.sinIvaConCoste > 0 ? Math.round(T.costeVendido / T.sinIvaConCoste * 100) : null;
   return { cfg, filas: conDatos, activas, T };

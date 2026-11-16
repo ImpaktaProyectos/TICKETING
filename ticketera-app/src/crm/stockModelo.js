@@ -82,7 +82,7 @@ export function botellasDeNombre(nombre, resBot) {
   const q = k.match(/^RESERVADO(?: (\d+) BOT\.)?$/); if (q) return Number(q[1] || 0);
   return null;
 }
-const recetaReservado = (botellas, cfg) => botellas > 0 ? [{ familia: "destilado", cantidad: botellas * (Number(cfg.botellaMl) || STOCK_DEF.botellaMl) }] : [];
+export const recetaReservado = (botellas, cfg) => botellas > 0 ? [{ familia: "destilado", cantidad: botellas * (Number(cfg.botellaMl) || STOCK_DEF.botellaMl) }] : [];
 
 // ---- Productos del TPV del evento con lo vendido (los bonos se descomponen en sus productos) ----
 export function productosEvento(ev, sales) {
