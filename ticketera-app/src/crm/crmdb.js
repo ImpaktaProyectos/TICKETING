@@ -279,6 +279,14 @@ export async function loadStock(eventoId) {
     documentos: ok(ds).map(docFrom).sort((x, y) => String(y.creadoEn).localeCompare(String(x.creadoEn))),
   };
 }
+// Solo catálogo y recetas: lo que necesita Rentabilidad para poner coste a cada producto
+export async function loadCostes() {
+  const [as, rs] = await Promise.all([
+    supabase.from("ticket_crm_stock_articulos").select("*").order("orden", { ascending: true }).order("nombre", { ascending: true }),
+    supabase.from("ticket_crm_stock_recetas").select("*"),
+  ]);
+  return { articulos: ok(as).map(artFrom), recetas: ok(rs).map(r => ({ id: r.id, producto: r.producto, items: Array.isArray(r.items) ? r.items : [] })) };
+}
 export async function saveArticulo(x) {
   const row = artTo(x);
   if (!row.nombre) throw new Error("Falta el nombre");

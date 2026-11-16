@@ -12,6 +12,7 @@ import { Dashboard } from "./Dashboard";
 import { Ingresos, IngresoForm, esExterno } from "./Ingresos";
 import { VentaEntradasForm } from "./DineroEntradas";
 import { Ajustes, ImportarCSV } from "./Ajustes";
+import { Rentabilidad } from "./Rentabilidad";
 import { Prevision } from "./Prevision";
 import { Entradas } from "./Entradas";
 import { Stock } from "./Stock";
@@ -27,7 +28,7 @@ import { Escaparate } from "../Escaparate";
 
 // Pestañas que son funciones de pago (si el plan no las incluye, se ve el aviso en su lugar)
 // Entradas (la ticketera) es siempre gratuita; Ajustes también se puede abrir siempre.
-const FUNC_TAB = { dashboard: "crm", ingresos: "crm", gastos: "crm", liquidacion: "crm", socios: "crm", facturacion: "facturacion", stock: "stock", prevision: "prevision" };
+const FUNC_TAB = { dashboard: "crm", ingresos: "crm", gastos: "crm", rentabilidad: "crm", liquidacion: "crm", socios: "crm", facturacion: "facturacion", stock: "stock", prevision: "prevision" };
 const Facturacion = lazy(() => import("./fac/Facturacion"));   // módulo aparte: no toca los números de los eventos
 
 const COLORES = ["#ff5a3c", "#a855f7", "#3b82f6", "#22d3a6", "#ffb400", "#ec4899", "#14b8a6", "#f97316"];
@@ -35,7 +36,7 @@ const COLORES = ["#ff5a3c", "#a855f7", "#3b82f6", "#22d3a6", "#ffb400", "#ec4899
 // Menú del CRM agrupado (opción A). Las pestañas y lo que hacen no cambian.
 const NAV_GRUPOS = [
   ["Resumen", [["dashboard", "chart", "Panel"]]],
-  ["Dinero", [["ingresos", "wallet", "Ingresos"], ["gastos", "receipt", "Gastos"], ["entradas", "ticket", "Entradas"], ["liquidacion", "scale", "Liquidación"]]],
+  ["Dinero", [["ingresos", "wallet", "Ingresos"], ["gastos", "receipt", "Gastos"], ["entradas", "ticket", "Entradas"], ["rentabilidad", "trend", "Rentabilidad"], ["liquidacion", "scale", "Liquidación"]]],
   ["Planificar", [["prevision", "trend", "Previsión"], ["stock", "box", "Stock"]]],
   ["Equipo", [["socios", "users", "Socios"]]],
   ["Empresa", [["facturacion", "file", "Facturación"]]],
@@ -256,6 +257,10 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
               vinculo={vinculo} conexion={data.conexion} sincronizando={sincronizando} flash={flash}
               onSync={() => sincronizar(ev.id)} onIrGastos={() => setTab("gastos")}
               onGuardarDefecto={async (pv) => { await crm.saveAjustes({ ...(data.ajustes || {}), prevision: pv }); await cargar(); }} />
+          )}
+          {data && tab === "rentabilidad" && (
+            <Rentabilidad ev={ev} events={events} sales={sales} ajustes={data.ajustes || {}} flash={flash} onIrStock={() => setTab("stock")}
+              onGuardarAjustes={async (datos) => { await crm.saveAjustes(datos); await cargar(); }} />
           )}
           {data && tab === "stock" && (
             <Stock ev={ev} sales={sales} ajustes={data.ajustes || {}} flash={flash} onRecargarCRM={cargar}
