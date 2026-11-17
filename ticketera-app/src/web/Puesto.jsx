@@ -228,9 +228,8 @@ function Escaner({ sesion, info, onSalir, onBloqueada }) {
     cargarPanel();
     const on = () => setOnline(true), off = () => setOnline(false);
     window.addEventListener("online", on); window.addEventListener("offline", off);
-    const tocar = () => snd.activar(); window.addEventListener("pointerdown", tocar);
     const t = setInterval(() => { if (document.visibilityState === "visible") cargarPanel(); }, 20000);
-    return () => { clearInterval(t); window.removeEventListener("online", on); window.removeEventListener("offline", off); window.removeEventListener("pointerdown", tocar); };
+    return () => { clearInterval(t); window.removeEventListener("online", on); window.removeEventListener("offline", off);};
   }, []);
 
   const apuntar = (r) => { const h = [{ tipo: r.tipo, t: Date.now(), titulo: r.tipo === "ok" ? limpio(r.nombre) || "Entregado" : r.tipo === "pend" ? "Pendiente de comprobar" : explicar(r).t }, ...leer(kHist, [])].slice(0, 60); guardar(kHist, h); setHist(h); };
@@ -334,6 +333,7 @@ function Escaner({ sesion, info, onSalir, onBloqueada }) {
         <button onClick={entrarMostrador} aria-label="Modo mostrador: de cara al público, sin datos" title="Modo mostrador" style={{ ...V.btnTop, padding: "0 10px", fontSize: 13 }}>Mostrador</button>
         <button onClick={() => { snd.activar(); snd.alternarMudo(); }} aria-pressed={snd.mudo} aria-label={snd.mudo ? "Activar el sonido" : "Silenciar"} style={{ ...V.btnTop, ...(snd.mudo ? { color: "#ff8a80", borderColor: "rgba(255,77,77,.6)" } : {}) }}>{snd.mudo ? "🔇" : "🔊"}</button>
       </header>}
+      {!mostrador && !snd.mudo && !snd.listo && <button onClick={snd.probar} style={{ display: "block", width: "100%", minHeight: 44, border: 0, background: "#ffb400", color: "#1a1300", padding: "8px 12px", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: "pointer" }}>🔈 Toca aquí para activar el sonido</button>}
 
       {!mostrador && pend.length > 0 && <div role="alert" style={V.bandaPend}>⏳ {pend.length === 1 ? "1 ticket pendiente" : `${pend.length} tickets pendientes`} de comprobar: <b>no los entregues todavía</b>. Se comprueban solos al volver internet.</div>}
 
