@@ -39,14 +39,20 @@ $$;
 revoke all on function public.ticket_ultimo_numero(uuid) from public, anon;
 grant execute on function public.ticket_ultimo_numero(uuid) to authenticated;
 
--- Misma venta de siempre (misma firma, mismo bloqueo por evento, misma numeración); solo cambia
--- cómo se obtiene el último número. El insert sigue pasando por la seguridad por filas.
+-- Misma venta de siempre (misma firma, mismo bloqueo por evento, misma numeración); cambia cómo se
+-- obtiene el último número y se añade un tope de 500 unidades por venta. El insert sigue pasando por
+-- la seguridad por filas.
 create or replace function public.ticket_vender(p_evento uuid, p_punto uuid, p_producto uuid, p_nombre text, p_precio numeric,
   p_qty integer default 1, p_codigos text[] default null::text[], p_operario text default null::text, p_client_uuids uuid[] default null::uuid[],
   p_metodo text default null::text, p_entregado numeric default null::numeric, p_cambio numeric default null::numeric)
 returns setof public.ticket_ventas language plpgsql set search_path = '' as $$
 declare v_base int;
 begin
+  -- Tope de seguridad: la app vende como mucho ×10 (o lo que lleve un carrito). Sin tope, una sola
+  -- petición podía pedir millones de unidades y llenar la base de datos que comparten todos los clientes.
+  if coalesce(p_qty, 1) > 500 then
+    raise exception using errcode = '22023', message = 'TIXFAST: cantidad no válida (máximo 500 por venta)';
+  end if;
   perform pg_advisory_xact_lock(hashtextextended(p_evento::text, 0));
   v_base := public.ticket_ultimo_numero(p_evento);
   return query

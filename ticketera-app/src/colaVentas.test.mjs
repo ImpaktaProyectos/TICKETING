@@ -12,8 +12,11 @@ const dir = mkdtempSync(join(tmpdir(), "tixfast-cola-"));
 
 // ---- Entorno simulado ----
 const almacen = new Map();
+const cupo = { max: Infinity };   // tamaño máximo del almacenamiento del navegador (caracteres)
+const ocupado = () => [...almacen].reduce((t, [k, v]) => t + k.length + v.length, 0);
 globalThis.localStorage = {
-  getItem: (k) => (almacen.has(k) ? almacen.get(k) : null), setItem: (k, v) => almacen.set(k, String(v)),
+  getItem: (k) => (almacen.has(k) ? almacen.get(k) : null),
+  setItem: (k, v) => { const antes = almacen.get(k); almacen.set(k, String(v)); if (ocupado() > cupo.max) { if (antes == null) almacen.delete(k); else almacen.set(k, antes); throw Object.assign(new Error("QuotaExceededError"), { name: "QuotaExceededError" }); } },
   removeItem: (k) => almacen.delete(k), key: (i) => [...almacen.keys()][i] ?? null, get length() { return almacen.size; },
 };
 const red = { online: true };
@@ -104,6 +107,35 @@ await prueba("Venta ya subida (se cortó justo después): no se duplica", async 
   const r = await db.syncPending();
   assert.equal(r.remaining, 0);
   assert.equal(srv.subidas.filter(u => u === v[1].u).length, 1);
+});
+
+await prueba("Memoria llena: se libera la copia de pantalla y la venta SÍ se guarda", async () => {
+  reset(); red.online = false; almacen.clear(); db.setUserScope("cuenta-prueba");
+  const snap = { events: [{ id: "e" }], sales: Array.from({ length: 3000 }, (_, i) => ({ id: "v" + i, nombre: "Cerveza grande de la casa", precio: 4 })) };
+  localStorage.setItem(db.scopedKey("ticketera_snapshot"), JSON.stringify(snap));
+  localStorage.setItem(db.scopedKey("tixfast_qr_web_e"), "x".repeat(50000));
+  cupo.max = ocupado() + 200;   // no cabe ni una venta más
+  const v = venta();
+  const r = await db.vender({ eventoId: "e", puntoId: "p", producto: { id: "x", name: "Cerveza", price: 4 }, qty: 1, operario: "B", folios: ["A-1"], clientUuids: [v.u] });
+  assert.equal(r.offline, true); assert.ok(!r.sinGuardar, "la venta se ha guardado");
+  assert.equal(db.pendingCount(), 1);
+  const s2 = JSON.parse(localStorage.getItem(db.scopedKey("ticketera_snapshot")));
+  assert.deepEqual(s2.events, snap.events, "los eventos y productos se conservan para seguir vendiendo");
+  assert.equal(s2.sales.length, 0);
+  cupo.max = Infinity; red.online = true;
+});
+
+console.error = () => {};   // el aviso interno de «memoria llena» es lo esperado aquí
+await prueba("Memoria llena sin nada que liberar y sin internet: avisa (no se pierde en silencio)", async () => {
+  reset(); red.online = false; almacen.clear(); db.setUserScope("cuenta-prueba");
+  cupo.max = ocupado() + 10;
+  const r = await db.vender({ eventoId: "e", puntoId: "p", producto: { id: "x", name: "Cerveza", price: 4 }, qty: 1, operario: "B", folios: ["A-1"], clientUuids: [crypto.randomUUID()] });
+  assert.equal(r.sinGuardar, true); assert.equal(db.colaLlena(), true);
+  red.online = true;
+  const r2 = await db.vender({ eventoId: "e", puntoId: "p", producto: { id: "x", name: "Cerveza", price: 4 }, qty: 1, operario: "B", folios: ["A-2"], clientUuids: [crypto.randomUUID()] });
+  assert.equal(r2.offline, false, "con internet, la venta se sube directamente");
+  assert.equal(srv.subidas.length, 1);
+  cupo.max = Infinity;
 });
 
 console.log(`\n${ok} pruebas de la cola de ventas correctas`);

@@ -66,7 +66,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.20f";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.20g";   // súbela al publicar cambios para verificar la actualización
 globalThis.TIXFAST_VERSION = APP_VERSION;
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
@@ -415,6 +415,13 @@ export default function App() {
     if (kind !== "warn") toastTimer.current = setTimeout(() => setToast(null), 1700);
   };
 
+  // Tras guardar una operación en el equipo: contador de pendientes y, si la memoria del equipo está
+  // llena y no hay internet (la operación no se ha podido guardar), aviso que no se va solo.
+  const trasGuardar = (r) => {
+    if (r?.offline) setPending(db.pendingCount());
+    if (r?.sinGuardar) flash("⚠️ La memoria de este equipo está llena y no hay internet: lo último NO se ha podido guardar. Conecta el wifi cuanto antes.", "warn");
+  };
+
   // ===== Tickets con QR de un solo uso =====
   // Si el evento lo tiene activado, cada ticket impreso lleva su QR firmado (se firma aquí, sin internet).
   // Con QR, "un ticket = un producto": la venta ×3 imprime 3 tickets, cada uno con su código.
@@ -658,7 +665,7 @@ export default function App() {
       flash(invite ? `🎁 Invitación · ${qty > 1 ? qty + "× " : ""}${product.name}` : `🖨️ ${qty > 1 ? qty + "× " : ""}${product.name}`);
     } else flash(invite ? `🎁 Invitación guardada · ${product.name} (sin ticket)` : `✅ Venta guardada · ${qty > 1 ? qty + "× " : ""}${product.name} (sin ticket)`);
     if (navigator.vibrate) navigator.vibrate(invite ? [20, 40, 20] : 25);
-    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: invite ? { ...product, price: 0 } : product, qty, operario: punto.name, folios, clientUuids, pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: invite ? { ...product, price: 0 } : product, qty, operario: punto.name, folios, clientUuids, pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { trasGuardar(r); });
   };
 
   // Invitación: el ticket sale normal, la venta cuenta a 0 € y queda marcada como invitación
@@ -706,7 +713,7 @@ export default function App() {
       const folios = nextFolios(ev.id, punto.id, prefijoDePunto(punto), qty);
       const clientUuids = folios.map(() => uid());
       folios.forEach((f, i) => { n++; rows.push({ id: clientUuids[i], clientUuid: clientUuids[i], code: f, num: n, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: product.price, ts: Date.now() + rows.length, synced: online, voided: false, closureId: null, pago: pay?.pago || null, entregado: (first && i === 0) ? (pay?.entregado ?? null) : null, cambio: (first && i === 0) ? (pay?.cambio ?? null) : null }); tickets.push({ product, num: n, folio: f, qr: qrDe(product) ? firmar(clientUuids[i], product) : null }); });
-      db.vender({ eventoId: ev.id, puntoId: punto.id, producto: product, qty, operario: punto.name, folios, clientUuids, pago: pay?.pago || null, entregado: first ? (pay?.entregado ?? null) : null, cambio: first ? (pay?.cambio ?? null) : null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+      db.vender({ eventoId: ev.id, puntoId: punto.id, producto: product, qty, operario: punto.name, folios, clientUuids, pago: pay?.pago || null, entregado: first ? (pay?.entregado ?? null) : null, cambio: first ? (pay?.cambio ?? null) : null }).then(r => { trasGuardar(r); });
       first = false;
     });
     if (!rows.length) return;
@@ -724,7 +731,7 @@ export default function App() {
     baseDispatch({ type: "VOID_ONE", saleId: last.id, by });
     flash(`Anulado: ${last.name}`, "warn");
     const r = await db.anularVenta(last.clientUuid || last.id, by);
-    if (r.offline) setPending(db.pendingCount());
+    trasGuardar(r);
   };
   const requestVoidCajero = () => { if (testMode) { flash("🧪 Modo prueba: no hay ventas que anular", "warn"); return; } if (ev.anularPin) setAskVoidPin(true); else voidLast(punto.name); };
 
@@ -762,7 +769,7 @@ export default function App() {
     if (tickets.length) setPrintJob({ kind: "multi", tickets, time: timeNow(), n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(45);
     flash((inviteVal != null ? "🎁 Invitación · " : "") + (tickets.length ? `🎟️ ${combo.name} · ${tickets.length} tickets` : `✅ Venta guardada · ${combo.name} (sin ticket)`));
-    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: combo.name, price }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: combo.name, price }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { trasGuardar(r); });
   };
   // ===== Reservados VIP =====
   const abrirCobroRes = (item, fijo = null) => {
@@ -800,7 +807,7 @@ export default function App() {
     setPrintJob({ kind: "ticket", product: { id: item.id, name: item.nombre, price: precio }, time: timeNow(), num: saleRow.num, folio, qty: 1, notas: notasRes(d), n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(45);
     flash(`⭐ ${item.nombre} · ${reservado.nombre}`);
-    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: item.nombre, price: precio }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: item.nombre, price: precio }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { trasGuardar(r); });
     enlazarRes(d, cu);
   };
   // Quien compra está dentro: el reservado pasa a «Ha llegado» (con la tarifa queda apuntada) y la venta se suma a su cuenta
@@ -809,7 +816,7 @@ export default function App() {
     const tarifa = item.tipo === "tarifa";
     const esTarifaReal = tarifa && resCfg(ev).tarifas.some(t => t.id === item.id);
     if (actual.estado !== "llegado" || (esTarifaReal && actual.tarifaId !== item.id)) res.guardar({ ...actual, estado: "llegado", tarifaId: esTarifaReal ? item.id : actual.tarifaId, llegadaEn: actual.llegadaEn || new Date().toISOString() });
-    res.enlazar({ clientUuid: cu, reservadoId: reservado.id, tipo: tarifa ? "tarifa" : "extra", itemId: item.id, nombre: item.nombre, botellas: Number(item.botellas) || 0, total: tarifa ? cobro.total : precio, senal: tarifa ? cobro.senal : 0 }).then(r => { if (r?.offline) setPending(db.pendingCount()); });
+    res.enlazar({ clientUuid: cu, reservadoId: reservado.id, tipo: tarifa ? "tarifa" : "extra", itemId: item.id, nombre: item.nombre, botellas: Number(item.botellas) || 0, total: tarifa ? cobro.total : precio, senal: tarifa ? cobro.senal : 0 }).then(r => { trasGuardar(r); });
   };
   // Venta de un socio desde el móvil: sin ticket, a la caja que elija, con efectivo/tarjeta y PIN de admin
   const venderSocio = (d) => {
@@ -824,7 +831,7 @@ export default function App() {
     baseDispatch({ type: "SELL", rows: [saleRow] });
     if (navigator.vibrate) navigator.vibrate(45);
     flash(`💶 ${item.nombre} · ${reservado.nombre} · ${money(precio)} ${metodo} → ${caja.name}`);
-    db.vender({ eventoId: ev.id, puntoId: caja.id, producto: { id: null, name: item.nombre, price: precio }, qty: 1, operario, folios: [folio], clientUuids: [cu], pago: metodo, entregado: null, cambio: null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+    db.vender({ eventoId: ev.id, puntoId: caja.id, producto: { id: null, name: item.nombre, price: precio }, qty: 1, operario, folios: [folio], clientUuids: [cu], pago: metodo, entregado: null, cambio: null }).then(r => { trasGuardar(r); });
     enlazarRes(d, cu);
   };
   const guardarCfgRes = (cfg) => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { style: { ...(ev.style || {}), reservados: cfg } } });
@@ -832,7 +839,7 @@ export default function App() {
   const accApp = useAcceso();
   const vistaRes = (extra = {}) => <ReservadosVista ev={ev} punto={punto} role={role} res={res} sales={evSales} isMobile={isMobile} flash={flash} onGuardarCfg={guardarCfgRes} onCobrarTarifa={(t, r) => abrirCobroRes({ ...t, tipo: "tarifa" }, r.id)} onVentaSocio={(role === "admin" || role === "supervisor") ? (fijo) => setResSocio({ fijo }) : null} {...extra} />;
 
-  const voidOne = async (sale, by) => { baseDispatch({ type: "VOID_ONE", saleId: sale.id, by }); const r = await db.anularVenta(sale.clientUuid || sale.id, by); if (r.offline) setPending(db.pendingCount()); };
+  const voidOne = async (sale, by) => { baseDispatch({ type: "VOID_ONE", saleId: sale.id, by }); const r = await db.anularVenta(sale.clientUuid || sale.id, by); trasGuardar(r); };
 
   // ===== Gastos / retiradas de caja =====
   // Dinero que sale del cajón durante la noche. La facturación NO cambia; el cierre lo descuenta
@@ -874,7 +881,7 @@ export default function App() {
     flash(`${g.tipo === "entrada" ? "➕ Cambio añadido" : "💸 Gasto registrado"}${extra.puntoId ? ` en ${P.name}` : ""} · ${money(imp)}${g.tipo !== "entrada" ? " · " + categoriaDe(g).t : ""}${g.concepto && g.concepto !== categoriaDe(g).t ? " · " + g.concepto : ""}`);
     if (navigator.vibrate) navigator.vibrate(30);
     const r = await db.registrarGasto({ id, tipo: g.tipo, eventoId: ev.id, puntoId: P.id, importe: imp, concepto: g.concepto, categoria: g.categoria, crmGastoId: g.crmGastoId, por });
-    if (r.offline) setPending(db.pendingCount());
+    trasGuardar(r);
     return true;
   };
   const anularGasto = async (g) => {
@@ -882,7 +889,7 @@ export default function App() {
     flash(`${isEntrada(g) ? "Entrada de cambio" : "Gasto"} anulado · ${money(g.importe)}`, "warn");
     const por = role === "cajero" ? punto.name : role === "admin" ? "Admin" : "Supervisor";
     const r = await db.anularGasto(g.id, ev.id, por);
-    if (r.offline) setPending(db.pendingCount());
+    trasGuardar(r);
     // Si ese movimiento era el cambio de un socio o su devolución, se deshace también la aportación
     const lista = aportaciones || (await sd.loadAportaciones(ev.id).catch(() => null)) || [];
     const ligada = lista.find(a => a.gastoEntradaId === g.id || a.gastoDevolucionId === g.id);
@@ -919,8 +926,8 @@ export default function App() {
     setPrintJob({ kind: "z", z, n: Date.now() });
     flash(`Cierre Z de ${puntoObj.name} · turno cerrado`);
     const r = await db.cerrarZ(ev.id, puntoObj.id, puntoObj.name, contado);
-    if (r.offline) setPending(db.pendingCount());
-    else await hydrateLigero().catch(() => {});
+    trasGuardar(r);
+    if (!r.offline) await hydrateLigero().catch(() => {});
   };
 
   // Evento recién creado (inicio o CRM): se añade, queda elegido y se recarga del servidor para tenerlo todo al día
@@ -1048,14 +1055,14 @@ export default function App() {
     setOpening(false);
     if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
     const r = await db.abrirBarra(punto.id, ev.id, fondo, quien());
-    if (r.offline) setPending(db.pendingCount());
+    trasGuardar(r);
     flash(`🟢 Venta iniciada en ${punto.name}${fondo != null ? ` · fondo ${money(fondo)}` : ""}`);
   };
   // Volver a modo prueba (solo admin): reabrir tras un Z o deshacer un inicio por error
   const pasarPrueba = async (puntoObj) => {
     baseDispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: puntoObj.id, patch: { estado: "prueba", fondo: null } });
     const r = await db.pasarPrueba(puntoObj.id, ev.id, quien());
-    if (r.offline) setPending(db.pendingCount());
+    trasGuardar(r);
     flash(`🧪 ${puntoObj.name} en modo prueba`, "warn");
   };
 

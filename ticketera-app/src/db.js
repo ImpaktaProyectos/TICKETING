@@ -249,9 +249,37 @@ export function limpiarCopiaLocal() {
 }
 const QKEY = "ticketera_pending";
 const loadQ = () => { try { const q = JSON.parse(localStorage.getItem(scopedKey(QKEY)) || "[]"); return Array.isArray(q) ? q : []; } catch { return []; } };
-const saveQ = (q) => { try { localStorage.setItem(scopedKey(QKEY), JSON.stringify(q)); } catch (e) { console.error("No se pudo guardar la cola", e); } };
+// La cola es lo ÚNICO imprescindible del equipo. El almacenamiento del navegador ronda los 5 MB para
+// todo (copia de la app para trabajar sin internet, entradas online, tickets escaneados…): si se llena,
+// se libera primero lo que se puede volver a descargar y se reintenta. Si aun así no cabe, se avisa.
+let colaSinSitio = false;
+export const colaLlena = () => colaSinSitio;
+function liberarSitio() {
+  let libre = false;
+  try {   // 1) la copia para trabajar sin internet se queda sin sus ventas (conserva eventos y productos)
+    const k = scopedKey("ticketera_snapshot"), snap = JSON.parse(localStorage.getItem(k) || "null");
+    if (snap?.sales?.length) { localStorage.setItem(k, JSON.stringify({ ...snap, sales: [] })); libre = true; }
+  } catch {}
+  try {   // 2) listas que se vuelven a descargar solas en cuanto hay internet
+    const borrar = [];
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && /^(tixfast_qr_web_|tixfast_previstos_|tixfast_reservados_)/.test(k)) borrar.push(k); }
+    borrar.forEach(k => localStorage.removeItem(k)); if (borrar.length) libre = true;
+  } catch {}
+  return libre;
+}
+const saveQ = (q) => {
+  const txt = JSON.stringify(q);
+  try { localStorage.setItem(scopedKey(QKEY), txt); colaSinSitio = false; return true; }
+  catch (e) {
+    try { if (liberarSitio()) { localStorage.setItem(scopedKey(QKEY), txt); colaSinSitio = false; return true; } } catch {}
+    colaSinSitio = true;
+    console.error("No se pudo guardar la cola", e);
+    registrarError("cola", e, `memoria llena · ${q.length} pendientes`);
+    return false;
+  }
+};
 const newQid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random());
-const enqueue = (item) => { const q = loadQ(); q.push({ ...item, qid: item.qid || newQid() }); saveQ(q); };
+const enqueue = (item) => { const q = loadQ(); q.push({ ...item, qid: item.qid || newQid() }); return saveQ(q); };
 const removeQids = (ids) => { if (!ids.length) return; const set = new Set(ids); saveQ(loadQ().filter(it => !set.has(it.qid))); };
 export const pendingCount = () => loadQ().length;
 
@@ -386,7 +414,12 @@ async function doOrQueue(item) {
   // PRIMERO se guarda en el equipo y DESPUÉS se sube: si se corta el wifi, se apaga
   // el ordenador o el wifi está "conectado pero sin internet", la venta nunca se pierde.
   const it = { ...item, qid: item.qid || newQid() };
-  enqueue(it);
+  if (!enqueue(it)) {
+    // No cabe en el equipo (memoria llena). Con internet, las ventas, gastos y copias se suben ya
+    // directamente; lo demás (anulaciones, Z…) no puede adelantarse a lo pendiente: se avisa.
+    if (navigator.onLine && ["vender", "gasto", "backup"].includes(it.op)) { try { await runItem(it); return { offline: false }; } catch {} }
+    return { offline: true, sinGuardar: true };
+  }
   if (!navigator.onLine) return { offline: true };
   const inQ = () => loadQ().some(x => x.qid === it.qid);
   const until = Date.now() + 6000;
