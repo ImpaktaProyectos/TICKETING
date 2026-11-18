@@ -335,19 +335,35 @@ const addFailed = (it, err) => { registrarError("sincronizar", err, `operación:
 
 // Candado: una sola sincronización a la vez
 let syncing = null;
+let loteDisponible = null;   // la base de datos aún no tiene ticket_vender_lote → se sube de una en una
 export function syncPending() {
   if (syncing) return syncing;
   syncing = (async () => {
     const q = loadQ(); const done = [];
+    let sinLote = loteDisponible === false;
     try {
-      for (const it of q) {
+      for (let i = 0; i < q.length; i++) {
+        const it = q[i];
         if (!it.qid) it.qid = newQid();
+        // Varias ventas seguidas: se suben de golpe (hasta 100 por petición), en el mismo orden.
+        // Si el lote falla por lo que sea, se sigue de una en una como siempre.
+        if (it.op === "vender" && !sinLote) {
+          let j = i; while (j < q.length && j - i < 100 && q[j].op === "vender" && q[j].args) j++;
+          if (j - i >= 2) {
+            const lote = q.slice(i, j);
+            const { error } = await supabase.rpc("ticket_vender_lote", { p_ventas: lote.map(x => x.args) });
+            if (!error) { lote.forEach(x => { if (!x.qid) x.qid = newQid(); done.push(x.qid); }); i = j - 1; continue; }
+            if (error.code === "PGRST202" || /schema cache/i.test(error.message || "")) loteDisponible = false;   // la base aún no tiene la función
+            if (!isServerError(error)) break;                // sin red: se para aquí, como siempre
+            sinLote = true;                                  // en esta subida, ya de una en una
+          }
+        }
         try { await runItem(it); done.push(it.qid); }
         catch (err) {
           if (isServerError(err)) {
             const tries = (it.tries || 0) + 1;
             if (tries >= 5) { addFailed(it, err); done.push(it.qid); continue; }   // no bloquea la cola
-            const cur = loadQ(); const i = cur.findIndex(x => x.qid === it.qid); if (i > -1) { cur[i].tries = tries; saveQ(cur); }
+            const cur = loadQ(); const k = cur.findIndex(x => x.qid === it.qid); if (k > -1) { cur[k].tries = tries; saveQ(cur); }
           }
           break;                                            // orden estricto: paramos aquí
         }
@@ -551,13 +567,34 @@ export function subscribeConfig(onChange) {
     .subscribe();
   return () => supabase.removeChannel(ch);
 }
+// ¿Tiene ya la base de datos la señal por evento (un aviso por operación)? Se pregunta una vez.
+let senalEvento = null;
+async function haySenalEvento() {
+  if (senalEvento !== null) return senalEvento;
+  const { error } = await supabase.from("ticket_evento_cambios").select("evento_id").limit(1);
+  if (error && (!error.code || /fetch|network/i.test(error.message || ""))) return false;   // sin red: se vuelve a preguntar la próxima vez
+  senalEvento = !error;
+  return senalEvento;
+}
 export function subscribeEvento(eventoId, onChange) {
-  const ch = supabase.channel("ev-" + eventoId)
-    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_ventas", filter: `evento_id=eq.${eventoId}` }, (p) => onChange(p?.eventType === "DELETE" ? { completo: true } : {}))
-    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_cierres", filter: `evento_id=eq.${eventoId}` }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_gastos", filter: `evento_id=eq.${eventoId}` }, onChange)
-    .subscribe();
-  return () => supabase.removeChannel(ch);
+  let ch = null, cerrado = false;
+  (async () => {
+    const senal = await haySenalEvento().catch(() => false);
+    if (cerrado) return;
+    ch = supabase.channel("ev-" + eventoId);
+    if (senal) {
+      // Un aviso pequeño por operación (una venta, un ×5, una anulación o una Z entera), no uno por venta.
+      // Si la operación fue un borrado de ventas, borradas_en = ventas_en: hay que recargarlo todo.
+      ch = ch.on("postgres_changes", { event: "*", schema: "public", table: "ticket_evento_cambios", filter: `evento_id=eq.${eventoId}` },
+        (p) => { const n = p?.new || {}; onChange(n.borradas_en && n.borradas_en === n.ventas_en ? { completo: true } : {}); });
+    } else {
+      ch = ch.on("postgres_changes", { event: "*", schema: "public", table: "ticket_ventas", filter: `evento_id=eq.${eventoId}` }, (p) => onChange(p?.eventType === "DELETE" ? { completo: true } : {}));
+    }
+    ch.on("postgres_changes", { event: "*", schema: "public", table: "ticket_cierres", filter: `evento_id=eq.${eventoId}` }, onChange)
+      .on("postgres_changes", { event: "*", schema: "public", table: "ticket_gastos", filter: `evento_id=eq.${eventoId}` }, onChange)
+      .subscribe();
+  })();
+  return () => { cerrado = true; if (ch) supabase.removeChannel(ch); };
 }
 
 /* ===================== RESERVADOS VIP =====================
