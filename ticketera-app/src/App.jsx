@@ -66,7 +66,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.20d";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.20e";   // súbela al publicar cambios para verificar la actualización
 globalThis.TIXFAST_VERSION = APP_VERSION;
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
@@ -484,6 +484,24 @@ export default function App() {
       currentPuntoId: stateRef.current.currentPuntoId || (first.puntos.find(p => !p.archivado) || first.puntos[0])?.id,
     } });
   };
+  // Recarga ligera: solo eventos, barras, productos y cierres Z (las ventas van por el refresco incremental).
+  // Es lo que se usa cuando otro equipo cambia algo, al volver internet o tras una Z.
+  const ventasRef = useRef(null);   // pide al refresco de ventas del evento abierto que se ponga al día
+  const hydrateLigero = async () => {
+    if (!navigator.onLine) return;
+    const { events, closures } = await db.loadConfig();
+    if (!events.length) return hydrate();
+    const merged = mergePending(events, []);
+    const st = stateRef.current;
+    const first = merged.events.find(e => e.id === st.currentEventId) || eventoPorDefecto(merged.events) || merged.events[0];
+    baseDispatch({ type: "HYDRATE", payload: {
+      events: merged.events, closures,
+      currentEventId: first.id,
+      currentPuntoId: st.currentPuntoId || (first.puntos.find(p => !p.archivado) || first.puntos[0])?.id,
+    } });
+    try { const snap = JSON.parse(localStorage.getItem(SNAP) || "null"); if (snap) localStorage.setItem(SNAP, JSON.stringify({ ...snap, events, closures })); } catch {}
+    ventasRef.current?.();
+  };
   useEffect(() => { (async () => {
     if (navigator.onLine) db.syncPending().then(() => setPending(db.pendingCount())).catch(() => {});   // en segundo plano: no frena el arranque
     try { await hydrate(); } catch (e) { console.error(e); flash("Error cargando datos", "warn"); }
@@ -510,12 +528,14 @@ export default function App() {
           pideTodo ? null : db.loadSalesCambios(ev.id, cursor).catch(() => null),
           db.loadGastos(ev.id).catch(() => null),
         ]);
-        let server;
+        let server, sinNovedad = false;
         if (cambios) {
           // Lo que ya tenía este equipo del servidor + lo nuevo o cambiado (la venta del servidor sustituye a la provisional)
           const pend = db.pendingSaleUuids();
           const porId = new Map();
           stateRef.current.sales.forEach(s => { if (s.eventId === ev.id && !(s.clientUuid && pend.has(s.clientUuid))) porId.set(s.clientUuid || s.id, s); });
+          // ¿Trae algo que este equipo no tenga ya igual? (si no, no se toca la pantalla: nada que recalcular)
+          sinNovedad = cambios.every(c => { const y = porId.get(c.clientUuid || c.id); return y && y.upd === c.upd && y.voided === c.voided && y.closureId === c.closureId && y.num === c.num; });
           cambios.forEach(s => porId.set(s.clientUuid || s.id, s));
           server = [...porId.values()];
           cursor = db.cursorVentas(cambios) || cursor;
@@ -524,35 +544,53 @@ export default function App() {
           cursor = db.cursorVentas(server); ultimaCompleta = Date.now();
         }
         if (!vivo) return;
-        const { sales } = mergePending([], server);
-        baseDispatch({ type: "HYDRATE_SALES", sales: stateRef.current.sales.filter(s => s.eventId !== ev.id).concat(sales) });
-        if (gs) baseDispatch({ type: "HYDRATE_GASTOS", gastos: (stateRef.current.gastos || []).filter(g => g.eventId !== ev.id).concat(mergeGastos(gs)) });
+        if (!sinNovedad) {
+          const { sales } = mergePending([], server);
+          baseDispatch({ type: "HYDRATE_SALES", sales: stateRef.current.sales.filter(s => s.eventId !== ev.id).concat(sales) });
+        }
+        if (gs) {
+          const nuevos = mergeGastos(gs), firma = (g) => `${g.id}|${g.voided}|${g.closureId}|${g.crmGastoId}|${g.importe}|${g.synced}`;
+          const actuales = (stateRef.current.gastos || []).filter(g => g.eventId === ev.id);
+          const iguales = actuales.length === nuevos.length && actuales.map(firma).join() === nuevos.map(firma).join();
+          if (!iguales) baseDispatch({ type: "HYDRATE_GASTOS", gastos: (stateRef.current.gastos || []).filter(g => g.eventId !== ev.id).concat(nuevos) });
+        }
       } catch {} finally { busy = false; }
     };
     const pedir = (o) => { if (o?.completo) completo = true; if (!timer) timer = setTimeout(() => { timer = null; refresh(); }, 2500); };
     // Agrupa avisos: como mucho una recarga cada 2,5 s aunque vendan varias barras a la vez
     const unsub = db.subscribeEvento(ev.id, pedir);
+    ventasRef.current = pedir;
     // Por si el aviso en directo no llega (sin cobertura, límite de conexiones del servidor…):
     // cada 20-30 s se piden los cambios igualmente (es una consulta pequeña)
     const t = setInterval(() => { if (navigator.onLine && document.visibilityState !== "hidden") pedir(); }, 20000 + Math.floor(Math.random() * 10000));
-    return () => { vivo = false; clearTimeout(timer); clearInterval(t); unsub(); };
+    return () => { vivo = false; clearTimeout(timer); clearInterval(t); unsub(); if (ventasRef.current === pedir) ventasRef.current = null; };
   }, [ev.id]);
 
   // Multi-dispositivo: si otro equipo cambia productos, precios, barras o ajustes, este se actualiza solo
   useEffect(() => {
     let t = null;
-    const unsub = db.subscribeConfig(() => { clearTimeout(t); t = setTimeout(() => { if (navigator.onLine) hydrate().catch(() => {}); }, 2500); });
+    const unsub = db.subscribeConfig(() => { clearTimeout(t); t = setTimeout(() => { if (navigator.onLine) hydrateLigero().catch(() => {}); }, 2500); });
     return () => { clearTimeout(t); unsub(); };
   }, []);
 
   // Conexión + cola offline (automático) + reintento periódico
   useEffect(() => {
+    // Al volver internet en una fiesta se reconectan todos los equipos a la vez: nada de recargarlo todo.
+    // Solo si lo subido era de OTRO evento (no del abierto) se recarga todo, y con una espera al azar
+    // para que no lo hagan todos los equipos en el mismo segundo.
     const trySync = async () => {
       if (!navigator.onLine || db.pendingCount() === 0) { setPending(db.pendingCount()); return; }
+      const otros = [...db.pendingEventos()].some(id => id !== stateRef.current.currentEventId);
       const r = await db.syncPending(); setPending(db.pendingCount());
-      if (r.synced) { flash(`✅ ${r.synced} operaciones sincronizadas`); if (r.remaining === 0) await hydrate().catch(() => {}); }
+      if (r.synced) {
+        flash(`✅ ${r.synced} operaciones sincronizadas`);
+        if (r.remaining === 0) {
+          if (otros) setTimeout(() => { hydrate().catch(() => {}); }, Math.random() * 20000);
+          else await hydrateLigero().catch(() => {});
+        }
+      }
     };
-    const on = async () => { setOnline(true); await trySync(); if (db.pendingCount() === 0) await hydrate().catch(() => {}); };
+    const on = async () => { setOnline(true); await trySync(); if (db.pendingCount() === 0) await hydrateLigero().catch(() => {}); };
     const off = () => setOnline(false);
     window.addEventListener("online", on); window.addEventListener("offline", off);
     const t = setInterval(trySync, 30000);
@@ -882,7 +920,7 @@ export default function App() {
     flash(`Cierre Z de ${puntoObj.name} · turno cerrado`);
     const r = await db.cerrarZ(ev.id, puntoObj.id, puntoObj.name, contado);
     if (r.offline) setPending(db.pendingCount());
-    else await hydrate().catch(() => {});
+    else await hydrateLigero().catch(() => {});
   };
 
   // Evento recién creado (inicio o CRM): se añade, queda elegido y se recarga del servidor para tenerlo todo al día

@@ -4,11 +4,14 @@
 -- Prueba de carga del 18/11/2026 (300 fiestas a la vez, ~800 dispositivos, un festival con
 -- 30.000 ventas): la base de datos no llegaba. Tres causas en la base de datos:
 --
--- 1) Cada venta buscaba el número de ticket más alto recorriendo TODAS las ventas del evento
---    (max(numero) sin índice), y lo hacía con el evento bloqueado: las barras de un evento grande
---    venden de una en una y cada venta tarda más cuantas más ventas hay.
---    → índice (evento_id, numero): el número sale al momento, tenga el evento las ventas que tenga.
---    El índice antiguo solo por evento_id queda cubierto por este (se borra: no suma trabajo a cada venta).
+-- 1) Cada venta buscaba el número de ticket más alto recorriendo TODAS las ventas de la cuenta
+--    (con la seguridad por filas, Postgres usaba el índice por dueño), y lo hacía con el evento
+--    bloqueado: las barras de un evento grande venden de una en una y cada venta tardaba más
+--    cuantas más ventas tenía la cuenta.
+--    → índice (owner_id, evento_id, numero): encaja con la seguridad por filas, así que sirve para
+--    sacar el último número al momento y para descargar las ventas de un evento por orden y por
+--    tramos (antes cada página de 1.000 ordenaba todas las ventas de la cuenta).
+--    El índice antiguo solo por evento_id lo cubren los demás (se borra: no suma trabajo a cada venta).
 --
 -- 2) Cada vez que una barra vendía, TODOS los equipos del evento volvían a descargar TODAS las
 --    ventas (30 páginas de 1.000 en un festival, cada 2,5 s y en cada equipo).
@@ -22,16 +25,15 @@
 -- =====================================================================
 
 -- 1) Número de ticket sin recorrer el evento
-create index if not exists ticket_ventas_evento_numero on public.ticket_ventas (evento_id, numero desc);
+create index if not exists ticket_ventas_owner_evento_numero on public.ticket_ventas (owner_id, evento_id, numero);
 drop index if exists public.ix_ticket_ventas_evento;
 
--- Con la seguridad por filas (owner_id = usuario), Postgres prefería el índice por dueño y recorría
--- TODAS las ventas de la cuenta (de todos sus eventos) en cada venta. El último número se pide aquí,
--- sin ese filtro pero comprobando antes que el evento es de quien vende: usa el índice de arriba.
+-- El último número se pide aquí (comprobando antes que el evento es de quien vende), con la
+-- consulta exacta que encaja con el índice de arriba.
 create or replace function public.ticket_ultimo_numero(p_evento uuid)
 returns integer language sql stable security definer set search_path = '' as $$
   select case when exists (select 1 from public.ticket_eventos e where e.id = p_evento and e.owner_id = (select auth.uid()))
-    then coalesce((select v.numero from public.ticket_ventas v where v.evento_id = p_evento order by v.numero desc limit 1), 0)
+    then coalesce((select v.numero from public.ticket_ventas v where v.owner_id = (select auth.uid()) and v.evento_id = p_evento order by v.numero desc limit 1), 0)
     else 0 end;
 $$;
 revoke all on function public.ticket_ultimo_numero(uuid) from public, anon;

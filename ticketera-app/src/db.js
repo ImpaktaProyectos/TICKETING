@@ -40,17 +40,56 @@ async function fetchAll(buildQuery, pageSize = 1000) {
   return out;
 }
 
-export async function loadAll() {
+// Todas las ventas de un evento, por tramos de número de ticket (no por páginas con salto):
+// cada tramo usa el índice (dueño, evento, número) y cuesta lo mismo sea el primero o el 30.º.
+// Antes, cada página de 1.000 ordenaba todas las ventas de la cuenta (700 ms un festival; ahora 30 ms).
+async function fetchVentasEvento(eventId, pageSize = 1000) {
+  const out = [], vistos = new Set();
+  let desde = 0;
+  for (;;) {
+    const { data, error } = await supabase.from("ticket_ventas").select("*").eq("evento_id", eventId).gte("numero", desde)
+      .order("numero", { ascending: true }).order("id", { ascending: true }).limit(pageSize);
+    if (error) throw error;
+    const nuevas = (data || []).filter(r => !vistos.has(r.id));
+    nuevas.forEach(r => { vistos.add(r.id); out.push(r); });
+    if (!data || data.length < pageSize || !nuevas.length) break;
+    desde = data[data.length - 1].numero;   // «desde» incluido: si dos ventas compartieran número, no se pierde ninguna
+  }
+  return out;
+}
+// Varias tareas a la vez, como mucho «n» (para no lanzar 50 descargas de golpe)
+async function enParalelo(items, n, fn) {
+  const out = new Array(items.length); let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) { const k = i++; out[k] = await fn(items[k]); } }));
+  return out;
+}
+
+async function loadEventosDb() {
   // Los eventos de la papelera no se cargan (si la base aún no tiene papelera, se cargan todos)
   const base = () => supabase.from("ticket_eventos").select("*, ticket_puntos(*, ticket_productos(*))").order("fecha", { ascending: true });
   let { data: eventos, error } = await base().is("borrado_en", null);
   if (error && /borrado_en/.test(error.message || "")) ({ data: eventos, error } = await base());
   if (error) throw error;
+  return eventos || [];
+}
+// Solo la configuración (eventos, barras, productos) y los cierres Z: lo que cambia cuando otro equipo
+// abre una barra, declara el fondo, marca un producto agotado o cierra una Z. Las ventas NO se recargan
+// aquí (van por el refresco incremental): antes cada uno de esos cambios hacía que todos los equipos
+// de la cuenta descargaran todas las ventas de todos los eventos.
+export async function loadConfig() {
+  const eventos = await loadEventosDb();
+  const eventIds = eventos.map(e => e.id);
+  const closures = eventIds.length ? await fetchAll(() => supabase.from("ticket_cierres").select("*").in("evento_id", eventIds).order("creado_en", { ascending: true }).order("id", { ascending: true })) : [];
+  return { events: eventos.map(evFromDb), closures: closures.map(closureFromDb) };
+}
+
+export async function loadAll() {
+  const eventos = await loadEventosDb();
   const eventIds = (eventos || []).map(e => e.id);
   let sales = [], closures = [], gastos = [];
   if (eventIds.length) {
     const [v, c, g] = await Promise.all([
-      fetchAll(() => supabase.from("ticket_ventas").select("*").in("evento_id", eventIds).order("creado_en", { ascending: true }).order("id", { ascending: true })),
+      enParalelo(eventIds, 4, fetchVentasEvento).then(listas => listas.flat().sort((a, b) => String(a.creado_en).localeCompare(String(b.creado_en)) || String(a.id).localeCompare(String(b.id)))),
       fetchAll(() => supabase.from("ticket_cierres").select("*").in("evento_id", eventIds).order("creado_en", { ascending: true }).order("id", { ascending: true })),
       fetchAll(() => supabase.from("ticket_gastos").select("*").in("evento_id", eventIds).order("creado_en", { ascending: true }).order("id", { ascending: true })).catch(() => []),
     ]);
@@ -70,8 +109,7 @@ export async function loadClosures(eventId) {
   return rows.map(closureFromDb);
 }
 export async function loadSales(eventId) {
-  const rows = await fetchAll(() => supabase.from("ticket_ventas").select("*").eq("evento_id", eventId).order("creado_en", { ascending: true }).order("id", { ascending: true }));
-  return rows.map(saleFromDb);
+  return (await fetchVentasEvento(eventId)).map(saleFromDb);
 }
 // Hasta qué momento (hora del servidor) están al día unas ventas: el cambio más reciente que traen
 export const cursorVentas = (sales) => sales.reduce((m, x) => (x.upd && (!m || x.upd > m) ? x.upd : m), null);
@@ -234,6 +272,8 @@ export function pendingSales() {
   });
   return out;
 }
+// Eventos con algo pendiente de subir en este equipo
+export function pendingEventos() { const s = new Set(); loadQ().forEach(it => { const e = it.args?.p_evento || it.evento || it.row?.evento_id; if (e) s.add(e); }); return s; }
 export function pendingVoidUuids() { const s = new Set(); loadQ().forEach(it => { if (it.op === "anularVenta") s.add(it.clientUuid); }); return s; }
 
 const isDuplicate = (err) => err && (err.code === "23505" || /duplicate key/i.test(err.message || ""));
@@ -501,10 +541,13 @@ export async function resetStats(eventId) {
 /* ===================== REALTIME ===================== */
 // Cambios de configuración hechos desde OTRO equipo de la misma cuenta (RLS: solo llegan los de esta cuenta)
 export function subscribeConfig(onChange) {
+  // Con el filtro por cuenta, el servidor de avisos descarta al momento los cambios de las demás cuentas
+  // (sin filtro tenía que comprobar cada cambio de toda la plataforma contra cada equipo conectado)
+  const f = SCOPE ? { filter: `owner_id=eq.${SCOPE}` } : {};
   const ch = supabase.channel("cfg-" + Math.random().toString(36).slice(2))
-    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_eventos" }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_puntos" }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_productos" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_eventos", ...f }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_puntos", ...f }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_productos", ...f }, onChange)
     .subscribe();
   return () => supabase.removeChannel(ch);
 }
