@@ -30,17 +30,25 @@ refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las fun
 - [ ] Prueba real: evento Multipuesto, 2 puestos, venta en caja y canje desde dos móviles.
 
 ## 2d. Rendimiento con mucha gente a la vez (prueba de carga del 18/11/2026, ver supabase/pruebas-carga/)
-- [ ] **Aplicar, por este orden, `20261120090000_ticket_rendimiento.sql`, `20261120100000_ticket_compras_rendimiento.sql`
-      y `20261120110000_ticket_puestos_rendimiento.sql`** (probarlas antes en una transacción que se deshace) y publicar la app.
-      Sin las migraciones, la app nueva funciona igual que antes (si falta la columna, vuelve a cargarlo todo).
+- [ ] **Aplicar, por este orden** (probarlas antes en una transacción que se deshace) y después publicar la app:
+      1. `20261120090000_ticket_rendimiento.sql` (número de ticket, refresco incremental, tope de 500 unidades)
+      2. `20261120100000_ticket_compras_rendimiento.sql` (compra de entradas, IP de Cloudflare)
+      3. `20261120110000_ticket_puestos_rendimiento.sql` (panel y liquidación de puestos)
+      4. `20261120120000_ticket_avisos_evento.sql` (un aviso en directo por operación)
+      5. `20261120130000_ticket_vender_lote.sql` (subida en lotes, tope de tamaño de las copias)
+      6. `20261120140000_ticket_escaneo_rendimiento.sql` (escaneo sin recorrer productos)
+      Sin las migraciones, la app nueva funciona igual que antes (detecta lo que falta y usa lo de siempre).
 - [ ] **Plan de Supabase**: el proyecto está en el plan gratuito. Con ~800 dispositivos no llega:
       máximo 200 conexiones en directo (Realtime), 100 mensajes en directo por segundo, 5 GB de tráfico al mes
       y la máquina más pequeña. Para una noche así: plan Pro y, como mínimo, máquina Small (o Medium para festivales).
-- [ ] **Avisos en directo de las ventas** (Realtime): cada venta genera un aviso a cada equipo del evento, y una Z
-      de una barra con 3.000 ventas genera 3.000 avisos de golpe (uno por venta cerrada). Pasar a «Broadcast» desde
-      la base de datos con un disparador por sentencia (un solo aviso por venta o por Z), con canal privado.
-      Hay que probarlo en un proyecto de Supabase de pruebas (Realtime no se puede simular en local).
-      Mientras tanto, la app ya se pone al día sola cada 20-30 s aunque no le lleguen los avisos.
+- [ ] **Quitar `ticket_ventas` del directo** (`alter publication supabase_realtime drop table public.ticket_ventas`)
+      cuando todos los equipos tengan la versión nueva (que escucha ticket_evento_cambios). Hasta entonces se deja
+      para las versiones antiguas. Ahorra procesar en el servidor de avisos cada venta de la plataforma.
+- [ ] **Datos secretos en el directo**: ticket_eventos se publica con todas sus columnas (clave de los QR y PIN).
+      Solo llegan a los equipos del dueño, pero sobran: publicar solo (id, owner_id) con una lista de columnas.
+      Probarlo antes en un proyecto de Supabase de pruebas (hay que confirmar que el directo lo admite).
+- [ ] **Cola sin conexión en IndexedDB**: el almacenamiento del navegador ronda 5 MB para todo. Ya se libera sitio
+      y se avisa si se llena, pero con IndexedDB cabrían cientos de miles de ventas pendientes.
 - [ ] **Límite por IP de las compras**: ya usa `cf-connecting-ip` (la de Cloudflare) si llega. Comprobar en una compra
       real (tabla ticket_web_pedidos, columna ip) que se guarda la IP del móvil y no siempre la misma.
 - [ ] **Carga al abrir la app**: se siguen descargando las ventas de TODOS los eventos de la cuenta (ya mucho más rápido:
@@ -48,6 +56,11 @@ refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las fun
       los totales ya calculados al servidor y solo se descarguen las ventas de los eventos activos.
 - [ ] **Web pública del evento** (`web_evento_publico`, cada 20 s por visitante): ya cuenta por índice sin leer las
       entradas. Para lanzamientos con decenas de miles de personas mirando, servirla desde una caché de 10-20 s.
+- [ ] **Canje por folio** (cuando el QR no se lee): recorre las ventas del evento comparando el texto. Es poco frecuente;
+      si se usa mucho, guardar el folio ya normalizado en una columna con índice.
+- [ ] **Leaked password protection** en Supabase › Authentication (aviso de seguridad pendiente).
+- [ ] **Código**: App.jsx tiene más de 4.000 líneas. Ir separando TPV, informes y cierres en archivos propios
+      (sin prisa, cada vez que se toque una parte) para que los cambios sean más seguros.
 - [ ] **Protección ante abusos**: las funciones públicas (canje de puestos, compras, reservas) no tienen límite de
       peticiones por segundo. Supabase no lo trae en el plan gratuito; valorar Cloudflare delante o límites por IP.
 

@@ -30,9 +30,12 @@ escáneres, canjes de puestos y su panel). `canje.sql` sale de la migración de 
 | Venta en el festival (una caja) | 9,8 ms | 1,4 ms |
 | Refresco de un TPV del festival | 443 ms | 0,8 ms |
 | Ciclo de un escáner | 120 ms | 0,8 ms |
-| Punto de rotura | < 442/s | ~2.500/s (cómodo hasta 1.500/s) |
+| Punto de rotura | < 442/s | ~3.450/s (3.000/s con 10 ms de media) |
 | Ventas por segundo en un mismo evento | ~100 (y bajando) | 414 |
 | Descarga completa de las ventas de un festival | 696 ms | 30 ms |
 | Compras reales con 300 compras falsas/s | 188/s | 232/s (igual que sin ataque) |
 | Panel de un puesto (2.000 canjes) | 35 ms | 8 ms |
 | Liquidación de puestos (20.000 canjes) | 305 ms | 18 ms |
+| Escaneo de un ticket del TPV (puesto) | 2,9 ms | 1 ms |
+| Avisos en directo por una Z de 2.300 ventas | 2.300 por equipo | 1 por equipo |
+| Subir 100 ventas pendientes al volver internet | 100 peticiones | 1 petición (0,1 s) |

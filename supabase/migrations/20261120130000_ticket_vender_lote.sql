@@ -40,3 +40,13 @@ begin
 end $$;
 revoke all on function public.ticket_vender_lote(jsonb) from public, anon;
 grant execute on function public.ticket_vender_lote(jsonb) to authenticated;
+
+-- Copias de seguridad automáticas del TPV (cada 30 min por equipo): hoy pesan como mucho 1,5 KB, pero
+-- la base de datos aceptaba cualquier tamaño. Tope de 64 KB para que un fallo o un abuso no llene el
+-- disco que comparten todos los clientes. (not valid + validate: no bloquea la tabla mientras comprueba)
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'ticket_backups_datos_tam') then
+    alter table public.ticket_backups add constraint ticket_backups_datos_tam check (pg_column_size(datos) <= 65536) not valid;
+    alter table public.ticket_backups validate constraint ticket_backups_datos_tam;
+  end if;
+end $$;
