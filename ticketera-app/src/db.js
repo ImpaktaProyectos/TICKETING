@@ -15,7 +15,7 @@ const evFromDb = (e) => ({
   pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor, pin_admin_huella: e.pin_admin_huella || null, pin_supervisor_huella: e.pin_supervisor_huella || null,
   puntos: (e.ticket_puntos || []).map(puntoFromDb),
 });
-const saleFromDb = (s) => ({ id: s.id, clientUuid: s.client_uuid, code: s.codigo, num: s.numero, eventId: s.evento_id, puntoId: s.punto_id, productId: s.producto_id, name: s.nombre, price: Number(s.precio), ts: new Date(s.creado_en).getTime(), voided: s.anulada, closureId: s.closure_id, operario: s.operario, pago: s.metodo_pago, invite: /^invitacion/.test(s.metodo_pago || ""), inviteValue: /^invitacion/.test(s.metodo_pago || "") ? (Number(String(s.metodo_pago).split(":")[1]) || 0) : 0, entregado: s.entregado != null ? Number(s.entregado) : null, cambio: s.cambio != null ? Number(s.cambio) : null, synced: true });
+const saleFromDb = (s) => ({ id: s.id, clientUuid: s.client_uuid, code: s.codigo, num: s.numero, eventId: s.evento_id, puntoId: s.punto_id, productId: s.producto_id, name: s.nombre, price: Number(s.precio), ts: new Date(s.creado_en).getTime(), voided: s.anulada, closureId: s.closure_id, operario: s.operario, pago: s.metodo_pago, invite: /^invitacion/.test(s.metodo_pago || ""), inviteValue: /^invitacion/.test(s.metodo_pago || "") ? (Number(String(s.metodo_pago).split(":")[1]) || 0) : 0, entregado: s.entregado != null ? Number(s.entregado) : null, cambio: s.cambio != null ? Number(s.cambio) : null, upd: s.actualizado_en || s.creado_en || null, synced: true });
 const gastoFromDb = (g) => ({ tipo: g.tipo === "entrada" ? "entrada" : "gasto", id: g.id, eventId: g.evento_id, puntoId: g.punto_id, importe: Number(g.importe), concepto: g.concepto || "", categoria: g.categoria || "", crmGastoId: g.crm_gasto_id || null, por: g.registrado_por || "", ts: new Date(g.creado_en).getTime(), voided: !!g.anulado, closureId: g.closure_id, synced: true });
 const closureFromDb = (c) => ({ id: c.id, eventId: c.evento_id, puntoId: c.punto_id, count: c.tickets, revenue: Number(c.facturacion), voids: c.anulaciones, lines: c.detalle || [], efectivo: Number(c.efectivo || 0), tarjeta: Number(c.tarjeta || 0), fondo: Number(c.fondo || 0), contado: c.contado != null ? Number(c.contado) : null, gastos: Number(c.gastos || 0), entradas: Number(c.entradas || 0), esperado: c.esperado != null ? Number(c.esperado) : null, ts: new Date(c.creado_en).getTime(), por: c.cerrado_por || "", revertidoEn: c.revertido_en || null, revertidoPor: c.revertido_por || "" });
 
@@ -72,6 +72,24 @@ export async function loadClosures(eventId) {
 export async function loadSales(eventId) {
   const rows = await fetchAll(() => supabase.from("ticket_ventas").select("*").eq("evento_id", eventId).order("creado_en", { ascending: true }).order("id", { ascending: true }));
   return rows.map(saleFromDb);
+}
+// Hasta qué momento (hora del servidor) están al día unas ventas: el cambio más reciente que traen
+export const cursorVentas = (sales) => sales.reduce((m, x) => (x.upd && (!m || x.upd > m) ? x.upd : m), null);
+// Solo las ventas creadas o cambiadas (anuladas, cerradas en una Z…) desde «desde».
+// Con margen de 30 s por si una venta se guardó justo mientras se preguntaba.
+// Devuelve null si hay que cargar todo: la base de datos aún no tiene la columna, o han cambiado
+// demasiadas a la vez (p. ej. una Z de una barra grande).
+const MARGEN_CAMBIOS_MS = 30000, MAX_CAMBIOS = 1000;
+export async function loadSalesCambios(eventId, desde) {
+  if (!desde) return null;
+  const t = Date.parse(desde);
+  if (!Number.isFinite(t)) return null;
+  const { data, error } = await supabase.from("ticket_ventas").select("*").eq("evento_id", eventId)
+    .gt("actualizado_en", new Date(t - MARGEN_CAMBIOS_MS).toISOString())
+    .order("actualizado_en", { ascending: true }).order("id", { ascending: true }).limit(MAX_CAMBIOS);
+  if (error) { if (/actualizado_en/i.test(error.message || "")) return null; throw error; }
+  if ((data || []).length >= MAX_CAMBIOS) return null;
+  return (data || []).map(saleFromDb);
 }
 
 // Si la cuenta no tiene eventos aún, crea uno por defecto para arrancar.
@@ -492,7 +510,7 @@ export function subscribeConfig(onChange) {
 }
 export function subscribeEvento(eventoId, onChange) {
   const ch = supabase.channel("ev-" + eventoId)
-    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_ventas", filter: `evento_id=eq.${eventoId}` }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_ventas", filter: `evento_id=eq.${eventoId}` }, (p) => onChange(p?.eventType === "DELETE" ? { completo: true } : {}))
     .on("postgres_changes", { event: "*", schema: "public", table: "ticket_cierres", filter: `evento_id=eq.${eventoId}` }, onChange)
     .on("postgres_changes", { event: "*", schema: "public", table: "ticket_gastos", filter: `evento_id=eq.${eventoId}` }, onChange)
     .subscribe();

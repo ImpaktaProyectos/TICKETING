@@ -66,7 +66,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.20c";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.20d";   // súbela al publicar cambios para verificar la actualización
 globalThis.TIXFAST_VERSION = APP_VERSION;
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
@@ -490,23 +490,52 @@ export default function App() {
     setLoading(false);
   })(); }, []);
 
-  // Realtime: refresca las ventas del evento cuando cualquier barra vende o cierra
+  // Realtime: refresca las ventas del evento cuando cualquier barra vende o cierra.
+  // Solo se piden las ventas nuevas o cambiadas desde la última vez (en un festival con 30.000 ventas,
+  // recargarlo todo en cada equipo cada 2,5 s tumbaba la base de datos). Cada 5 minutos, o si alguien
+  // borra ventas, se recarga todo para quedar 100 % igual que el servidor.
   useEffect(() => {
     if (!ev.id) return;
-    let timer = null, busy = false;
+    let timer = null, busy = false, completo = false, vivo = true;
+    // La primera recarga es completa (lo que hay en pantalla puede venir de la copia del equipo); después, solo cambios
+    let cursor = null, ultimaCompleta = 0;
     const refresh = async () => {
+      if (!vivo) return;
       if (busy) { timer = setTimeout(refresh, 2500); return; }
       busy = true;
       try {
-        const [server, gs] = await Promise.all([db.loadSales(ev.id), db.loadGastos(ev.id).catch(() => null)]);
+        const pideTodo = completo || !cursor || Date.now() - ultimaCompleta > 5 * 60000;
+        completo = false;
+        const [cambios, gs] = await Promise.all([
+          pideTodo ? null : db.loadSalesCambios(ev.id, cursor).catch(() => null),
+          db.loadGastos(ev.id).catch(() => null),
+        ]);
+        let server;
+        if (cambios) {
+          // Lo que ya tenía este equipo del servidor + lo nuevo o cambiado (la venta del servidor sustituye a la provisional)
+          const pend = db.pendingSaleUuids();
+          const porId = new Map();
+          stateRef.current.sales.forEach(s => { if (s.eventId === ev.id && !(s.clientUuid && pend.has(s.clientUuid))) porId.set(s.clientUuid || s.id, s); });
+          cambios.forEach(s => porId.set(s.clientUuid || s.id, s));
+          server = [...porId.values()];
+          cursor = db.cursorVentas(cambios) || cursor;
+        } else {
+          server = await db.loadSales(ev.id);
+          cursor = db.cursorVentas(server); ultimaCompleta = Date.now();
+        }
+        if (!vivo) return;
         const { sales } = mergePending([], server);
         baseDispatch({ type: "HYDRATE_SALES", sales: stateRef.current.sales.filter(s => s.eventId !== ev.id).concat(sales) });
         if (gs) baseDispatch({ type: "HYDRATE_GASTOS", gastos: (stateRef.current.gastos || []).filter(g => g.eventId !== ev.id).concat(mergeGastos(gs)) });
       } catch {} finally { busy = false; }
     };
+    const pedir = (o) => { if (o?.completo) completo = true; if (!timer) timer = setTimeout(() => { timer = null; refresh(); }, 2500); };
     // Agrupa avisos: como mucho una recarga cada 2,5 s aunque vendan varias barras a la vez
-    const unsub = db.subscribeEvento(ev.id, () => { if (!timer) timer = setTimeout(() => { timer = null; refresh(); }, 2500); });
-    return () => { clearTimeout(timer); unsub(); };
+    const unsub = db.subscribeEvento(ev.id, pedir);
+    // Por si el aviso en directo no llega (sin cobertura, límite de conexiones del servidor…):
+    // cada 20-30 s se piden los cambios igualmente (es una consulta pequeña)
+    const t = setInterval(() => { if (navigator.onLine && document.visibilityState !== "hidden") pedir(); }, 20000 + Math.floor(Math.random() * 10000));
+    return () => { vivo = false; clearTimeout(timer); clearInterval(t); unsub(); };
   }, [ev.id]);
 
   // Multi-dispositivo: si otro equipo cambia productos, precios, barras o ajustes, este se actualiza solo

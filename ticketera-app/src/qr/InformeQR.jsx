@@ -36,7 +36,7 @@ export default function InformeQR({ ev, evSales }) {
   const [err, setErr] = useState(false);
   const [verTodo, setVerTodo] = useState(false);
   const cargar = async () => { try { setDatos(await cargarInformeQR(ev.id)); setErr(false); } catch { setErr(true); } };
-  useEffect(() => { setDatos(null); cargar(); const t = setInterval(cargar, 30000); return () => clearInterval(t); }, [ev.id]);
+  useEffect(() => { setDatos(null); cargar(); const t = setInterval(() => { if (document.visibilityState !== "hidden") cargar(); }, 60000); return () => clearInterval(t); }, [ev.id]);
 
   const vend = useMemo(() => vendidosConQR(ev, evSales), [ev, evSales]);
   const r = useMemo(() => {

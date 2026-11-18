@@ -1,6 +1,6 @@
 # TIXFAST · Lo que falta (para hacerlo todo de una)
 
-Actualizado: 15/11/2026. Ya está hecho y en producción: base de datos (reserva online, Mis planos,
+Actualizado: 18/11/2026. Ya está hecho y en producción: base de datos (reserva online, Mis planos,
 refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las funciones `suscripcion`,
 `suscripcion-stripe`, `pagos` y `reservas-web`. La app está en `main`.
 
@@ -28,6 +28,33 @@ refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las fun
 ## 2c. Multipuesto (ver MULTIPUESTO.md)
 - [x] Aplicar `20261118090000_ticket_multipuesto.sql` (después de la de planes) y publicar la app (ruta `/p/`) (15/11/2026).
 - [ ] Prueba real: evento Multipuesto, 2 puestos, venta en caja y canje desde dos móviles.
+
+## 2d. Rendimiento con mucha gente a la vez (prueba de carga del 18/11/2026, ver supabase/pruebas-carga/)
+- [ ] **Aplicar `20261120090000_ticket_rendimiento.sql`** (probarla antes en una transacción que se deshace) y publicar la app.
+      Sin la migración, la app nueva funciona igual que antes (si falta la columna, vuelve a cargarlo todo).
+- [ ] **Plan de Supabase**: el proyecto está en el plan gratuito. Con ~800 dispositivos no llega:
+      máximo 200 conexiones en directo (Realtime), 100 mensajes en directo por segundo, 5 GB de tráfico al mes
+      y la máquina más pequeña. Para una noche así: plan Pro y, como mínimo, máquina Small (o Medium para festivales).
+- [ ] **Avisos en directo de las ventas** (Realtime): cada venta genera un aviso a cada equipo del evento, y una Z
+      de una barra con 3.000 ventas genera 3.000 avisos de golpe (uno por venta cerrada). Pasar a «Broadcast» desde
+      la base de datos con un disparador por sentencia (un solo aviso por venta o por Z), con canal privado.
+      Hay que probarlo en un proyecto de Supabase de pruebas (Realtime no se puede simular en local).
+      Mientras tanto, la app ya se pone al día sola cada 20-30 s aunque no le lleguen los avisos.
+- [ ] **Compra de entradas en un lanzamiento** (`web_comprar`): bloquea el evento antes de validar los datos.
+      Un ataque con miles de compras falsas haría cola delante de las de verdad. Mover las comprobaciones
+      que no necesitan el bloqueo (correo, nombre, cantidades, límite por IP) antes de bloquear.
+- [ ] **Límite por IP de las compras**: toma la primera IP de `x-forwarded-for`, que el propio navegador puede
+      inventarse. Comprobar en Supabase qué IP es la buena (normalmente la última que añade su proxy).
+- [ ] **Carga al abrir la app**: se descargan las ventas de TODOS los eventos de la cuenta (también los antiguos)
+      y, si tarda más de 5 s, se usa la copia del equipo. Con meses de historial siempre irá a la copia.
+      Hace falta que el CRM y los informes de eventos pasados pidan los totales ya calculados al servidor.
+- [ ] **Panel del puesto y liquidación de puestos**: recalculan todos los canjes en cada consulta (37 ms con
+      2.000 canjes por puesto). Si crecen mucho, guardar los totales por puesto en una tabla.
+- [ ] **Web pública del evento** (`web_evento_publico`, cada 20 s por visitante): cuenta todas las entradas en cada
+      visita. En un lanzamiento con miles de personas mirando, usar un índice que permita contar sin leer las
+      entradas o servir la página desde una caché de 10-20 s.
+- [ ] **Protección ante abusos**: las funciones públicas (canje de puestos, compras, reservas) no tienen límite de
+      peticiones por segundo. Supabase no lo trae en el plan gratuito; valorar Cloudflare delante o límites por IP.
 
 ## 3. Decisiones tuyas
 - [ ] ¿Obligamos a cambiar los PIN de fábrica (1234 / 0000) en el primer uso?
