@@ -6,6 +6,7 @@ import { Capa } from "../Capa";
 import * as crm from "./crmdb";
 import { useIsMobile, C, Icon, Tile, Badge, Seg, Sheet, Field } from "./ui";
 import { Microsite, ESTILOS_ORG, SECCIONES_ORG, disenoOrg, REDES_ORG, IcoRed } from "../web/Microsite.jsx";
+import { reducirImagen } from "../imagenes";
 
 const PASOS = [
   { k: "identidad", t: "Identidad", i: "building", sub: "Nombre, logo, frase y quiénes sois." },
@@ -20,19 +21,6 @@ const LETRAS = [{ k: "inter", t: "Moderna" }, { k: "serif", t: "Elegante" }, { k
 const ayuda = { fontSize: 12, color: "var(--muted)", marginTop: 4 };
 const urlOrg = (slug) => `${window.location.origin}/o/${slug}`;
 
-async function reducirImagen(file, max, tipo) {
-  try {
-    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) return file;
-    const bmp = await createImageBitmap(file);
-    const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
-    if (k === 1 && file.size < 700 * 1024) return file;
-    const cv = document.createElement("canvas"); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
-    cv.getContext("2d").drawImage(bmp, 0, 0, cv.width, cv.height);
-    const blob = await new Promise(r => cv.toBlob(r, tipo, 0.86));
-    if (!blob || blob.size >= file.size) return file;
-    return new File([blob], file.name.replace(/\.\w+$/, "") + (tipo === "image/png" ? ".png" : ".jpg"), { type: tipo });
-  } catch { return file; }
-}
 function useAncho() {
   const [w, setW] = useState(typeof window !== "undefined" ? window.innerWidth : 1200);
   useEffect(() => { const f = () => setW(window.innerWidth); window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, []);
@@ -123,7 +111,7 @@ function EditorOrg({ org, flash, isMobile, onVolver, onCambio, onBorrada, onNuev
   const subir = async (tipo, file, max = 2000) => {
     if (!file) return null;
     if (file.size > 25 * 1024 * 1024) { flash("Foto demasiado grande (máx. 25 MB)", "warn"); return null; }
-    try { return await crm.orgSubir(o.id, tipo, await reducirImagen(file, max, tipo === "logo" ? "image/png" : "image/jpeg")); }
+    try { return await crm.orgSubir(o.id, tipo, await reducirImagen(file, max, tipo === "logo" ? "image/png" : "image/webp")); }
     catch { flash("No se ha podido subir la foto", "warn"); return null; }
   };
   const subirVarias = async (campo, files, maxN) => {

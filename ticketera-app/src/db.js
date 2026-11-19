@@ -43,12 +43,16 @@ async function fetchAll(buildQuery, pageSize = 1000) {
 // Todas las ventas de un evento, por tramos de número de ticket (no por páginas con salto):
 // cada tramo usa el índice (dueño, evento, número) y cuesta lo mismo sea el primero o el 30.º.
 // Antes, cada página de 1.000 ordenaba todas las ventas de la cuenta (700 ms un festival; ahora 30 ms).
+// Solo las columnas que usa la app (sin dueño ni datos internos de la anulación: ~20 % menos por venta)
+const COLS_VENTA = "id, client_uuid, codigo, numero, evento_id, punto_id, producto_id, nombre, precio, creado_en, anulada, closure_id, operario, metodo_pago, entregado, cambio";
+let colsVenta = COLS_VENTA + ", actualizado_en";   // sin la migración de rendimiento, la columna aún no existe
 async function fetchVentasEvento(eventId, pageSize = 1000) {
   const out = [], vistos = new Set();
   let desde = 0;
   for (;;) {
-    const { data, error } = await supabase.from("ticket_ventas").select("*").eq("evento_id", eventId).gte("numero", desde)
+    let { data, error } = await supabase.from("ticket_ventas").select(colsVenta).eq("evento_id", eventId).gte("numero", desde)
       .order("numero", { ascending: true }).order("id", { ascending: true }).limit(pageSize);
+    if (error && colsVenta !== COLS_VENTA && /actualizado_en/i.test(error.message || "")) { colsVenta = COLS_VENTA; continue; }
     if (error) throw error;
     const nuevas = (data || []).filter(r => !vistos.has(r.id));
     nuevas.forEach(r => { vistos.add(r.id); out.push(r); });
@@ -122,7 +126,7 @@ export async function loadSalesCambios(eventId, desde) {
   if (!desde) return null;
   const t = Date.parse(desde);
   if (!Number.isFinite(t)) return null;
-  const { data, error } = await supabase.from("ticket_ventas").select("*").eq("evento_id", eventId)
+  const { data, error } = await supabase.from("ticket_ventas").select(COLS_VENTA + ", actualizado_en").eq("evento_id", eventId)
     .gt("actualizado_en", new Date(t - MARGEN_CAMBIOS_MS).toISOString())
     .order("actualizado_en", { ascending: true }).order("id", { ascending: true }).limit(MAX_CAMBIOS);
   if (error) { if (/actualizado_en/i.test(error.message || "")) return null; throw error; }
@@ -453,12 +457,16 @@ export async function vincularGastoCRM(gastoId, crmGastoId) {
   if (crmGastoId && !data?.crm_gasto_id) throw Object.assign(new Error("Ese gasto del CRM no es de este evento"), { mostrar: true });
   return data?.crm_gasto_id || null;
 }
+let enlaceCRM = false;
 export async function loadPrevistosCRM(eventoId) {
   const key = scopedKey("tixfast_previstos_" + eventoId);
   try {
     // Sin la migración que enlaza caja y CRM, la lista no se muestra (así nunca se paga dos veces lo mismo)
-    const probe = await supabase.from("ticket_gastos").select("crm_gasto_id").limit(1);
-    if (probe.error) { if (/crm_gasto_id/i.test(probe.error.message || "")) { try { localStorage.removeItem(key); } catch {} return []; } throw probe.error; }
+    if (!enlaceCRM) {   // ¿la base ya enlaza caja y CRM? se pregunta una vez por sesión
+      const probe = await supabase.from("ticket_gastos").select("crm_gasto_id").limit(1);
+      if (probe.error) { if (/crm_gasto_id/i.test(probe.error.message || "")) { try { localStorage.removeItem(key); } catch {} return []; } throw probe.error; }
+      enlaceCRM = true;
+    }
     const { data, error } = await supabase.from("ticket_crm_gastos").select("id, padre_id, tipo, categoria, concepto, proveedor, previsto, real, estado, personas, horas, precio_hora").eq("evento_id", eventoId).order("creado_en", { ascending: true });
     if (error) throw error;
     const filas = (data || []).map(g => ({ id: g.id, padreId: g.padre_id || null, tipo: g.tipo, categoria: g.categoria || "", concepto: g.concepto || "", proveedor: g.proveedor || "", previsto: g.previsto != null ? Number(g.previsto) : null, real: g.real != null ? Number(g.real) : null, estado: g.estado || "previsto" }));

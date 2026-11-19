@@ -10,6 +10,7 @@ import { Landing, PLANTILLAS_WEB } from "../web/Publico.jsx";
 import { Organizaciones } from "./Organizaciones.jsx";
 import { ResumenVentas, Clientes } from "./Clientes.jsx";
 import { DineroEntradas } from "./DineroEntradas.jsx";
+import { reducirImagen } from "../imagenes";
 
 const urlVenta = (slug) => `${window.location.origin}/e/${slug}`;
 const ESTADOS = { borrador: { t: "Borrador", c: "var(--muted)" }, publicado: { t: "A la venta", c: "var(--green)" }, cerrado: { t: "Venta cerrada", c: "var(--red)" } };
@@ -56,19 +57,6 @@ function useAncho() {
   return w;
 }
 // Fotos más ligeras antes de subirlas (la página pública se abre con datos móviles)
-async function reducirImagen(file, max, tipo) {
-  try {
-    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) return file;
-    const bmp = await createImageBitmap(file);
-    const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
-    if (k === 1 && file.size < 700 * 1024) return file;
-    const cv = document.createElement("canvas"); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
-    cv.getContext("2d").drawImage(bmp, 0, 0, cv.width, cv.height);
-    const blob = await new Promise(r => cv.toBlob(r, tipo, 0.86));
-    if (!blob || blob.size >= file.size) return file;
-    return new File([blob], file.name.replace(/\.\w+$/, "") + (tipo === "image/png" ? ".png" : ".jpg"), { type: tipo });
-  } catch { return file; }
-}
 
 /* ===================== Calendario: día y hora ===================== */
 const DIAS = ["L", "M", "X", "J", "V", "S", "D"];
@@ -299,7 +287,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
     const urls = [];
     for (const fl of lista) {
       if (fl.size > 25 * 1024 * 1024) continue;
-      try { urls.push(await crm.webSubir(ev.id, "galeria", await reducirImagen(fl, 1600, "image/jpeg"))); } catch {}
+      try { urls.push(await crm.webSubir(ev.id, "galeria", await reducirImagen(fl, 1600, "image/webp"))); } catch {}
     }
     if (urls.length) { const act = Array.isArray(fRef.current.diseno?.galeria) ? fRef.current.diseno.galeria : []; setDiseno({ galeria: [...act, ...urls].slice(0, 12) }); }
     flash(urls.length === lista.length ? `${urls.length} foto${urls.length > 1 ? "s" : ""} añadida${urls.length > 1 ? "s" : ""}` : `Se han subido ${urls.length} de ${lista.length}`, urls.length === lista.length ? undefined : "warn");

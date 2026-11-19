@@ -7,7 +7,7 @@ import { Icono } from "../iconos";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "../supabase";
-import { money, eur, fecha, hora, cap, reducido, tema, Mensaje, card, btn, Aviso, CSS_PUB, LETRA } from "./comun";
+import { money, eur, fecha, hora, cap, reducido, tema, Mensaje, Esqueleto, card, btn, Aviso, CSS_PUB, LETRA } from "./comun";
 import { useCarrito, BarraCarrito, HojaCarrito, ElegirEntradas, CompraVarios } from "./Carrito";
 
 /* ---------- Opciones (las mismas que edita el CRM) ---------- */
@@ -65,7 +65,7 @@ export default function PaginaOrganizacion({ slug }) {
   };
   useEffect(() => { cargar(); const t = setInterval(cargar, 90000); return () => clearInterval(t); }, [slug]);
   useEffect(() => { if (o?.nombre) document.title = `${o.nombre}${o.lema ? " · " + o.lema : ""}`; }, [o?.nombre]);
-  if (o === undefined && !error) return <Mensaje titulo="Cargando…" />;
+  if (o === undefined && !error) return <Esqueleto />;
   if (error && !o) return <Mensaje titulo="No se ha podido cargar" texto="Revisa tu conexión e inténtalo de nuevo."><button onClick={cargar} style={btn("#ff5a3c", "#fff")}>Reintentar</button></Mensaje>;
   if (!o) return <Mensaje titulo="Esta página no está disponible" texto="Puede que el enlace no sea correcto o que aún no esté publicada." />;
   return <Microsite o={o} offset={offset.current} />;

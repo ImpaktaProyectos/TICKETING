@@ -66,7 +66,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.20g";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.20h";   // súbela al publicar cambios para verificar la actualización
 globalThis.TIXFAST_VERSION = APP_VERSION;
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
@@ -456,6 +456,7 @@ export default function App() {
   };
 
   const SNAP = db.scopedKey("ticketera_snapshot");
+  const cargaServidor = useRef(0);   // cuándo se trajeron TODAS las ventas del servidor (0 = vienen de la copia del equipo)
   const hydrate = async () => {
     let data;
     try {
@@ -464,6 +465,7 @@ export default function App() {
       data = await Promise.race([db.loadAll(), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 5000))]);
       if (!data.events.length) { await db.ensureDefaultEvent(); data = await db.loadAll(); }
       setFromCache(false);
+      cargaServidor.current = Date.now();   // ventas recién traídas del servidor: el refresco solo pedirá lo nuevo
       try { localStorage.setItem(SNAP, JSON.stringify({ events: data.events, closures: data.closures, gastos: data.gastos || [], sales: data.sales.slice(-4000) })); } catch {}
     } catch (e) {
       // Sin conexión al arrancar: usamos la última copia guardada para poder vender igual
@@ -522,8 +524,14 @@ export default function App() {
   useEffect(() => {
     if (!ev.id) return;
     let timer = null, busy = false, completo = false, vivo = true;
-    // La primera recarga es completa (lo que hay en pantalla puede venir de la copia del equipo); después, solo cambios
+    // Si las ventas en pantalla se acaban de traer del servidor, ya se parte de ahí y solo se piden cambios
+    // (antes se volvían a descargar todas a los pocos segundos de abrir). Si vienen de la copia del
+    // equipo, la primera recarga es completa.
     let cursor = null, ultimaCompleta = 0;
+    if (cargaServidor.current && Date.now() - cargaServidor.current < 5 * 60000) {
+      cursor = db.cursorVentas(stateRef.current.sales.filter(s => s.eventId === ev.id && s.synced !== false));
+      if (cursor) ultimaCompleta = cargaServidor.current;
+    }
     const refresh = async () => {
       if (!vivo) return;
       if (busy) { timer = setTimeout(refresh, 2500); return; }

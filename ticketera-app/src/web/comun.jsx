@@ -26,6 +26,26 @@ export function tema(diseno) {
 }
 
 
+// Mientras llegan los datos: la forma de la página (foto, título, entradas) en vez de «Cargando…».
+// Se percibe más rápida y no salta al aparecer el contenido. Respeta «reducir movimiento».
+export function Esqueleto({ titulo = "Cargando…" }) {
+  const b = (h, w = "100%", r = 12, extra = {}) => <div className="tx-esq" style={{ height: h, width: w, borderRadius: r, background: "#171a23", ...extra }} />;
+  return (
+    <div role="status" aria-label={titulo} style={{ minHeight: "100dvh", background: "#08090d", fontFamily: LETRA.inter, padding: "16px 16px 32px" }}>
+      <style>{`@keyframes txEsq{0%,100%{opacity:.55}50%{opacity:1}} .tx-esq{animation:txEsq 1.4s ease-in-out infinite} @media (prefers-reduced-motion: reduce){.tx-esq{animation:none}}`}</style>
+      <div style={{ maxWidth: 560, margin: "0 auto", display: "grid", gap: 14 }}>
+        {b("min(56vw, 300px)", "100%", 18)}
+        {b(28, "72%", 8, { marginTop: 6 })}
+        {b(16, "48%", 6)}
+        {[0, 1, 2].map(i => <div key={i} style={{ display: "flex", gap: 12, alignItems: "center", padding: 14, borderRadius: 16, background: "#10121a" }}>
+          <div style={{ flex: 1, display: "grid", gap: 8 }}>{b(16, "60%", 6)}{b(12, "38%", 6)}</div>{b(44, 96, 12)}
+        </div>)}
+      </div>
+      <span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>{titulo}</span>
+    </div>
+  );
+}
+
 export function Mensaje({ titulo, texto, children }) {
   return (
     <div style={{ minHeight: "100dvh", display: "grid", placeItems: "center", background: "#08090d", color: "#f3f4f8", fontFamily: LETRA.inter, padding: 24, textAlign: "center" }}>
