@@ -1,6 +1,6 @@
 // TIXFAST · pagos con Stripe Connect
 // Un solo punto con varias acciones (cuerpo JSON { accion, ... }):
-//   checkout   (público)      → crea el pago en Stripe de un pedido reservado y devuelve la URL de pago
+//   checkout   (público)      → crea el pago en Stripe de un pedido reservado (o de un cambio de nombre) y devuelve la URL de pago
 //   confirmar  (público)      → al volver de Stripe, comprueba el pago y emite las entradas (si el aviso aún no llegó)
 //   alta       (con sesión)   → crea el monedero (cuenta conectada) del RRPP u organizador y devuelve el enlace de alta de Stripe
 //   monedero   (con sesión)   → estado del monedero, saldo real en Stripe, repartos y retiradas
@@ -110,6 +110,24 @@ async function checkout(b: any) {
   if (g.estado === "pagado") return json({ ok: true, pagado: true });
   if (g.estado !== "pendiente" || new Date(g.caduca_en).getTime() < Date.now() + 60e3) return json({ ok: false, motivo: "caducado" });
   if (g.modo !== MODO) return json({ ok: false, motivo: "modo" });
+  // Cambio de nombre: un solo concepto con el precio que puso el organizador
+  if (g.tipo === "cambio") {
+    if (g.sesion_id) {
+      try { const s0 = await stripe("GET", `checkout/sessions/${g.sesion_id}`); if (s0.status === "open" && s0.url) return json({ ok: true, url: s0.url }); if (s0.payment_status === "paid") { await emitirDesdeSesion(g.pedido_id, s0); return json({ ok: true, pagado: true }); } } catch { /* se crea otro */ }
+    }
+    const { data: evc } = await admin.from("ticket_eventos").select("nombre").eq("id", g.evento_id).maybeSingle();
+    const caducaC = Math.max(Math.floor(new Date(g.caduca_en).getTime() / 1000) - 60, Math.floor(Date.now() / 1000) + 30 * 60 + 30);
+    const sc = await stripe("POST", "checkout/sessions", {
+      mode: "payment", locale: "es", customer_email: p.email, client_reference_id: g.pedido_id, expires_at: caducaC,
+      line_items: [{ quantity: 1, price_data: { currency: "eur", unit_amount: cents(g.entradas), product_data: { name: `Cambio de nombre · ${evc?.nombre || "entrada"}` } } }],
+      metadata: { pedido: g.pedido_id, evento: g.evento_id, tixfast: "cambio" },
+      payment_intent_data: { transfer_group: `ev_${g.evento_id}`, description: `Cambio de nombre ${evc?.nombre || ""}`.trim(), metadata: { pedido: g.pedido_id, evento: g.evento_id } },
+      success_url: `${origen}/cambio/${p.acceso}?pago={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origen}/cambio?pago=cancelado`,
+    }, { clave: `cambio-${g.pedido_id}-${Math.floor(Date.now() / 600000)}` });
+    await admin.from("ticket_pagos").update({ sesion_id: sc.id }).eq("pedido_id", g.pedido_id);
+    return json({ ok: true, url: sc.url });
+  }
   // Si ya hay un pago abierto, se reutiliza
   if (g.sesion_id) {
     try { const s = await stripe("GET", `checkout/sessions/${g.sesion_id}`); if (s.status === "open" && s.url) return json({ ok: true, url: s.url }); if (s.payment_status === "paid") { await emitirDesdeSesion(g.pedido_id, s); return json({ ok: true, pagado: true }); } } catch { /* nueva sesión */ }

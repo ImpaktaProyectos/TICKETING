@@ -15,6 +15,7 @@ import { Invitaciones } from "./Invitaciones.jsx";
 import { Descuentos } from "./Descuentos.jsx";
 import { MonederoOrganizador } from "./Monedero.jsx";
 import { GastosGestion } from "./GastosGestion.jsx";
+import { CambiosNombre } from "./CambiosNombre.jsx";
 import { reducirImagen } from "../imagenes";
 
 const urlVenta = (slug) => `${window.location.origin}/e/${slug}`;
@@ -538,6 +539,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
         </div>))}
       {f.pago_pruebas && (f.modo || "pruebas") === "pruebas" && <MonederoOrganizador flash={flash} />}
       {tarjeta("percent", "Gastos de gestión del comprador", "Lo que paga el comprador además de la entrada al pagar con tarjeta.", <GastosGestion f={f} tramos={d.tramos || []} setFicha={setFicha} isMobile={isMobile} />)}
+      {tarjeta("users", "Cambios de nombre", "Las entradas no se devuelven: quien no pueda ir se la pasa a otra persona.", <CambiosNombre ev={ev} f={f} setFicha={setFicha} flash={flash} isMobile={isMobile} />)}
       <section style={{ ...C.hero, padding: isMobile ? 16 : 20 }}>
         {f.estado === "borrador" && <>
           <div style={{ fontWeight: 700, fontSize: 18 }}>Poner a la venta</div>

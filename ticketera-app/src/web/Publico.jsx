@@ -11,6 +11,7 @@ import { avisosDe } from "./avisos";
 import QrCodigo from "../qr/QrCodigo";
 import { textoQR, money, eur, fecha, hora, tema, Mensaje, Esqueleto, MIS, cap, reducido, Diapositivas, Galeria, card, btn, Chip, Aviso, Linea, Tramo, CuentaAtras, AvisosCompra, PruebaSocial, CAMPOS, ERRORES, lbl, inpP, Campo, Check, CSS_PUB, InfoPrivacidad, PRIVACIDAD_VERSION, precioConDescuento } from "./comun";
 export { textoQR } from "./comun";
+const PaginaCambio = React.lazy(() => import("./Cambio.jsx"));
 import { useCarrito, BarraCarrito, HojaCarrito, ElegirEntradas, CompraVarios } from "./Carrito";
 import PaginaOrganizacion, { MasFiestas } from "./Microsite";
 const PaginaReservas = React.lazy(() => import("./Reservas"));
@@ -29,6 +30,9 @@ export default function Publico() {
   // Portal de RRPP con cuenta: /rp (entrar o crear cuenta) y /rp/unirse/<token> (pedir colaborar con un organizador)
   const unirse = ruta.match(/^\/rp\/unirse\/([0-9a-f-]{36})\/?$/i);
   if (unirse || /^\/rp\/?$/.test(ruta)) return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><CuentaRRPP token={unirse ? unirse[1].toLowerCase() : null} /></React.Suspense>;
+  // Cambio de nombre de una entrada: /cambio (subir la entrada) y /cambio/<acceso> (vuelta del pago)
+  const cambio = ruta.match(/^\/cambio(?:\/([0-9a-f-]{36}))?\/?$/i);
+  if (cambio) return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><PaginaCambio acceso={cambio[1] ? cambio[1].toLowerCase() : null} /></React.Suspense>;
   const m = ruta.match(/^\/(e|o|mis-entradas|compra|r|b|p|rp)\/([^/?#]+)/);
   if (!m) return <Mensaje titulo="Página no encontrada" />;
   const v = decodeURIComponent(m[2]);
@@ -532,6 +536,7 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
       </button>
       {conPago ? <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13, marginTop: 8, lineHeight: 1.45 }}>Pago de PRUEBA con Stripe: usa la tarjeta 4242 4242 4242 4242, cualquier fecha futura y cualquier CVC. No se cobra nada de verdad y las entradas no valen en la puerta.</div>
         : (ev.modo === "pruebas" || ev.vista_previa) && <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13, marginTop: 8 }}>Venta de prueba: no se cobra nada y las entradas no son válidas.</div>}
+      {totalFinal > 0 && <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 12.5, marginTop: 8, lineHeight: 1.45 }}>Las entradas no admiten devolución. Si no puedes ir, puedes pasarla a otra persona con un cambio de nombre{ev.cambio_nombre === false ? " (este evento no lo permite)" : ""}.</div>}
     </form>
   );
 }
@@ -645,6 +650,7 @@ function EntradasDePedido({ d, T, acceso, onCambio }) {
                   </div>
                 </>) : <div style={{ fontWeight: 900, color: "#ff6b6b", padding: 30 }}>ENTRADA ANULADA</div>}
               {acceso && x.estado === "valida" && !x.prueba && <CambiarTitular acceso={acceso} x={x} T={T} onCambio={onCambio} />}
+              {x.estado === "valida" && <a href="/cambio" style={{ color: "var(--c)", fontWeight: 800, fontSize: 14, minHeight: 44, display: "inline-flex", alignItems: "center" }}>¿No puedes ir? Pasa la entrada a otra persona</a>}
               <div style={{ color: "var(--muted)", fontSize: 13, textAlign: "center" }}>{desde ? `Válida desde el ${fecha(desde.toISOString())}${ev.fin ? ` hasta las ${hora(ev.fin)} del ${fecha(ev.fin, false)}` : ""}.` : "Válida para el día del evento."} Un solo uso.</div>
             </div>
           </div>))}
@@ -657,7 +663,7 @@ function EntradasDePedido({ d, T, acceso, onCambio }) {
 }
 
 // El comprador pone la entrada a nombre de otra persona: se crea un QR nuevo y el anterior deja de valer
-const MOTIVO_TITULAR = { nombre: "Escribe el nombre completo.", limite: "Esta entrada ya ha cambiado de titular demasiadas veces. Habla con el organizador.", usada: "Esta entrada ya se ha usado en la puerta.", empezado: "El evento ya ha empezado: ya no se puede cambiar el titular.", anulada: "Esta entrada está anulada.", demasiados_intentos: "Demasiados intentos seguidos. Espera unos minutos." };
+const MOTIVO_TITULAR = { de_pago: "En este evento el cambio de nombre tiene un precio: hazlo desde «Pasar la entrada a otra persona».", no_permitido: "El organizador de este evento no permite cambios de nombre.", nombre: "Escribe el nombre completo.", limite: "Esta entrada ya ha cambiado de titular demasiadas veces. Habla con el organizador.", usada: "Esta entrada ya se ha usado en la puerta.", empezado: "El evento ya ha empezado: ya no se puede cambiar el titular.", anulada: "Esta entrada está anulada.", demasiados_intentos: "Demasiados intentos seguidos. Espera unos minutos." };
 function CambiarTitular({ acceso, x, T, onCambio }) {
   const [abierto, setAbierto] = useState(false);
   const [nombre, setNombre] = useState("");
