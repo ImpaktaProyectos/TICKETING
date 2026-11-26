@@ -5,6 +5,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Capa } from "../Capa";
 import * as crm from "./crmdb";
+import { supabase } from "../supabase";
 import { money, useIsMobile, C, Icon, Tile, Badge, Seg, Sheet, Field, Seccion } from "./ui";
 import { Landing, PLANTILLAS_WEB } from "../web/Publico.jsx";
 import { Organizaciones } from "./Organizaciones.jsx";
@@ -103,7 +104,7 @@ export function FechaHora({ valor, onChange, titulo = "Elige día y hora", place
     {abierto && (
       <Sheet title={titulo} onClose={() => setAbierto(false)}
         footer={<div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <span style={{ flex: 1, minWidth: 0, fontWeight: 800, fontSize: 14 }}>{elegido ? fechaTxt(`${dia}T${p2(h)}:${p2(m)}`, true) : <span style={{ color: "var(--muted)" }}>Toca un día</span>}</span>
+          <span style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 14 }}>{elegido ? fechaTxt(`${dia}T${p2(h)}:${p2(m)}`, true) : <span style={{ color: "var(--muted)" }}>Toca un día</span>}</span>
           <button onClick={listo} disabled={!dia} style={{ ...C.btnPrimary, minHeight: 46, padding: "0 22px", opacity: dia ? 1 : .5 }}><Icon n="check" s={17} w={2.4} />Listo</button>
         </div>}>
         {aviso && <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 10 }}>{aviso}</div>}
@@ -116,20 +117,20 @@ export function FechaHora({ valor, onChange, titulo = "Elige día y hora", place
           <button onClick={() => setMes(new Date(y, mo + 1, 1))} aria-label="Mes siguiente" style={{ ...C.btnSm, width: 40, height: 40, justifyContent: "center", padding: 0 }}><Icon n="right" s={16} /></button>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4, textAlign: "center" }}>
-          {DIAS.map(d => <div key={d} style={{ fontSize: 12, fontWeight: 800, color: "var(--muted)", padding: "4px 0" }}>{d}</div>)}
+          {DIAS.map(d => <div key={d} style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", padding: "4px 0" }}>{d}</div>)}
           {celdas.map((c, i) => c ? (
             <button key={c} onClick={() => setDia(c)} aria-label={fechaTxt(c, true)} aria-pressed={dia === c}
-              style={{ height: 42, borderRadius: 12, border: c === hoyTxt && dia !== c ? "2px solid var(--accent)" : "1px solid transparent", cursor: "pointer", fontWeight: 800, fontSize: 15,
+              style={{ height: 42, borderRadius: 12, border: c === hoyTxt && dia !== c ? "2px solid var(--accent)" : "1px solid transparent", cursor: "pointer", fontWeight: 600, fontSize: 15,
                 background: dia === c ? "var(--accent)" : "var(--surface2)", color: dia === c ? "#fff" : c < hoyTxt ? "var(--muted)" : "var(--text)" }}>{+c.slice(8)}</button>
           ) : <span key={"v" + i} />)}
         </div>
         <div style={{ ...C.label, marginTop: 16 }}>Hora</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 6 }}>
-          {HORAS_NOCHE.map(x => <button key={x} onClick={() => setH(x)} aria-pressed={h === x} style={{ height: 40, borderRadius: 10, cursor: "pointer", fontWeight: 800, border: "1px solid var(--line)", background: h === x ? "var(--accent)" : "var(--surface2)", color: h === x ? "#fff" : "var(--text)" }}>{p2(x)}</button>)}
+          {HORAS_NOCHE.map(x => <button key={x} onClick={() => setH(x)} aria-pressed={h === x} style={{ height: 40, borderRadius: 10, cursor: "pointer", fontWeight: 600, border: "1px solid var(--line)", background: h === x ? "var(--accent)" : "var(--surface2)", color: h === x ? "#fff" : "var(--text)" }}>{p2(x)}</button>)}
         </div>
         <div style={{ ...C.label, marginTop: 14 }}>Minutos</div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-          {[0, 15, 30, 45].map(x => <button key={x} onClick={() => setM(x)} aria-pressed={m === x} style={{ minWidth: 58, height: 40, borderRadius: 10, cursor: "pointer", fontWeight: 800, border: "1px solid var(--line)", background: m === x ? "var(--accent)" : "var(--surface2)", color: m === x ? "#fff" : "var(--text)" }}>:{p2(x)}</button>)}
+          {[0, 15, 30, 45].map(x => <button key={x} onClick={() => setM(x)} aria-pressed={m === x} style={{ minWidth: 58, height: 40, borderRadius: 10, cursor: "pointer", fontWeight: 600, border: "1px solid var(--line)", background: m === x ? "var(--accent)" : "var(--surface2)", color: m === x ? "#fff" : "var(--text)" }}>:{p2(x)}</button>)}
           <select value={m} onChange={e => setM(+e.target.value)} aria-label="Otros minutos" style={{ ...C.miniSelect, height: 40 }}>{Array.from({ length: 12 }, (_, i) => i * 5).map(x => <option key={x} value={x}>:{p2(x)}</option>)}</select>
         </div>
       </Sheet>
@@ -164,6 +165,7 @@ function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, o
   const [elegir, setElegir] = useState(false);
   const [busy, setBusy] = useState(false);
   const [verClientes, setVerClientes] = useState(false);
+  const [verDinero, setVerDinero] = useState(false);
 
   const refrescarLista = () => crm.webListar().then(setLista).catch(() => setLista({}));
   useEffect(() => { refrescarLista(); }, []);
@@ -188,7 +190,7 @@ function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, o
         <button onClick={() => setElegir(true)} aria-label={`Cambiar de evento (ahora: ${ev.name})`} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, background: "transparent", border: "none", color: "var(--text)", cursor: "pointer", textAlign: "left", padding: 2 }}>
           <Miniatura url={d?.ficha?.flyer_url || w?.flyer_url} s={48} />
           <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ display: "block", fontSize: 11.5, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>Evento</span>
+            <span style={{ display: "block", fontSize: 11.5, fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>Evento</span>
             <b style={{ display: "block", fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.name}</b>
             <span style={{ fontSize: 12.5, color: "var(--muted)" }}>{fechaTxt(ev.startsAt || ev.date)}</span>
           </span>
@@ -197,20 +199,13 @@ function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, o
         <button onClick={() => setNuevo(true)} aria-label="Nuevo evento" style={{ ...C.btnPrimary, minHeight: 44, ...(isMobile ? { padding: "0 14px" } : {}) }}><Icon n="plus" s={16} w={2.4} />{isMobile ? "Nuevo" : "Nuevo evento"}</button>
       </div>
 
-      {/* ===== El dinero de entradas de todos los canales, siempre arriba ===== */}
-      {!verClientes && ingresos && (
-        <DineroEntradas ingresos={ingresos} titulo="Dinero de entradas · todos los canales"
-          onAnadir={onVentaEntradas ? () => onVentaEntradas({}) : null}
-          onEditar={(i) => (i.canal ? onVentaEntradas?.(i) : onEditarIngreso?.(i))}
-          onClientes={d?.ficha ? () => { setVerClientes(true); window.scrollTo({ top: 0, behavior: "smooth" }); } : null} />
-      )}
 
       {cargando ? <div style={{ ...C.panel, color: "var(--muted)", textAlign: "center" }}>Cargando…</div>
         : d?.error ? <div style={{ ...C.panel, color: "var(--amber)", fontWeight: 700 }}>No se ha podido cargar la venta online. Revisa la conexión.</div>
         : !d?.ficha ? (
           <section style={{ ...C.hero, padding: isMobile ? 18 : 28, textAlign: "center" }}>
             <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}><Tile n="ticket" s={56} /></div>
-            <div style={{ fontSize: isMobile ? 22 : 28, fontWeight: 900 }}>Vende entradas de «{ev.name}» online</div>
+            <div style={{ fontSize: isMobile ? 22 : 28, fontWeight: 700 }}>Vende entradas de «{ev.name}» online</div>
             <div style={{ color: "var(--muted)", fontSize: 14, maxWidth: 520, margin: "8px auto 16px" }}>Tendrá su propia página de venta con el flyer, los tramos, cuenta atrás y entradas nominativas con QR de un solo uso. Empieza en borrador: nadie la ve hasta que la publiques.</div>
             <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
               {PASOS.map((p, i) => <span key={p.k} style={{ ...C.tag }}><b style={{ color: "var(--accent)" }}>{i + 1}</b>{p.t}</span>)}
@@ -222,6 +217,17 @@ function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, o
           <ResumenVentas ev={ev} onAbrir={() => { setVerClientes(true); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
           <Editor key={ev.id} ev={ev} d={d} setD={setD} flash={flash} isMobile={isMobile} onDuplicar={() => setDup(true)} onCambio={refrescarLista} />
         </>)}
+      {/* ===== Dinero de entradas de todos los canales (TIXFAST, otras ticketeras, taquilla): plegado al final ===== */}
+      {!verClientes && ingresos && (
+        verDinero || !d?.ficha
+          ? <DineroEntradas ingresos={ingresos} titulo="Dinero de entradas · todos los canales"
+              onAnadir={onVentaEntradas ? () => onVentaEntradas({}) : null}
+              onEditar={(i) => (i.canal ? onVentaEntradas?.(i) : onEditarIngreso?.(i))}
+              onClientes={d?.ficha ? () => { setVerClientes(true); window.scrollTo({ top: 0, behavior: "smooth" }); } : null} />
+          : <button onClick={() => setVerDinero(true)} style={{ ...C.panel, display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", cursor: "pointer", color: "var(--text)", font: "inherit", minHeight: 56 }}>
+              <Icon n="wallet" s={18} c="var(--muted)" /><span style={{ flex: 1 }}><b>Dinero de entradas de todos los canales</b><span style={{ display: "block", fontSize: 13, color: "var(--muted)" }}>TIXFAST, otras ticketeras y ventas que añadas a mano</span></span><Icon n="chev" s={16} />
+            </button>
+      )}
 
       {elegir && (
         <Sheet title="Tus eventos" onClose={() => setElegir(false)}
@@ -345,7 +351,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
     <section style={{ ...C.panel, padding: isMobile ? 14 : 18 }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
         <Tile n={i} s={36} />
-        <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 900, fontSize: 16 }}>{t}</div>{sub && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>{sub}</div>}</div>
+        <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 16 }}>{t}</div>{sub && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>{sub}</div>}</div>
         {extra}
       </div>
       {children}
@@ -356,7 +362,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
     /* ---------- 1 · Evento ---------- */
     <div key="evento" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {tarjeta("calendar", "Lo imprescindible", "Se comparte con el TPV. La hora de fin marca hasta cuándo valen los QR.", <>
-        <Field l="Nombre del evento"><input style={{ ...C.input, fontWeight: 800, fontSize: 17 }} value={evLocal.nombre} maxLength={80} onChange={e => setEv("nombre", e.target.value, "nombre", v => v.toUpperCase())} /></Field>
+        <Field l="Nombre del evento"><input style={{ ...C.input, fontWeight: 600, fontSize: 17 }} value={evLocal.nombre} maxLength={80} onChange={e => setEv("nombre", e.target.value, "nombre", v => v.toUpperCase())} /></Field>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0 12px" }}>
           <Field l="Empieza"><FechaHora valor={evLocal.inicio} onChange={setInicio} titulo="¿Cuándo empieza?" placeholder="Elegir día y hora de inicio" quitar={false} /></Field>
           <Field l="Termina"><FechaHora valor={evLocal.fin} onChange={(v) => setEv("fin", v, "fin", aIso)} titulo="¿Cuándo termina?" placeholder="Elegir día y hora de fin" base={evLocal.inicio}
@@ -436,6 +442,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
 
     /* ---------- 5 · Opciones ---------- */
     <div key="opciones" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <CobroTarjeta flash={flash} prueba={f.modo === "pruebas"} />
       {tarjeta("bolt", "Avisos de urgencia", "Siempre con datos reales: solo salen cuando de verdad quedan pocas.", <>
         <Sw primero on={avisos.activo} onClick={() => setFicha({ avisos: { ...avisos, activo: !avisos.activo } })} l="Mostrar «¡Quedan pocas!» y «Últimas entradas»" />
         {avisos.activo && <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0 12px", marginTop: 10 }}>
@@ -504,7 +511,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
         <div>{req.map(r => (
           <button key={r.k} onClick={() => !r.ok && setPaso(r.paso)} style={{ ...C.listBtn, cursor: r.ok ? "default" : "pointer", padding: "11px 4px" }}>
             <span style={{ width: 28, height: 28, borderRadius: 28, display: "grid", placeItems: "center", flexShrink: 0, background: r.ok ? "var(--green)" : "color-mix(in srgb, var(--amber) 18%, transparent)", color: r.ok ? "#04231a" : "var(--amber)" }}><Icon n={r.ok ? "check" : "alert"} s={15} w={2.6} /></span>
-            <span style={{ flex: 1, fontWeight: 800, color: r.ok ? "var(--text)" : "var(--amber)" }}>{r.t}</span>
+            <span style={{ flex: 1, fontWeight: 600, color: r.ok ? "var(--text)" : "var(--amber)" }}>{r.t}</span>
             {!r.ok && <span style={{ ...C.btnSm, color: "var(--accent)" }}>Completar<Icon n="right" s={13} /></span>}
           </button>))}
         </div>))}
@@ -513,13 +520,13 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
           {[["pruebas", "Pruebas", "Se puede «comprar» cualquier tramo sin pagar. Las entradas salen marcadas como PRUEBA y no valen en la puerta."], ["real", "Real", "Entradas válidas para entrar. Por ahora solo se emiten los tramos gratuitos (0 €); los de pago llegarán con la pasarela de cobro."]].map(([k, t, s]) => {
             const on = (f.modo || "pruebas") === k; return (
               <button key={k} onClick={() => setFicha({ modo: k })} aria-pressed={on} style={{ textAlign: "left", padding: 14, borderRadius: 14, cursor: "pointer", color: "var(--text)", border: `2px solid ${on ? (k === "real" ? "var(--green)" : "var(--amber)") : "var(--line)"}`, background: on ? `color-mix(in srgb, ${k === "real" ? "var(--green)" : "var(--amber)"} 9%, var(--surface))` : "var(--surface)" }}>
-                <span style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 900, fontSize: 15.5 }}><span style={{ width: 20, height: 20, borderRadius: 20, border: `2px solid ${on ? "var(--text)" : "var(--line)"}`, display: "grid", placeItems: "center" }}>{on && <span style={{ width: 10, height: 10, borderRadius: 10, background: "var(--text)" }} />}</span>{t}</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 15.5 }}><span style={{ width: 20, height: 20, borderRadius: 20, border: `2px solid ${on ? "var(--text)" : "var(--line)"}`, display: "grid", placeItems: "center" }}>{on && <span style={{ width: 10, height: 10, borderRadius: 10, background: "var(--text)" }} />}</span>{t}</span>
                 <span style={{ display: "block", fontSize: 12.5, color: "var(--muted)", marginTop: 6, lineHeight: 1.4 }}>{s}</span>
               </button>); })}
         </div>))}
       <section style={{ ...C.hero, padding: isMobile ? 16 : 20 }}>
         {f.estado === "borrador" && <>
-          <div style={{ fontWeight: 900, fontSize: 18 }}>Poner a la venta</div>
+          <div style={{ fontWeight: 700, fontSize: 18 }}>Poner a la venta</div>
           <div style={{ fontSize: 13, color: "var(--muted)", margin: "4px 0 14px" }}>{f.venta_inicio && new Date(f.venta_inicio) > new Date() ? `Se publica ya con cuenta atrás: la venta se abre el ${fechaTxt(aLocal(f.venta_inicio), true)}.` : "La página será pública y se podrá comprar en el enlace."}</div>
           <button onClick={() => cambiarEstado("publicado")} disabled={!listo} style={{ ...C.btnPrimary, width: "100%", minHeight: 56, fontSize: 17, opacity: listo ? 1 : .45, background: f.modo === "real" ? "var(--green)" : "var(--accent)", color: f.modo === "real" ? "#04231a" : "#fff" }}><Icon n="sparkle" s={19} />{f.modo === "real" ? "Publicar ahora" : "Publicar en modo pruebas"}</button>
           {!listo && <div style={{ fontSize: 12.5, color: "var(--amber)", fontWeight: 700, marginTop: 8, textAlign: "center" }}>Completa la lista de arriba para poder publicar.</div>}
@@ -529,7 +536,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
             <Badge c={est.c} solid>{est.t}</Badge>
             {f.modo === "pruebas" && <Badge c="var(--amber)">Modo pruebas</Badge>}
           </div>
-          <div style={{ fontWeight: 900, fontSize: 18, marginTop: 8 }}>{f.estado === "publicado" ? "Tu evento está a la venta" : "La venta está cerrada"}</div>
+          <div style={{ fontWeight: 700, fontSize: 18, marginTop: 8 }}>{f.estado === "publicado" ? "Tu evento está a la venta" : "La venta está cerrada"}</div>
           <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>{f.estado === "publicado" ? "Comparte el enlace. Puedes seguir cambiando cosas: se actualiza al momento." : "La página se ve, pero ya no se puede comprar."}</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
             {f.estado === "cerrado" && <button onClick={() => cambiarEstado("publicado")} style={{ ...C.btnPrimary, flex: "1 1 180px", minHeight: 46 }}>Volver a abrir la venta</button>}
@@ -569,7 +576,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
           <button key={p.k} onClick={() => setPaso(i)} aria-current={on ? "step" : undefined}
             style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: "center", gap: isMobile ? 4 : 10, padding: isMobile ? "9px 2px" : "11px 12px", borderRadius: 14, cursor: "pointer", minWidth: 0, textAlign: "left",
               border: `2px solid ${on ? "var(--accent)" : "var(--line)"}`, background: on ? "color-mix(in srgb, var(--accent) 9%, var(--surface))" : "var(--surface)", color: "var(--text)" }}>
-            <span style={{ width: isMobile ? 26 : 30, height: isMobile ? 26 : 30, borderRadius: 30, display: "grid", placeItems: "center", flexShrink: 0, fontWeight: 900, fontSize: 13,
+            <span style={{ width: isMobile ? 26 : 30, height: isMobile ? 26 : 30, borderRadius: 30, display: "grid", placeItems: "center", flexShrink: 0, fontWeight: 700, fontSize: 13,
               background: ok ? "var(--green)" : on ? "var(--accent)" : "var(--surface2)", color: ok ? "#04231a" : on ? "#fff" : "var(--muted)" }}>{ok ? <Icon n="check" s={14} w={3} /> : i + 1}</span>
             <span style={{ minWidth: 0 }}>
               <b style={{ display: "block", fontSize: isMobile ? 10.5 : 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.t}</b>
@@ -581,8 +588,8 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
       <div style={{ display: "grid", gridTemplateColumns: lateral ? "minmax(0,1fr) 330px" : "1fr", gap: 18, alignItems: "start" }}>
         <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 900, color: "var(--accent)", textTransform: "uppercase", letterSpacing: 1.4 }}>Paso {paso + 1} de 6</div>
-            <div style={{ fontSize: isMobile ? 22 : 26, fontWeight: 900, letterSpacing: "-.01em" }}>{PASOS[paso].t}</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", letterSpacing: 1.4 }}>Paso {paso + 1} de 6</div>
+            <div style={{ fontSize: isMobile ? 22 : 26, fontWeight: 700, letterSpacing: "-.01em" }}>{PASOS[paso].t}</div>
             <div style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 2 }}>{PASOS[paso].sub}</div>
           </div>
           {contenido[paso]}
@@ -602,7 +609,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
     {verPrevia && <PreviaGrande ev={evPrevia} url={url} isMobile={isMobile} onClose={() => setVerPrevia(false)} />}
   </>);
 }
-const sufijo = { position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", fontWeight: 800, pointerEvents: "none", fontSize: 13.5 };
+const sufijo = { position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", fontWeight: 600, pointerEvents: "none", fontSize: 13.5 };
 const ayuda = { fontSize: 12, color: "var(--muted)", marginTop: 4 };
 
 function Compartir({ url, wa, copiar, borrador, onDuplicar }) {
@@ -671,7 +678,7 @@ function GaleriaEditor({ fotos, isMobile, onOrden, onSubir }) {
         {fotos.map((u, i) => (
           <div key={u + i} style={{ position: "relative", aspectRatio: "4/3", borderRadius: 12, overflow: "hidden", background: "var(--surface2)", border: "1px solid var(--line)" }}>
             <img src={u} alt={`Foto ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-            {i === 0 && <span style={{ position: "absolute", top: 6, left: 6, background: "rgba(0,0,0,.6)", color: "#fff", fontSize: 11, fontWeight: 800, borderRadius: 6, padding: "2px 7px" }}>Portada</span>}
+            {i === 0 && <span style={{ position: "absolute", top: 6, left: 6, background: "rgba(0,0,0,.6)", color: "#fff", fontSize: 11, fontWeight: 600, borderRadius: 6, padding: "2px 7px" }}>Portada</span>}
             <span style={{ position: "absolute", left: 6, right: 6, bottom: 6, display: "flex", gap: 4, justifyContent: "space-between" }}>
               <span style={{ display: "flex", gap: 4 }}>
                 <button onClick={() => mover(i, -1)} disabled={i === 0} aria-label="Mover a la izquierda" style={{ ...fotoBtn, opacity: i === 0 ? .4 : 1 }}><Icon n="right" s={14} style={{ transform: "rotate(180deg)" }} /></button>
@@ -681,7 +688,7 @@ function GaleriaEditor({ fotos, isMobile, onOrden, onSubir }) {
             </span>
           </div>))}
         {fotos.length < 12 && (
-          <button onClick={() => !busy && ref.current?.click()} style={{ aspectRatio: "4/3", borderRadius: 12, border: `2px dashed ${encima ? "var(--accent)" : "var(--line)"}`, background: encima ? "color-mix(in srgb, var(--accent) 8%, var(--surface2))" : "var(--surface2)", color: "var(--muted)", cursor: busy ? "wait" : "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, fontWeight: 800, fontSize: 13 }}>
+          <button onClick={() => !busy && ref.current?.click()} style={{ aspectRatio: "4/3", borderRadius: 12, border: `2px dashed ${encima ? "var(--accent)" : "var(--line)"}`, background: encima ? "color-mix(in srgb, var(--accent) 8%, var(--surface2))" : "var(--surface2)", color: "var(--muted)", cursor: busy ? "wait" : "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, fontWeight: 600, fontSize: 13 }}>
             <span style={{ width: 40, height: 40, borderRadius: 12, background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)", display: "grid", placeItems: "center" }}><Icon n={busy ? "refresh" : "plus"} s={20} w={2.4} /></span>
             {busy ? "Subiendo…" : "Añadir fotos"}
           </button>)}
@@ -725,13 +732,13 @@ function Subida({ t, url, img, grande, accept, onFile, onQuitar, alto }) {
         onDragOver={e => { e.preventDefault(); setEncima(true); }} onDragLeave={() => setEncima(false)} onDrop={e => { e.preventDefault(); setEncima(false); tomar(e.dataTransfer.files?.[0]); }}
         style={{ width: "100%", height: alto, borderRadius: 16, border: `2px dashed ${encima ? "var(--accent)" : url ? "transparent" : "var(--line)"}`, background: encima ? "color-mix(in srgb, var(--accent) 8%, var(--surface2))" : "var(--surface2)", cursor: busy ? "wait" : "pointer", overflow: "hidden", padding: 0, display: "grid", placeItems: "center", color: "var(--muted)", position: "relative" }}>
         {url && img ? <img src={url} alt={t} style={{ width: "100%", height: "100%", objectFit: "contain", background: "var(--bg)" }} />
-          : url ? <span style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, color: "var(--green)", fontWeight: 800 }}><Icon n="file" s={30} />PDF subido</span>
-          : <span style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 14, padding: 12, textAlign: "center" }}>
+          : url ? <span style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, color: "var(--green)", fontWeight: 600 }}><Icon n="file" s={30} />PDF subido</span>
+          : <span style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, fontWeight: 600, fontSize: 14, padding: 12, textAlign: "center" }}>
               <span style={{ width: grande ? 64 : 46, height: grande ? 64 : 46, borderRadius: 18, background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)", display: "grid", placeItems: "center" }}><Icon n="upload" s={grande ? 28 : 20} /></span>
               <span style={{ color: "var(--text)" }}>{grande ? "Toca para subir el flyer" : "Subir"}</span>
               {grande && <span style={{ fontWeight: 600, fontSize: 12.5 }}>o arrástralo aquí desde el ordenador</span>}
             </span>}
-        {busy && <span style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.55)", color: "#fff", display: "grid", placeItems: "center", fontWeight: 900 }}>Subiendo…</span>}
+        {busy && <span style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.55)", color: "#fff", display: "grid", placeItems: "center", fontWeight: 700 }}>Subiendo…</span>}
       </button>
       <input ref={ref} type="file" accept={accept} style={{ display: "none" }} onChange={e => { const fl = e.target.files?.[0]; e.target.value = ""; tomar(fl); }} />
       {url && <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
@@ -804,7 +811,7 @@ function Tramos({ ev, d, setD, ficha, setFicha, flash, isMobile, inicio }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {tramos.length === 0 ? (
         <section style={{ ...C.panel, padding: isMobile ? 14 : 18 }}>
-          <div style={{ fontWeight: 900, fontSize: 16 }}>Empieza con una plantilla</div>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>Empieza con una plantilla</div>
           <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2, marginBottom: 12 }}>Un toque y luego cambias nombres, precios y cantidades.</div>
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3,minmax(0,1fr))", gap: 10 }}>
             {PLANTILLAS.map(p => (
@@ -832,8 +839,8 @@ function Tramos({ ev, d, setD, ficha, setFicha, flash, isMobile, inicio }) {
         return (
           <section id={"tramo-" + t.id} key={t.id} style={{ ...C.panel, padding: isMobile ? 12 : 16, opacity: t.visible ? 1 : .65, borderLeft: `4px solid ${t.visible ? "var(--accent)" : "var(--line)"}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-              <span style={{ width: 30, height: 30, borderRadius: 9, display: "grid", placeItems: "center", fontWeight: 900, background: "color-mix(in srgb, var(--accent) 14%, var(--surface2))", color: "var(--accent)", flexShrink: 0 }}>{i + 1}</span>
-              <input value={t.nombre} maxLength={60} onChange={e => set(t.id, { nombre: e.target.value })} aria-label="Nombre del tramo" style={{ ...C.input, flex: 1, minWidth: 0, fontWeight: 900, fontSize: 16 }} />
+              <span style={{ width: 30, height: 30, borderRadius: 9, display: "grid", placeItems: "center", fontWeight: 700, background: "color-mix(in srgb, var(--accent) 14%, var(--surface2))", color: "var(--accent)", flexShrink: 0 }}>{i + 1}</span>
+              <input value={t.nombre} maxLength={60} onChange={e => set(t.id, { nombre: e.target.value })} aria-label="Nombre del tramo" style={{ ...C.input, flex: 1, minWidth: 0, fontWeight: 700, fontSize: 16 }} />
               {!t.visible && <Badge>Oculto</Badge>}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(3,minmax(0,1fr))", gap: 10 }}>
@@ -855,7 +862,7 @@ function Tramos({ ev, d, setD, ficha, setFicha, flash, isMobile, inicio }) {
             </div>}
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
               <button onClick={() => setAbiertoId(mas ? null : t.id)} style={{ ...C.btnSm, minHeight: isMobile ? 40 : 34 }}><Icon n="clock" s={14} />{mas ? "Menos ajustes" : "Fechas, copas y límites"}</button>
-              <span style={{ fontSize: 12.5, fontWeight: 800, color: "var(--muted)" }}>{t.vendidas} vendidas</span>
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--muted)" }}>{t.vendidas} vendidas</span>
               {pct != null && <span style={{ flex: "1 1 60px", height: 8, borderRadius: 6, background: "var(--surface2)", overflow: "hidden", minWidth: 40 }}><span style={{ display: "block", width: `${pct}%`, height: "100%", background: pct >= 100 ? "var(--red)" : "linear-gradient(90deg,#ff5a3c,#ff8a3c)" }} /></span>}
               <span style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
                 <button onClick={() => mover(i, -1)} disabled={i === 0} aria-label="Subir tramo" style={{ ...bt, opacity: i === 0 ? .35 : 1 }}><Icon n="up" s={15} /></button>
@@ -871,12 +878,12 @@ function Tramos({ ev, d, setD, ficha, setFicha, flash, isMobile, inicio }) {
     </div>
   );
 }
-const inp = { ...C.input, padding: "10px 11px", fontWeight: 800 };
-const MiniD = ({ l, children }) => <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}><span style={{ fontSize: 12, fontWeight: 800, color: "var(--muted)" }}>{l}</span>{children}</div>;
+const inp = { ...C.input, padding: "10px 11px", fontWeight: 600 };
+const MiniD = ({ l, children }) => <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}><span style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)" }}>{l}</span>{children}</div>;
 const Mini = ({ l, sub, suf, children }) => (
   <label style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-    <span style={{ fontSize: 12, fontWeight: 800, color: "var(--muted)" }}>{l}</span>
-    <span style={{ position: "relative", display: "block" }}>{children}{suf && <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", fontWeight: 800, pointerEvents: "none" }}>{suf}</span>}</span>
+    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)" }}>{l}</span>
+    <span style={{ position: "relative", display: "block" }}>{children}{suf && <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", fontWeight: 600, pointerEvents: "none" }}>{suf}</span>}</span>
     {sub && <span style={{ fontSize: 11.5, color: "var(--muted)" }}>{sub}</span>}
   </label>
 );
@@ -938,7 +945,7 @@ function Ventas({ ev, flash, isMobile }) {
           </div>); })}
         {(v.rechazos || []).length > 0 && (
           <div style={{ marginTop: 14 }}>
-            <div style={{ fontWeight: 900, marginBottom: 6 }}>Intentos rechazados en la puerta</div>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Intentos rechazados en la puerta</div>
             {v.rechazos.slice(0, 30).map((x, i) => (
               <div key={i} style={{ ...C.row, fontSize: 13 }}>
                 <span style={{ minWidth: 0 }}><b style={{ color: "var(--red)" }}>{MOTIVO[x.motivo] || x.motivo}</b>{x.detalle?.asistente ? ` · ${x.detalle.asistente}` : ""}{x.detalle?.numero ? ` · nº ${x.detalle.numero}` : ""}</span>
@@ -956,6 +963,46 @@ function Ventas({ ev, flash, isMobile }) {
   );
 }
 
+/* ===================== Cobro con tarjeta (monedero de Stripe) ===================== */
+// Sin monedero activo, en un evento real solo se pueden vender entradas gratis (o por RRPP).
+function CobroTarjeta({ flash, prueba }) {
+  const [m, setM] = useState(undefined);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    supabase.functions.invoke("pagos", { body: { accion: "monedero" } }).then(({ data }) => setM(data || null)).catch(() => setM(null));
+  }, []);
+  const alta = async () => {
+    setBusy(true);
+    try {
+      const { data } = await supabase.functions.invoke("pagos", { body: { accion: "alta", tipo: "organizador", origen: window.location.origin } });
+      if (data?.url) { window.location.assign(data.url); return; }
+      flash(data?.motivo === "sin_pasarela" ? "Los cobros con tarjeta aún no están configurados en TIXFAST" : "No se ha podido abrir el alta", "warn");
+    } catch { flash("No se ha podido abrir el alta", "warn"); }
+    setBusy(false);
+  };
+  const c = m?.cuenta;
+  const activo = c?.estado === "activa" && c?.recibe;
+  const enReal = m?.modo === "real";
+  return (
+    <div style={{ ...C.panel, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", borderColor: activo && enReal ? "var(--green)" : "var(--line)" }}>
+      <Tile n="card" c={activo && enReal ? "var(--green)" : "var(--amber)"} s={40} />
+      <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+        <b style={{ display: "block" }}>Cobro con tarjeta</b>
+        <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2, lineHeight: 1.45 }}>
+          {m === undefined ? "Comprobando…"
+            : !m ? "No se ha podido comprobar el monedero de cobros."
+            : !enReal ? "TIXFAST está en modo pruebas: aún no se cobra con tarjeta de verdad. Las entradas de pago solo se pueden probar."
+            : activo ? "Tu monedero está activo: las entradas de pago se cobran con tarjeta y el dinero llega a tu cuenta al terminar el evento."
+            : c ? "Tienes el alta a medias. Termínala para poder cobrar entradas de pago."
+            : "Para vender entradas de pago necesitas tu monedero de cobros: una cuenta de Stripe a tu nombre donde llega el dinero."}
+          {prueba && enReal ? " Este evento está en modo pruebas." : ""}
+        </div>
+      </div>
+      {m && enReal && !activo && <button disabled={busy} onClick={alta} style={{ ...C.btnPrimary, minHeight: 48 }}>{busy ? "Abriendo…" : c ? "Terminar el alta" : "Activar mi monedero"}</button>}
+    </div>
+  );
+}
+
 /* ===================== Nuevo / duplicar evento ===================== */
 function NuevoEvento({ titulo = "Nuevo evento", nota, inicial = "", sinFecha, busy, onCrear, onClose }) {
   const [nombre, setNombre] = useState(inicial);
@@ -966,7 +1013,7 @@ function NuevoEvento({ titulo = "Nuevo evento", nota, inicial = "", sinFecha, bu
   return (
     <Sheet title={titulo} onClose={onClose} footer={<button disabled={busy || !ok || finMal} onClick={() => onCrear(nombre.trim(), inicio || null, fin || null)} style={{ ...C.btnPrimary, width: "100%", minHeight: 50, fontSize: 16, opacity: ok && !finMal ? 1 : .5 }}><Icon n="check" s={17} w={2.4} />{busy ? "Creando…" : titulo === "Nuevo evento" ? "Crear y configurar la venta" : "Duplicar"}</button>}>
       {nota && <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>{nota}</div>}
-      <Field l="Nombre"><input autoFocus style={{ ...C.input, fontWeight: 800, fontSize: 17 }} value={nombre} maxLength={80} onChange={e => setNombre(e.target.value)} placeholder="Ej. FIESTA DE VERANO" /></Field>
+      <Field l="Nombre"><input autoFocus style={{ ...C.input, fontWeight: 600, fontSize: 17 }} value={nombre} maxLength={80} onChange={e => setNombre(e.target.value)} placeholder="Ej. FIESTA DE VERANO" /></Field>
       {!sinFecha && <>
         <Field l="Empieza"><FechaHora valor={inicio} onChange={setInicio} titulo="¿Cuándo empieza?" placeholder="Elegir día y hora de inicio" /></Field>
         <Field l="Termina"><FechaHora valor={fin} onChange={setFin} titulo="¿Cuándo termina?" placeholder="Elegir día y hora de fin" base={inicio} aviso="Si acaba de madrugada, elige el día siguiente (o usa un atajo)."

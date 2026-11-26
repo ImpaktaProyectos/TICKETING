@@ -46,7 +46,7 @@ export function DineroEntradas({ ingresos, onAnadir, onEditar, onClientes, accio
       <div style={{ display: "flex", alignItems: "flex-start", gap: 14, flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 240px", minWidth: 0 }}>
           <div style={C.label}>{titulo}</div>
-          <div style={{ fontSize: isMobile ? 40 : 54, fontWeight: 900, letterSpacing: "-.03em", lineHeight: 1.02, margin: "4px 0 2px", fontVariantNumeric: "tabular-nums" }}>{money(D.total)}</div>
+          <div style={{ fontSize: isMobile ? 40 : 54, fontWeight: 700, letterSpacing: "-.03em", lineHeight: 1.02, margin: "4px 0 2px", fontVariantNumeric: "tabular-nums" }}>{money(D.total)}</div>
           <div style={{ fontSize: 14, color: "var(--muted)", fontWeight: 700 }}>
             <b style={{ color: "var(--text)" }}>{n0(D.uds)}</b> entradas{!D.udsCompletas ? " + algún apunte sin cantidad" : ""}{medio ? ` · ${money(medio)} por entrada` : ""}
             {D.pendiente > 0 && <span style={{ color: "var(--amber)" }}> · {money(D.pendiente)} pendiente de cobrar</span>}
@@ -72,7 +72,7 @@ export function DineroEntradas({ ingresos, onAnadir, onEditar, onClientes, accio
                 style={{ ...C.listBtn, cursor: editable ? "pointer" : "default", padding: "10px 4px", borderTop: "1px solid var(--line)", borderRadius: 0 }}>
                 <Tile n={c.i} c={c.c} s={34} />
                 <span style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
-                  <span style={{ display: "block", fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.t}</span>
+                  <span style={{ display: "block", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.t}</span>
                   <span style={{ display: "block", fontSize: 12, color: "var(--muted)" }}>{c.udsSabidas || c.uds ? `${n0(c.uds)} entradas · ` : ""}{c.d}</span>
                 </span>
                 {c.k === "tixfast" && onClientes && <button type="button" onClick={(e) => { e.stopPropagation(); onClientes(); }} style={{ ...C.btnSm, flexShrink: 0 }}><Icon n="users" s={14} />{isMobile ? "" : "Clientes"}</button>}
@@ -133,7 +133,7 @@ export function VentaEntradasForm({ ingreso, socios, busy, onClose, onSave, onDe
         {canal === "__otra" && <input autoFocus value={otro} maxLength={60} onChange={e => setOtro(e.target.value)} placeholder="Nombre de la ticketera o canal" style={{ ...C.input, marginTop: 8 }} />}
       </Field>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1.4fr", gap: 12 }}>
-        <Field l="Nº de entradas"><input inputMode="numeric" value={uds} onChange={e => setUds(e.target.value.replace(/\D/g, "").slice(0, 7))} placeholder="Ej. 120" style={{ ...C.input, fontSize: 22, fontWeight: 900, minHeight: 56 }} /></Field>
+        <Field l="Nº de entradas"><input inputMode="numeric" value={uds} onChange={e => setUds(e.target.value.replace(/\D/g, "").slice(0, 7))} placeholder="Ej. 120" style={{ ...C.input, fontSize: 22, fontWeight: 700, minHeight: 56 }} /></Field>
         <Field l="Dinero total recaudado"><MoneyInput big value={importe} onChange={setImporte} color={imp > 0 ? "var(--green)" : undefined} /></Field>
       </div>
       {imp > 0 && u > 0 && <div style={{ fontSize: 13, color: "var(--muted)", margin: "-4px 0 12px" }}>Sale a <b style={{ color: "var(--text)" }}>{money(imp / u)}</b> por entrada. Pon el dinero que recibes tú (sin las comisiones de la ticketera, si te las descuenta).</div>}
@@ -153,6 +153,6 @@ export function VentaEntradasForm({ ingreso, socios, busy, onClose, onSave, onDe
   );
 }
 const Chip = ({ on, onClick, children, c = "var(--accent)" }) => (
-  <button type="button" onClick={onClick} aria-pressed={on} style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 12px 7px 9px", borderRadius: 22, cursor: "pointer", fontWeight: 800, fontSize: 13.5,
+  <button type="button" onClick={onClick} aria-pressed={on} style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 12px 7px 9px", borderRadius: 22, cursor: "pointer", fontWeight: 600, fontSize: 13.5,
     border: `2px solid ${on ? c : "var(--line)"}`, background: on ? `color-mix(in srgb, ${c} 14%, var(--surface2))` : "var(--surface2)", color: "var(--text)" }}>{children}{on && <Icon n="check" s={14} w={2.6} c={c} />}</button>
 );

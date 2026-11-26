@@ -148,6 +148,7 @@ export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, pre
           {tramos.map((t, i) => <Tramo key={t.id} t={t} sig={tramos.slice(i + 1).find(x => x.estado === "proximo")} avisos={av} n={cant[t.id] || 0} T={T}
             offset={offset} top={t.id === topId} onFin={onRecargar} onN={(n) => ponerN(t, n)} />)}
           {enVenta.length === 0 && tramos.length > 0 && <div style={{ ...card, marginTop: 8, fontWeight: 700 }}>Ahora mismo no hay entradas a la venta.</div>}
+          {enVenta.length === 0 && tramos.length > 0 && !tramos.some(t => t.estado === "proximo") && !ev.vista_previa && <ListaEspera ev={ev} T={T} />}
           {av.confianza && <div style={{ display: "flex", gap: "6px 14px", flexWrap: "wrap", justifyContent: "center", fontSize: 12.5, color: "var(--muted)", fontWeight: 700, marginTop: 6 }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icono n="ok" s={14} w={2.4} />Entrada nominativa con QR</span><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icono n="ok" s={14} w={2.4} />QR de un solo uso</span><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icono n="ok" s={14} w={2.4} />Al momento en tu móvil y tu correo</span>
           </div>}
@@ -350,6 +351,39 @@ function SeccionReservados({ slug, T }) {
     </section>
   );
 }
+/* ---------- Lista de espera (cuando todo está agotado) ---------- */
+function ListaEspera({ ev, T }) {
+  const [c, setC] = useState({ nombre: "", email: "", cantidad: 1, mkt: false });
+  const [estado, setEstado] = useState("");
+  const [err, setErr] = useState("");
+  const enviar = async (e) => {
+    e.preventDefault(); setErr("");
+    if (c.nombre.trim().length < 3) return setErr(ERRORES.nombre);
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c.email.trim())) return setErr(ERRORES.email);
+    setEstado("enviando");
+    try {
+      const { data, error } = await supabase.rpc("web_espera_apuntar", { p_slug: ev.slug, p_nombre: c.nombre.trim(), p_email: c.email.trim(), p_cantidad: c.cantidad, p_marketing: c.mkt });
+      if (error) throw error;
+      if (!data?.ok) { setErr(ERRORES[data?.motivo] || "No se ha podido apuntar."); setEstado(""); return; }
+      setEstado("hecho");
+    } catch { setErr(navigator.onLine ? "No se ha podido apuntar. Inténtalo de nuevo." : "Sin conexión."); setEstado(""); }
+  };
+  if (estado === "hecho") return <div role="status" style={{ ...card, marginTop: 10, borderColor: "var(--c)" }}><b>Estás en la lista de espera.</b><div style={{ color: "var(--muted)", fontSize: 14, marginTop: 4 }}>Si salen más entradas, el organizador te avisará a {c.email.trim()}.</div></div>;
+  return (
+    <form onSubmit={enviar} noValidate style={{ ...card, marginTop: 10 }}>
+      <h3 style={{ fontSize: 18, margin: "0 0 4px", fontWeight: 900 }}>Avísame si salen más entradas</h3>
+      <div style={{ color: "var(--muted)", fontSize: 14, marginBottom: 12 }}>Apúntate a la lista de espera. No pagas nada ahora.</div>
+      <Campo l="Nombre y apellidos" v={c.nombre} on={v => setC(x => ({ ...x, nombre: v }))} ac="name" />
+      <Campo l="Correo electrónico" v={c.email} on={v => setC(x => ({ ...x, email: v }))} type="email" ac="email" im="email" />
+      <label style={lbl}><span>¿Cuántas entradas querrías?</span>
+        <select value={c.cantidad} onChange={e => setC(x => ({ ...x, cantidad: +e.target.value }))} style={inpP}>{[1, 2, 3, 4, 5, 6, 8, 10].map(n => <option key={n} value={n}>{n}</option>)}</select>
+      </label>
+      <Check v={c.mkt} on={v => setC(x => ({ ...x, mkt: v }))}>Quiero recibir también novedades de {ev.legal?.razon_social || "este organizador"}. <span style={{ color: "var(--muted)" }}>Opcional.</span></Check>
+      {err && <div role="alert" style={{ marginTop: 10, color: "#ff6b6b", fontWeight: 800 }}>{err}</div>}
+      <button type="submit" disabled={estado === "enviando"} style={{ ...btn(T.d.color, T.tinta), width: "100%", marginTop: 12, padding: "15px", fontSize: 16 }}>{estado === "enviando" ? "Apuntando…" : "Apuntarme a la lista de espera"}</button>
+    </form>
+  );
+}
 /* ---------- Datos y compra ---------- */
 function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
   const form = ev.formulario || {};
@@ -409,6 +443,11 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
       if (!data?.ok) { const k = String(data?.motivo || ""); setErr((k.startsWith("falta_") ? `Falta: ${CAMPOS.find(f => f.k === k.slice(6))?.t || k.slice(6)}.` : ERRORES[k] || "No se ha podido completar la compra.") + (data?.tramo ? ` (${data.tramo})` : "")); setBusy(false); return; }
       try { const l = JSON.parse(localStorage.getItem(MIS) || "[]") || []; l.unshift({ slug: ev.slug, acceso: data.acceso, codigo: data.codigo, t: Date.now() }); localStorage.setItem(MIS, JSON.stringify(l.slice(0, 30))); } catch {}
       try { onExito && onExito(); } catch {}
+      if (data.pago) {
+        // Entradas reservadas: se pagan con tarjeta en Stripe y se vuelve a «Mis entradas»
+        const { data: c } = await supabase.functions.invoke("pagos", { body: { accion: "checkout", acceso: data.acceso, origen: window.location.origin } });
+        if (c?.url) { window.location.assign(c.url); return; }
+      }
       window.location.assign(`/mis-entradas/${data.acceso}?nueva=1`);
     } catch { setErr(navigator.onLine ? "No se ha podido completar la compra. Inténtalo de nuevo." : "Sin conexión. Conéctate y vuelve a intentarlo."); setBusy(false); }
   };
@@ -490,21 +529,48 @@ function MisEntradas({ acceso }) {
       setCorreo(auto && m !== "enviado" ? "" : m);
     } catch { setCorreo(auto ? "" : "error"); }
   };
-  // Recién compradas: se mandan al correo una vez (si el envío está activado)
+  const vueltaPago = new URLSearchParams(window.location.search).has("pago");
+  const [pagando, setPagando] = useState(false);
+  const cargar = () => supabase.rpc("web_pedido", { p_acceso: acceso }).then(({ data, error }) => { setD(error ? "error" : data || null); return error ? null : data; });
   useEffect(() => {
-    if (!nueva) return;
+    if (!/^[0-9a-f-]{36}$/i.test(acceso)) { setD(null); return; }
+    document.title = "Mis entradas";
+    let vivo = true;
+    (async () => {
+      let x = await cargar();
+      // Vuelta de la página de pago: se confirma con Stripe (por si el aviso automático aún no ha llegado)
+      for (let i = 0; vivo && vueltaPago && x?.pedido?.estado === "pendiente" && i < 8; i++) {
+        try { await supabase.functions.invoke("pagos", { body: { accion: "confirmar", acceso } }); } catch {}
+        await new Promise(r => setTimeout(r, 2500));
+        x = await cargar();
+      }
+    })();
+    return () => { vivo = false; };
+  }, [acceso]);
+  // Recién compradas (y ya pagadas): se mandan al correo una vez (si el envío está activado)
+  const listo = d && typeof d === "object" && d.pedido?.estado !== "pendiente";
+  useEffect(() => {
+    if (!nueva || !listo) return;
     const k = "tixfast_correo_" + acceso;
     try { if (sessionStorage.getItem(k)) return; sessionStorage.setItem(k, "1"); } catch {}
     enviarCorreo(true);
-  }, [acceso]);
-  useEffect(() => {
-    if (!/^[0-9a-f-]{36}$/i.test(acceso)) { setD(null); return; }
-    supabase.rpc("web_pedido", { p_acceso: acceso }).then(({ data, error }) => setD(error ? "error" : data || null));
-    document.title = "Mis entradas";
-  }, [acceso]);
+  }, [acceso, listo]);
+  const irAPagar = async () => {
+    setPagando(true);
+    try {
+      const { data } = await supabase.functions.invoke("pagos", { body: { accion: "checkout", acceso, origen: window.location.origin } });
+      if (data?.url) { window.location.assign(data.url); return; }
+      if (data?.pagado) { await cargar(); }
+      else alert(data?.motivo === "caducado" ? "La reserva de estas entradas ha caducado. Vuelve a elegirlas en la página del evento." : "No se ha podido abrir el pago. Inténtalo de nuevo.");
+    } catch { alert("No se ha podido abrir el pago. Revisa tu conexión."); }
+    setPagando(false);
+  };
   if (d === undefined) return <Mensaje titulo="Cargando tus entradas…" />;
   if (d === "error") return <Mensaje titulo="No se han podido cargar" texto="Revisa tu conexión y vuelve a abrir el enlace." />;
   if (!d) return <Mensaje titulo="Enlace no válido" texto="Revisa que el enlace esté completo." />;
+  if (d.pedido?.estado === "pendiente") return vueltaPago
+    ? <Mensaje titulo="Confirmando el pago…" texto="Tarda unos segundos. Si ya has pagado, tus entradas aparecerán aquí aunque cierres la página." />
+    : <Mensaje titulo="Falta el pago" texto={<>Tus entradas están reservadas unos minutos.<br /><button onClick={irAPagar} disabled={pagando} style={{ ...btn(tema(d.evento.diseno).d.color, tema(d.evento.diseno).tinta), marginTop: 14, padding: "14px 22px", fontSize: 16 }}>{pagando ? "Abriendo el pago…" : "Pagar ahora"}</button></>} />;
   const T = tema(d.evento.diseno), ev = d.evento, p = d.pedido;
   const desde = ev.inicio ? new Date(new Date(ev.inicio).getTime() - (ev.qr_horas_antes ?? 24) * 3600000) : null;
   const descargar = async () => {
@@ -518,6 +584,10 @@ function MisEntradas({ acceso }) {
     <div style={{ ...T.vars, minHeight: "100dvh", background: "var(--bg)", color: "var(--text)", fontFamily: T.letra }}>
       <style>{CSS_PUB}</style>
       <div style={{ maxWidth: 560, margin: "0 auto", padding: "max(16px, env(safe-area-inset-top)) 16px calc(30px + env(safe-area-inset-bottom))" }}>
+        {p.estado === "invitacion" && !nueva && <div style={{ ...card, background: "var(--c)", color: T.tinta, border: "none", marginBottom: 14, textAlign: "center" }}>
+          <div style={{ fontSize: 24, fontWeight: 900 }}>Tienes una invitación</div>
+          <div style={{ marginTop: 4, opacity: .95 }}>A nombre de {p.nombre}. Enseña el QR en la puerta o descarga el PDF.</div>
+        </div>}
         {nueva && <div style={{ ...card, background: "#0f9d63", color: "#fff", border: "none", marginBottom: 14, textAlign: "center" }}>
           <div style={{ fontSize: 26, fontWeight: 900 }}>¡Ya tienes tus entradas!</div>
           <div style={{ marginTop: 4, opacity: .95 }}>Pedido {p.codigo}. Guarda esta página o descarga el PDF.</div>
@@ -538,7 +608,7 @@ function MisEntradas({ acceso }) {
         {correo && correo !== "enviando" && <div role="status" style={{ ...card, marginBottom: 14, fontWeight: 700, fontSize: 14, borderColor: correo === "enviado" ? "#0f9d63" : "var(--line)" }}>
           {{ enviado: `Enviadas a ${p.email}. Si no las ves, mira en «Spam» o «Promociones».`, sin_correo: "El envío por correo aún no está activado. Descarga el PDF o guarda este enlace.", espera: "Acabamos de enviarlas: espera un par de minutos antes de pedirlo otra vez.", limite: "Ya se han enviado varias veces. Descarga el PDF o guarda este enlace." }[correo] || "No se ha podido enviar el correo. Descarga el PDF o guarda este enlace."}
         </div>}
-        <EntradasDePedido d={d} T={T} />
+        <EntradasDePedido d={d} T={T} acceso={acceso} onCambio={cargar} />
         <div style={{ textAlign: "center", marginTop: 18 }}><a href={`/e/${ev.slug}`} style={{ color: "var(--muted)", fontWeight: 700 }}>Volver al evento</a></div>
       </div>
     </div>
@@ -546,7 +616,7 @@ function MisEntradas({ acceso }) {
 }
 
 // Las entradas de un pedido (un evento), con su QR. Se usa en «Mis entradas» y en la compra de varios eventos
-function EntradasDePedido({ d, T }) {
+function EntradasDePedido({ d, T, acceso, onCambio }) {
   const ev = d.evento;
   const desde = ev.inicio ? new Date(new Date(ev.inicio).getTime() - (ev.qr_horas_antes ?? 24) * 3600000) : null;
   return (<>
@@ -564,6 +634,7 @@ function EntradasDePedido({ d, T }) {
                     <QrCodigo texto={textoQR(x.qr_hex)} margen={2} style={{ width: 240, height: 240 }} />
                   </div>
                 </>) : <div style={{ fontWeight: 900, color: "#ff6b6b", padding: 30 }}>ENTRADA ANULADA</div>}
+              {acceso && x.estado === "valida" && !x.prueba && <CambiarTitular acceso={acceso} x={x} T={T} onCambio={onCambio} />}
               <div style={{ color: "var(--muted)", fontSize: 13, textAlign: "center" }}>{desde ? `Válida desde el ${fecha(desde.toISOString())}${ev.fin ? ` hasta las ${hora(ev.fin)} del ${fecha(ev.fin, false)}` : ""}.` : "Válida para el día del evento."} Un solo uso.</div>
             </div>
           </div>))}
@@ -573,6 +644,40 @@ function EntradasDePedido({ d, T }) {
           {ev.autorizacion_url ? <div style={{ marginTop: 6 }}>Menores de {ev.autorizacion_edad || 16}: <a href={ev.autorizacion_url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--c)", fontWeight: 800 }}>descarga la autorización</a>, rellénala y tráela impresa.</div> : null}
         </div>}
   </>);
+}
+
+// El comprador pone la entrada a nombre de otra persona: se crea un QR nuevo y el anterior deja de valer
+const MOTIVO_TITULAR = { nombre: "Escribe el nombre completo.", limite: "Esta entrada ya ha cambiado de titular demasiadas veces. Habla con el organizador.", usada: "Esta entrada ya se ha usado en la puerta.", empezado: "El evento ya ha empezado: ya no se puede cambiar el titular.", anulada: "Esta entrada está anulada.", demasiados_intentos: "Demasiados intentos seguidos. Espera unos minutos." };
+function CambiarTitular({ acceso, x, T, onCambio }) {
+  const [abierto, setAbierto] = useState(false);
+  const [nombre, setNombre] = useState("");
+  const [dni, setDni] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const guardar = async () => {
+    setErr(""); if (nombre.trim().length < 3) return setErr(MOTIVO_TITULAR.nombre);
+    setBusy(true);
+    try {
+      const { data, error } = await supabase.rpc("web_cambiar_titular", { p_acceso: acceso, p_numero: x.numero, p_nombre: nombre.trim(), p_dni: dni.trim() || null });
+      if (error) throw error;
+      if (!data?.ok) { setErr(MOTIVO_TITULAR[data?.motivo] || "No se ha podido cambiar."); setBusy(false); return; }
+      setAbierto(false); setNombre(""); setDni(""); onCambio && onCambio();
+    } catch { setErr("No se ha podido cambiar. Revisa tu conexión."); }
+    setBusy(false);
+  };
+  if (!abierto) return <button type="button" onClick={() => setAbierto(true)} style={{ ...btn("transparent", "var(--c)"), padding: "10px 12px", fontSize: 15, minHeight: 44 }}>Poner a nombre de otra persona</button>;
+  return (
+    <div style={{ width: "100%", borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+      <div style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.45 }}>Se crea un QR nuevo con el nuevo nombre y <b style={{ color: "var(--text)" }}>el QR actual deja de valer</b>. Si ya la has enviado o impreso, vuelve a enviarla.</div>
+      <Campo l="Nombre y apellidos del nuevo titular" v={nombre} on={setNombre} ac="off" />
+      <Campo l="DNI / NIE (opcional)" v={dni} on={setDni} ac="off" />
+      {err && <div role="alert" style={{ color: "#ff6b6b", fontWeight: 800, fontSize: 14, marginBottom: 10 }}>{err}</div>}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button type="button" onClick={() => setAbierto(false)} style={{ ...btn("var(--card2)", "var(--text)"), flex: 1, border: "1px solid var(--line)" }}>Cancelar</button>
+        <button type="button" disabled={busy} onClick={guardar} style={{ ...btn(T.d.color, T.tinta), flex: 2 }}>{busy ? "Cambiando…" : "Cambiar titular"}</button>
+      </div>
+    </div>
+  );
 }
 
 /* ===================== Mis entradas de una compra de varios eventos ===================== */

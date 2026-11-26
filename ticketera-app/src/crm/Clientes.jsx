@@ -28,10 +28,10 @@ export function ResumenVentas({ ev, onAbrir }) {
       style={{ ...C.hero, display: "block", width: "100%", textAlign: "left", cursor: "pointer", color: "var(--text)", font: "inherit", padding: isMobile ? 16 : 22, position: "relative", overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 14, flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 220px", minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: 1.4, textTransform: "uppercase", color: "var(--muted)" }}>Vendidas en TIXFAST online</div>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1.4, textTransform: "uppercase", color: "var(--muted)" }}>Vendidas en TIXFAST online</div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginTop: 2 }}>
-            <span style={{ fontSize: isMobile ? 44 : 56, fontWeight: 900, letterSpacing: "-.03em", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{r ? n0(r.entradas) : "—"}</span>
-            {aforo ? <span style={{ fontSize: 18, fontWeight: 800, color: "var(--muted)" }}>de {n0(aforo)}</span> : null}
+            <span style={{ fontSize: isMobile ? 44 : 56, fontWeight: 700, letterSpacing: "-.03em", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{r ? n0(r.entradas) : "—"}</span>
+            {aforo ? <span style={{ fontSize: 18, fontWeight: 600, color: "var(--muted)" }}>de {n0(aforo)}</span> : null}
             {r?.hoy > 0 && <Badge c="var(--green)">+{n0(r.hoy)} en 24 h</Badge>}
           </div>
           {lleno != null && (
@@ -47,8 +47,8 @@ export function ResumenVentas({ ev, onAbrir }) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 8, flex: "1 1 300px", minWidth: 0 }}>
           {[["Ingresos", r ? money(r.ingresos) : "—"], ["Compradores", r ? n0(r.compradores) : "—"], ["Edad media", r?.edad_media ? `${String(r.edad_media).replace(".", ",")}${isMobile ? "" : " años"}` : "—"]].map(([t, v]) => (
             <div key={t} style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 12, padding: isMobile ? "9px 8px" : "10px 12px", minWidth: 0 }}>
-              <div style={{ fontSize: 11.5, color: "var(--muted)", fontWeight: 800 }}>{t}</div>
-              <div style={{ fontSize: isMobile ? 14.5 : 17, fontWeight: 900, marginTop: 2, whiteSpace: "nowrap", letterSpacing: isMobile ? "-.02em" : 0 }}>{v}</div>
+              <div style={{ fontSize: 11.5, color: "var(--muted)", fontWeight: 600 }}>{t}</div>
+              <div style={{ fontSize: isMobile ? 14.5 : 17, fontWeight: 700, marginTop: 2, whiteSpace: "nowrap", letterSpacing: isMobile ? "-.02em" : 0 }}>{v}</div>
             </div>))}
         </div>
       </div>
@@ -71,7 +71,7 @@ function BarrasV({ datos, alto = 150, formato = n0, etiquetaCada = 1, resumen })
           <div key={x.k} onMouseEnter={() => setH(i)} onMouseLeave={() => setH(null)} onClick={() => setH(h === i ? null : i)} title={`${x.label}: ${formato(x.v)}`}
             style={{ flex: 1, minWidth: 0, height: "100%", display: "flex", alignItems: "flex-end", cursor: "default", position: "relative" }}>
             <div style={{ width: "100%", height: `${Math.max(x.v ? 3 : 0, (x.v / max) * 100)}%`, background: h === i ? "var(--text)" : "var(--accent)", borderRadius: "4px 4px 0 0", opacity: h == null || h === i ? 1 : .55, transition: "opacity .12s" }} />
-            {h === i && <div style={{ position: "absolute", bottom: `calc(${(x.v / max) * 100}% + 6px)`, left: "50%", transform: `translateX(${i < datos.length / 4 ? "-15%" : i > datos.length * .75 ? "-85%" : "-50%"})`, background: "var(--text)", color: "var(--bg, #000)", fontSize: 12, fontWeight: 800, padding: "4px 8px", borderRadius: 8, whiteSpace: "nowrap", zIndex: 2, pointerEvents: "none" }}>{x.label} · {formato(x.v)}</div>}
+            {h === i && <div style={{ position: "absolute", bottom: `calc(${(x.v / max) * 100}% + 6px)`, left: "50%", transform: `translateX(${i < datos.length / 4 ? "-15%" : i > datos.length * .75 ? "-85%" : "-50%"})`, background: "var(--text)", color: "var(--bg, #000)", fontSize: 12, fontWeight: 600, padding: "4px 8px", borderRadius: 8, whiteSpace: "nowrap", zIndex: 2, pointerEvents: "none" }}>{x.label} · {formato(x.v)}</div>}
           </div>))}
       </div>
       <div style={{ display: "flex", gap: datos.length > 30 ? 1 : 3, marginTop: 5 }}>
@@ -88,7 +88,7 @@ function BarrasH({ filas, formato = n0, total }) {
         <div key={x.label} title={`${x.label}: ${formato(x.v)}`}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, marginBottom: 4 }}>
             <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{x.label}</span>
-            <span style={{ fontWeight: 900, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{formato(x.v)}{total ? <span style={{ color: "var(--muted)", fontWeight: 700 }}> · {pct(x.v, total)} %</span> : null}{x.sub ? <span style={{ color: "var(--muted)", fontWeight: 700 }}> · {x.sub}</span> : null}</span>
+            <span style={{ fontWeight: 700, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{formato(x.v)}{total ? <span style={{ color: "var(--muted)", fontWeight: 700 }}> · {pct(x.v, total)} %</span> : null}{x.sub ? <span style={{ color: "var(--muted)", fontWeight: 700 }}> · {x.sub}</span> : null}</span>
           </div>
           <div style={{ height: 8, borderRadius: 8, background: "var(--surface2)" }}><div style={{ width: `${(x.v / max) * 100}%`, minWidth: x.v ? 4 : 0, height: "100%", borderRadius: 8, background: "var(--accent)" }} /></div>
         </div>))}
@@ -98,7 +98,7 @@ function BarrasH({ filas, formato = n0, total }) {
 function Tarjeta({ t, sub, children, vacio, ancho }) {
   return (
     <section style={{ ...C.panel, minWidth: 0, gridColumn: ancho ? "1 / -1" : undefined }}>
-      <div style={{ fontWeight: 900, fontSize: 15.5 }}>{t}</div>
+      <div style={{ fontWeight: 700, fontSize: 15.5 }}>{t}</div>
       {sub && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>{sub}</div>}
       <div style={{ marginTop: 14 }}>{vacio ? <div style={{ ...C.empty, padding: "18px 12px" }}>{vacio}</div> : children}</div>
     </section>
@@ -106,8 +106,8 @@ function Tarjeta({ t, sub, children, vacio, ancho }) {
 }
 const Kpi = ({ t, v, sub, c }) => (
   <div style={{ ...C.card, padding: "12px 14px" }}>
-    <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800 }}>{t}</div>
-    <div style={{ fontSize: 24, fontWeight: 900, marginTop: 2, color: c || "var(--text)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v}</div>
+    <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>{t}</div>
+    <div style={{ fontSize: 24, fontWeight: 700, marginTop: 2, color: c || "var(--text)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v}</div>
     {sub && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{sub}</div>}
   </div>
 );
@@ -169,7 +169,7 @@ export function Clientes({ ev, onVolver, flash, asistentes }) {
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <button onClick={onVolver} style={C.btnSm} aria-label="Volver a la venta del evento"><Icon n="chev" s={14} style={{ transform: "rotate(90deg)" }} />Volver</button>
         <div style={{ flex: "1 1 200px", minWidth: 0 }}>
-          <div style={{ fontSize: isMobile ? 22 : 26, fontWeight: 900, lineHeight: 1.1 }}>Clientes</div>
+          <div style={{ fontSize: isMobile ? 22 : 26, fontWeight: 700, lineHeight: 1.1 }}>Clientes</div>
           <div style={{ fontSize: 13, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ambito === "evento" ? ev.name : "Todos tus eventos"} · datos de las entradas vendidas online</div>
         </div>
         <Seg opciones={[{ k: "evento", t: "Este evento" }, { k: "todos", t: "Todos mis eventos" }]} valor={ambito} onChange={setAmbito} size="sm" />
@@ -234,7 +234,7 @@ export function Clientes({ ev, onVolver, flash, asistentes }) {
           <section style={{ ...C.panel }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
               <div style={{ flex: "1 1 200px" }}>
-                <div style={{ fontWeight: 900, fontSize: 16 }}>Compradores <span style={{ color: "var(--muted)" }}>· {n0(lista.length)}</span></div>
+                <div style={{ fontWeight: 700, fontSize: 16 }}>Compradores <span style={{ color: "var(--muted)" }}>· {n0(lista.length)}</span></div>
                 <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Uno por correo, con todas sus compras juntas</div>
               </div>
               <button onClick={exportarMarketing} style={C.btnSm} title="Solo quienes marcaron que quieren recibir novedades y no se han dado de baja"><Icon n="file" s={14} />Exportar contactos con permiso</button>
@@ -252,7 +252,7 @@ export function Clientes({ ev, onVolver, flash, asistentes }) {
             {lista.length === 0 ? <div style={C.empty}>{(d.clientes || []).length ? "Nadie con estos filtros." : "Aún no hay compradores."}</div> : (
               <div>
                 {!isMobile && (
-                  <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2.2fr) minmax(0,1.2fr) 60px 70px 90px 110px 26px", gap: 10, padding: "8px 6px", fontSize: 11.5, fontWeight: 900, color: "var(--muted)", textTransform: "uppercase", letterSpacing: .8, borderBottom: "1px solid var(--line)" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "minmax(0,2.2fr) minmax(0,1.2fr) 60px 70px 90px 110px 26px", gap: 10, padding: "8px 6px", fontSize: 11.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: .8, borderBottom: "1px solid var(--line)" }}>
                     <span>Comprador</span><span>Zona</span><span>Edad</span><span style={{ textAlign: "right" }}>Entradas</span><span style={{ textAlign: "right" }}>Gasto</span><span>Última compra</span><span />
                   </div>)}
                 {lista.slice(0, cuantos).map(c => (
@@ -264,7 +264,7 @@ export function Clientes({ ev, onVolver, flash, asistentes }) {
                     {!isMobile && <>
                       <span style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.ciudad || (c.cp ? PROV[String(c.cp).padStart(5, "0").slice(0, 2)] || c.cp : "—")}</span>
                       <span style={{ fontSize: 13 }}>{c.edad ?? "—"}</span>
-                      <span style={{ fontSize: 13, fontWeight: 900, textAlign: "right" }}>{c.entradas}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, textAlign: "right" }}>{c.entradas}</span>
                       <span style={{ fontSize: 13, textAlign: "right" }}>{money(c.gastado)}</span>
                       <span style={{ fontSize: 12.5, color: "var(--muted)" }}>{new Date(c.ultima).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}</span>
                     </>}
@@ -333,7 +333,7 @@ function FichaCliente({ c, onClose, flash, onCambio }) {
       {fila("Tipos de entrada", (c.tramos || []).join(", "))}
       {fila("Primera compra", fechaHora(c.primera))}
       {fila("Última compra", fechaHora(c.ultima))}
-      <div style={{ fontWeight: 900, margin: "16px 0 8px" }}>Sus derechos</div>
+      <div style={{ fontWeight: 700, margin: "16px 0 8px" }}>Sus derechos</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <button disabled={busy} onClick={exportar} style={{ ...C.btnGhost, justifyContent: "flex-start" }}><Icon n="file" s={16} />Descargar todos sus datos (acceso)</button>
         {c.marketing && <button disabled={busy} onClick={baja} style={{ ...C.btnGhost, justifyContent: "flex-start" }}><Icon n="x" s={16} />No quiere recibir novedades (baja)</button>}

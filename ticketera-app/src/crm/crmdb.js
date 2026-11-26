@@ -700,3 +700,12 @@ export async function invitacionAnular(pedidoId) {
   if (!r?.ok) throw new Error("No se ha podido anular.");
   return r;
 }
+
+/* ===================== Venta online: lista de espera ===================== */
+export async function esperaListar(eventoId) {
+  const r = await supabase.from("ticket_web_espera").select("id, nombre, email, cantidad, marketing, avisado_en, creado_en").eq("evento_id", eventoId).order("creado_en").limit(5000);
+  if (r.error) return [];          // la base de datos aún no tiene la lista de espera
+  return r.data || [];
+}
+export async function esperaAvisado(ids, avisado = true) { ok(await supabase.from("ticket_web_espera").update({ avisado_en: avisado ? new Date().toISOString() : null }).in("id", ids)); }
+export async function esperaBorrar(id) { ok(await supabase.from("ticket_web_espera").delete().eq("id", id)); }

@@ -58,14 +58,14 @@ export function Organizaciones({ flash }) {
     {lista.length === 0 ? (
       <section style={{ ...C.hero, padding: isMobile ? 18 : 30, textAlign: "center" }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}><Tile n="globe" s={56} /></div>
-        <div style={{ fontSize: isMobile ? 22 : 28, fontWeight: 900 }}>Tu carta de presentación online</div>
+        <div style={{ fontSize: isMobile ? 22 : 28, fontWeight: 700 }}>Tu carta de presentación online</div>
         <div style={{ color: "var(--muted)", fontSize: 14, maxWidth: 560, margin: "8px auto 18px" }}>Un microsite para tu discoteca o tu marca de fiestas: portada a pantalla completa, todos tus eventos a la venta, galería, reservados VIP y redes. Tus clientes compran entradas de varias fiestas a la vez con un solo formulario.</div>
         <button onClick={() => setNueva(true)} style={{ ...C.btnPrimary, minHeight: 50, padding: "0 26px", fontSize: 16 }}><Icon n="plus" s={18} w={2.4} />Crear mi organización</button>
       </section>
     ) : (
       <section style={C.panel}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-          <div style={{ flex: 1, fontWeight: 900, fontSize: 17 }}>Tus organizaciones</div>
+          <div style={{ flex: 1, fontWeight: 700, fontSize: 17 }}>Tus organizaciones</div>
           <button onClick={() => setNueva(true)} style={C.btnPrimary}><Icon n="plus" s={16} w={2.4} />Nueva</button>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3,minmax(0,1fr))", gap: 12 }}>
@@ -87,7 +87,7 @@ export function Organizaciones({ flash }) {
         try { const x = await crm.orgCrear(nombre); setNueva(false); setNombre(""); await cargar(); setSel(x.id); flash("Organización creada"); }
         catch (e) { flash(e.message || "No se ha podido crear", "warn"); } finally { setBusy(false); }
       }} style={{ ...C.btnPrimary, width: "100%", minHeight: 50, fontSize: 16, opacity: nombre.trim().length < 2 ? .5 : 1 }}><Icon n="check" s={17} w={2.4} />{busy ? "Creando…" : "Crear y personalizar"}</button>}>
-      <Field l="Nombre"><input autoFocus style={{ ...C.input, fontWeight: 800, fontSize: 17 }} value={nombre} maxLength={80} onChange={e => setNombre(e.target.value)} placeholder="Ej. Odiseo Eventos, Sala Apolo…" /></Field>
+      <Field l="Nombre"><input autoFocus style={{ ...C.input, fontWeight: 600, fontSize: 17 }} value={nombre} maxLength={80} onChange={e => setNombre(e.target.value)} placeholder="Ej. Odiseo Eventos, Sala Apolo…" /></Field>
       <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Su enlace será {window.location.host}/o/{crm.slugDe(nombre || "tu-marca")}. Se puede cambiar después.</div>
     </Sheet>}
   </>);
@@ -150,7 +150,7 @@ function EditorOrg({ org, flash, isMobile, onVolver, onCambio, onBorrada, onNuev
     <section style={{ ...C.panel, padding: isMobile ? 14 : 18 }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
         <Tile n={i} s={36} />
-        <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 900, fontSize: 16 }}>{t}</div>{sub && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>{sub}</div>}</div>
+        <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 16 }}>{t}</div>{sub && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>{sub}</div>}</div>
         {extra}
       </div>
       {children}
@@ -168,7 +168,7 @@ function EditorOrg({ org, flash, isMobile, onVolver, onCambio, onBorrada, onNuev
     <div key="identidad" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {tarjeta("building", "Quiénes sois", null, <>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0 12px" }}>
-          <Field l="Nombre"><input style={{ ...C.input, fontWeight: 800, fontSize: 17 }} value={o.nombre} maxLength={80} onChange={e => set({ nombre: e.target.value })} /></Field>
+          <Field l="Nombre"><input style={{ ...C.input, fontWeight: 600, fontSize: 17 }} value={o.nombre} maxLength={80} onChange={e => set({ nombre: e.target.value })} /></Field>
           <Field l="Ciudad o zona"><input style={C.input} value={o.ciudad || ""} maxLength={120} placeholder="Ej. Albacete" onChange={e => set({ ciudad: e.target.value })} /></Field>
         </div>
         <Field l="Frase (sale bajo el nombre en la portada)"><input style={C.input} value={o.lema || ""} maxLength={160} placeholder="Ej. La discoteca más grande de La Mancha" onChange={e => set({ lema: e.target.value })} /></Field>
@@ -234,7 +234,7 @@ function EditorOrg({ org, flash, isMobile, onVolver, onCambio, onBorrada, onNuev
               <button onClick={() => mover(-1)} disabled={i === 0} aria-label={`Subir ${def.t}`} style={{ ...C.btnSm, width: 34, height: 34, padding: 0, justifyContent: "center", opacity: i === 0 ? .35 : 1 }}><Icon n="up" s={14} /></button>
               <button onClick={() => mover(1)} disabled={i === d.secciones.length - 1} aria-label={`Bajar ${def.t}`} style={{ ...C.btnSm, width: 34, height: 34, padding: 0, justifyContent: "center", opacity: i === d.secciones.length - 1 ? .35 : 1 }}><Icon n="chev" s={14} /></button>
             </span>
-            <span style={{ flex: 1, fontWeight: 800, opacity: s.on ? 1 : .55 }}>{def.t}</span>
+            <span style={{ flex: 1, fontWeight: 600, opacity: s.on ? 1 : .55 }}>{def.t}</span>
             <button type="button" role="switch" aria-checked={s.on} aria-label={`Mostrar ${def.t}`} onClick={() => setD({ secciones: d.secciones.map(x => x.k === s.k ? { ...x, on: !x.on } : x) })} style={{ ...C.switch, background: s.on ? "var(--green)" : "var(--line)" }}><span style={{ ...C.knob, transform: s.on ? "translateX(22px)" : "translateX(2px)" }} /></button>
           </div>); })}</div>
       ))}
@@ -254,7 +254,7 @@ function EditorOrg({ org, flash, isMobile, onVolver, onCambio, onBorrada, onNuev
       {tarjeta("alert", `Preguntas frecuentes (${d.faq.length})`, "Dress code, edad, cómo llegar, si se puede entrar con la entrada en el móvil…", <>
         {d.faq.map((x, i) => (
           <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 12, padding: 10, marginBottom: 10, background: "var(--surface2)" }}>
-            <input style={{ ...C.input, fontWeight: 800, marginBottom: 6 }} value={x.p} maxLength={140} placeholder="Pregunta" onChange={e => setD({ faq: d.faq.map((y, j) => j === i ? { ...y, p: e.target.value } : y) })} />
+            <input style={{ ...C.input, fontWeight: 600, marginBottom: 6 }} value={x.p} maxLength={140} placeholder="Pregunta" onChange={e => setD({ faq: d.faq.map((y, j) => j === i ? { ...y, p: e.target.value } : y) })} />
             <textarea style={{ ...C.input, minHeight: 60, resize: "vertical", fontFamily: "inherit" }} value={x.r} maxLength={800} placeholder="Respuesta" onChange={e => setD({ faq: d.faq.map((y, j) => j === i ? { ...y, r: e.target.value } : y) })} />
             <button onClick={() => setD({ faq: d.faq.filter((_, j) => j !== i) })} style={{ ...C.btnSm, marginTop: 6 }}><Icon n="trash" s={14} />Quitar</button>
           </div>))}
@@ -296,11 +296,11 @@ function EditorOrg({ org, flash, isMobile, onVolver, onCambio, onBorrada, onNuev
         <div>{req.map(r => (
           <button key={r.t} onClick={() => !r.ok && setPaso(r.paso)} style={{ ...C.listBtn, cursor: r.ok ? "default" : "pointer", padding: "11px 4px" }}>
             <span style={{ width: 28, height: 28, borderRadius: 28, display: "grid", placeItems: "center", flexShrink: 0, background: r.ok ? "var(--green)" : "color-mix(in srgb, var(--amber) 18%, transparent)", color: r.ok ? "#04231a" : "var(--amber)" }}><Icon n={r.ok ? "check" : "alert"} s={15} w={2.6} /></span>
-            <span style={{ flex: 1, fontWeight: 800, color: r.ok ? "var(--text)" : "var(--amber)" }}>{r.t}</span>
+            <span style={{ flex: 1, fontWeight: 600, color: r.ok ? "var(--text)" : "var(--amber)" }}>{r.t}</span>
             {!r.ok && <span style={{ ...C.btnSm, color: "var(--accent)" }}>Completar<Icon n="right" s={13} /></span>}
           </button>))}</div>))}
       <section style={{ ...C.hero, padding: isMobile ? 16 : 20 }}>
-        <div style={{ fontWeight: 900, fontSize: 18 }}>{o.publicada ? "Tu microsite está publicado" : "Publicar el microsite"}</div>
+        <div style={{ fontWeight: 700, fontSize: 18 }}>{o.publicada ? "Tu microsite está publicado" : "Publicar el microsite"}</div>
         <div style={{ fontSize: 13, color: "var(--muted)", margin: "4px 0 14px" }}>{o.publicada ? "Cualquiera con el enlace lo ve. Los cambios se ven al momento." : "Mientras no lo publiques, solo tú lo ves (con la sesión abierta)."}</div>
         {o.publicada
           ? <button onClick={() => { set({ publicada: false }); flash("Microsite oculto"); }} style={{ ...C.btnGhost, width: "100%" }}><Icon n="eyeOff" s={15} />Despublicar</button>
@@ -351,8 +351,8 @@ function EditorOrg({ org, flash, isMobile, onVolver, onCambio, onBorrada, onNuev
     <div style={{ display: "grid", gridTemplateColumns: lateral ? "minmax(0,1fr) 330px" : "1fr", gap: 18, alignItems: "start" }}>
       <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 14 }}>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 900, color: "var(--accent)", textTransform: "uppercase", letterSpacing: 1.4 }}>Paso {paso + 1} de 6</div>
-          <div style={{ fontSize: isMobile ? 22 : 26, fontWeight: 900 }}>{PASOS[paso].t}</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", textTransform: "uppercase", letterSpacing: 1.4 }}>Paso {paso + 1} de 6</div>
+          <div style={{ fontSize: isMobile ? 22 : 26, fontWeight: 700 }}>{PASOS[paso].t}</div>
           <div style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 2 }}>{PASOS[paso].sub}</div>
         </div>
         {contenido[paso]}
@@ -422,8 +422,8 @@ function FotoUna({ url, alto, contener, onFile, onQuitar, t }) {
       <button type="button" onClick={() => !busy && ref.current?.click()} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); tomar(e.dataTransfer.files?.[0]); }} aria-label={url ? `Cambiar ${t}` : `Subir ${t}`}
         style={{ position: "relative", width: "100%", height: alto, borderRadius: 16, border: `2px dashed ${url ? "transparent" : "var(--line)"}`, background: url && contener ? "repeating-conic-gradient(var(--surface2) 0 25%, var(--surface) 0 50%) 0 0/18px 18px" : "var(--surface2)", cursor: busy ? "wait" : "pointer", overflow: "hidden", padding: 0, display: "grid", placeItems: "center", color: "var(--muted)" }}>
         {url ? <img src={url} alt={t} style={{ width: "100%", height: "100%", objectFit: contener ? "contain" : "cover", padding: contener ? 14 : 0, boxSizing: "border-box" }} />
-          : <span style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, fontWeight: 800 }}><span style={{ width: 46, height: 46, borderRadius: 14, background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)", display: "grid", placeItems: "center" }}><Icon n="upload" s={20} /></span><span style={{ color: "var(--text)" }}>Subir {t.toLowerCase()}</span></span>}
-        {busy && <span style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.55)", color: "#fff", display: "grid", placeItems: "center", fontWeight: 900 }}>Subiendo…</span>}
+          : <span style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, fontWeight: 600 }}><span style={{ width: 46, height: 46, borderRadius: 14, background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)", display: "grid", placeItems: "center" }}><Icon n="upload" s={20} /></span><span style={{ color: "var(--text)" }}>Subir {t.toLowerCase()}</span></span>}
+        {busy && <span style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.55)", color: "#fff", display: "grid", placeItems: "center", fontWeight: 700 }}>Subiendo…</span>}
       </button>
       <input ref={ref} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; tomar(f); }} />
       {url && <div style={{ display: "flex", gap: 6, marginTop: 8 }}><button onClick={() => ref.current?.click()} style={C.btnSm}><Icon n="upload" s={14} />Cambiar</button><button onClick={onQuitar} style={C.btnSm}><Icon n="trash" s={14} />Quitar</button></div>}
@@ -443,7 +443,7 @@ function Galeria({ fotos, max, isMobile, onOrden, onSubir, etiqueta = "Portada" 
         {fotos.map((u, i) => (
           <div key={u + i} style={{ position: "relative", aspectRatio: "4/3", borderRadius: 12, overflow: "hidden", background: "var(--surface2)", border: "1px solid var(--line)" }}>
             <img src={u} alt={`Foto ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-            {i === 0 && <span style={{ position: "absolute", top: 6, left: 6, background: "rgba(0,0,0,.6)", color: "#fff", fontSize: 11, fontWeight: 800, borderRadius: 6, padding: "2px 7px" }}>{etiqueta}</span>}
+            {i === 0 && <span style={{ position: "absolute", top: 6, left: 6, background: "rgba(0,0,0,.6)", color: "#fff", fontSize: 11, fontWeight: 600, borderRadius: 6, padding: "2px 7px" }}>{etiqueta}</span>}
             <span style={{ position: "absolute", left: 6, right: 6, bottom: 6, display: "flex", justifyContent: "space-between" }}>
               <span style={{ display: "flex", gap: 4 }}>
                 <button onClick={() => mover(i, -1)} disabled={i === 0} aria-label="Mover a la izquierda" style={{ ...fb, opacity: i === 0 ? .4 : 1 }}><Icon n="right" s={14} style={{ transform: "rotate(180deg)" }} /></button>
@@ -453,7 +453,7 @@ function Galeria({ fotos, max, isMobile, onOrden, onSubir, etiqueta = "Portada" 
             </span>
           </div>))}
         {fotos.length < max && (
-          <button onClick={() => !busy && ref.current?.click()} style={{ aspectRatio: "4/3", borderRadius: 12, border: `2px dashed ${encima ? "var(--accent)" : "var(--line)"}`, background: encima ? "color-mix(in srgb, var(--accent) 8%, var(--surface2))" : "var(--surface2)", color: "var(--muted)", cursor: busy ? "wait" : "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, fontWeight: 800, fontSize: 13 }}>
+          <button onClick={() => !busy && ref.current?.click()} style={{ aspectRatio: "4/3", borderRadius: 12, border: `2px dashed ${encima ? "var(--accent)" : "var(--line)"}`, background: encima ? "color-mix(in srgb, var(--accent) 8%, var(--surface2))" : "var(--surface2)", color: "var(--muted)", cursor: busy ? "wait" : "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, fontWeight: 600, fontSize: 13 }}>
             <span style={{ width: 40, height: 40, borderRadius: 12, background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)", display: "grid", placeItems: "center" }}><Icon n="plus" s={20} w={2.4} /></span>
             {busy ? "Subiendo…" : "Añadir fotos"}
           </button>)}

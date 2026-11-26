@@ -111,8 +111,12 @@ async function checkout(b: any) {
   for (const t of tramos || []) {
     const n = (g.asistentes as any[]).filter((a) => a.tramo === t.id).length;
     if (!n) continue;
-    suma += cents(t.precio) * n;
-    lineas.push({ quantity: n, price_data: { currency: "eur", unit_amount: cents(t.precio), product_data: { name: `${ev?.nombre || "Entrada"} · ${t.nombre}` } } });
+    // Precio guardado al reservar (con el código descuento aplicado, si lo hay); si no, el de lista
+    const guardado = (g.asistentes as any[]).find((a) => a.tramo === t.id && a.precio != null)?.precio;
+    const unidad = cents(guardado != null ? Number(guardado) : t.precio);
+    if (unidad <= 0) continue;
+    suma += unidad * n;
+    lineas.push({ quantity: n, price_data: { currency: "eur", unit_amount: unidad, product_data: { name: `${ev?.nombre || "Entrada"} · ${t.nombre}${guardado != null && cents(guardado) < cents(t.precio) ? " (con descuento)" : ""}` } } });
   }
   if (suma !== cents(g.entradas)) return json({ ok: false, motivo: "precio_cambiado" });
   if (cents(g.gastos) > 0) lineas.push({ quantity: 1, price_data: { currency: "eur", unit_amount: cents(g.gastos), product_data: { name: "Gastos de gestión" } } });

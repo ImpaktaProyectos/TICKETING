@@ -8,7 +8,7 @@ import { avisosDe } from "./avisos";
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "../supabase";
-import { money, eur, fecha, cap, card, btn, Tramo, CAMPOS, ERRORES, Campo, Check, lbl, inpP, MIS, stepBtn, InfoPrivacidad, PRIVACIDAD_VERSION } from "./comun";
+import { money, eur, fecha, cap, card, btn, Tramo, CAMPOS, ERRORES, Campo, Check, lbl, inpP, MIS, stepBtn, InfoPrivacidad, PRIVACIDAD_VERSION, precioConDescuento } from "./comun";
 
 const CLAVE = (org) => "tixfast_carrito_" + org;
 const AVISO = "tixfast-carrito";
@@ -196,6 +196,20 @@ export function CompraVarios({ org, carrito, T, onVolver }) {
   const [novedades, setNovedades] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  // Código descuento: se comprueba en cada evento del carrito y se aplica solo donde vale
+  const [cod, setCod] = useState("");
+  const [descs, setDescs] = useState(null);        // { slug: resultado } | "cargando"
+  const aplicar = async () => {
+    const k = cod.trim().toUpperCase(); if (!k) { setDescs(null); return; }
+    setDescs("cargando");
+    const r = {};
+    await Promise.all(gs.map(async g => { try { const { data } = await supabase.rpc("web_descuento_comprobar", { p_slug: g.evento, p_codigo: k, p_email: null }); r[g.evento] = data; } catch { r[g.evento] = null; } }));
+    setDescs(r);
+  };
+  const descDe = (slug, n) => { const d = descs && descs !== "cargando" ? descs[slug] : null; return d?.ok && n >= (d.minimo || 1) ? d : null; };
+  const totalFinal = gs.reduce((s, g) => { const n = g.lineas.reduce((x, l) => x + l.cantidad, 0); const d = descDe(g.evento, n); return s + g.lineas.reduce((x, l) => x + precioConDescuento(l.precio, l.tramo, d) * l.cantidad, 0); }, 0);
+  const ahorro = Math.max(0, Math.round((total - totalFinal) * 100) / 100);
+  const algunoVale = descs && descs !== "cargando" && Object.values(descs).some(d => d?.ok);
   const set = (k, v) => setC(x => ({ ...x, [k]: v }));
   const plazasDe = (g) => g.lineas.flatMap(l => Array.from({ length: l.cantidad }, (_, k) => ({ tramo: l.tramo, nombreTramo: l.tramoNombre })));
   const a = (ev, i) => as[`${ev}|${i}`] || { nombre: "", dni: "" };
@@ -224,6 +238,7 @@ export function CompraVarios({ org, carrito, T, onVolver }) {
     try {
       const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: aceptaEdad, marketing: novedades, privacidad: PRIVACIDAD_VERSION };
       CAMPOS.forEach(f => { if (pedir(f.k) && c[f.k]) comprador[f.k] = String(c[f.k]).trim(); });
+      if (algunoVale) comprador.descuento = cod.trim().toUpperCase();
       const asistentes = gs.flatMap(g => plazasDe(g).map((p, i) => ({ evento: g.evento, tramo: p.tramo, nombre: a(g.evento, i).nombre.trim(), dni: dniAsis(g.evento) !== "no" ? a(g.evento, i).dni.trim() : "" })));
       const { data, error } = await supabase.rpc("web_comprar_varios", {
         p_org: org.slug, p_lineas: lineas.map(l => ({ evento: l.evento, tramo: l.tramo, cantidad: l.cantidad })), p_comprador: comprador, p_asistentes: asistentes, p_clave: clave,
@@ -231,7 +246,7 @@ export function CompraVarios({ org, carrito, T, onVolver }) {
       if (error) throw error;
       if (!data?.ok) {
         const k = String(data?.motivo || "");
-        const base = k.startsWith("falta_") ? `Falta: ${CAMPOS.find(f => f.k === k.slice(6))?.t || k.slice(6)}.` : k === "modos_mezclados" ? "No se pueden mezclar eventos de prueba y reales en la misma compra." : k === "evento_ajeno" ? "Uno de los eventos ya no pertenece a esta organización." : ERRORES[k] || "No se ha podido completar la compra.";
+        const base = k.startsWith("falta_") ? `Falta: ${CAMPOS.find(f => f.k === k.slice(6))?.t || k.slice(6)}.` : k === "modos_mezclados" ? "No se pueden mezclar eventos de prueba y reales en la misma compra." : k === "pago_no_disponible" ? "Las entradas de pago se compran en la página de cada evento" : k === "evento_ajeno" ? "Uno de los eventos ya no pertenece a esta organización." : ERRORES[k] || "No se ha podido completar la compra.";
         setErr(`${base}${data?.evento_nombre ? ` · ${data.evento_nombre}` : ""}${data?.tramo ? ` (${data.tramo}${data?.quedan != null ? `: quedan ${data.quedan}` : ""})` : ""}. No se ha cobrado ni emitido nada.`);
         setBusy(false); return;
       }
@@ -255,7 +270,17 @@ export function CompraVarios({ org, carrito, T, onVolver }) {
             {g.lineas.map(l => <div key={l.tramo} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "3px 0", fontWeight: 700, color: l.ok ? "var(--text)" : "#ff6b6b" }}>
               <span>{l.cantidad} × {l.tramoNombre}{!l.ok ? (l.t ? (l.t.quedan != null && l.t.estado === "venta" ? ` · quedan ${l.t.quedan}` : " · ya no está a la venta") : " · ya no existe") : ""}</span><span>{money(l.precio * l.cantidad)}</span></div>)}
           </div>))}
-        <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--line)", marginTop: 4, paddingTop: 10, fontWeight: 900, fontSize: 20 }}><span>Total</span><span>{total ? eur(total) : "Gratis"}</span></div>
+        {ahorro > 0 && <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontWeight: 800, color: "var(--c)" }}><span>Código {cod.trim().toUpperCase()}</span><span>−{money(ahorro)}</span></div>}
+        <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--line)", marginTop: 4, paddingTop: 10, fontWeight: 900, fontSize: 20 }}><span>Total</span><span>{totalFinal ? eur(totalFinal) : "Gratis"}</span></div>
+        {total > 0 && <div style={{ marginTop: 12 }}>
+          <label style={{ ...lbl, marginBottom: 6 }}><span>Código descuento</span>
+            <span style={{ display: "flex", gap: 8 }}>
+              <input value={cod} onChange={e => { setCod(e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 30)); setDescs(null); }} autoCapitalize="characters" autoComplete="off" style={{ ...inpP, flex: 1, minWidth: 0, letterSpacing: ".06em" }} />
+              <button type="button" onClick={aplicar} disabled={!cod || descs === "cargando"} style={{ ...btn("var(--card2)", "var(--text)"), border: "1px solid var(--line)", padding: "0 18px", minHeight: 48, fontSize: 15, flexShrink: 0 }}>{descs === "cargando" ? "…" : "Aplicar"}</button>
+            </span>
+          </label>
+          {descs && descs !== "cargando" && <div role="status" style={{ fontSize: 14, fontWeight: 800, color: algunoVale ? "var(--c)" : "#ff6b6b" }}>{algunoVale ? (gs.every(g => descs[g.evento]?.ok) ? "Código aplicado." : "Código aplicado solo en los eventos donde vale.") : ERRORES[Object.values(descs).find(d => d?.motivo)?.motivo] || "Ese código no vale para estos eventos."}</div>}
+        </div>}
       </div>
 
       <div style={{ ...card, marginTop: 12 }}>
@@ -297,7 +322,7 @@ export function CompraVarios({ org, carrito, T, onVolver }) {
 
       {err && <div role="alert" style={{ marginTop: 12, background: "#c62828", color: "#fff", borderRadius: 12, padding: "12px 14px", fontWeight: 800 }}>{err}</div>}
       <button type="submit" disabled={busy || problemas.length > 0} style={{ ...btn(T.d.color, T.tinta), width: "100%", marginTop: 14, padding: "18px", fontSize: 18, opacity: busy || problemas.length ? .6 : 1 }}>
-        {busy ? "Emitiendo tus entradas…" : total && !prueba ? `Pagar ${eur(total)}` : `Conseguir mis entradas${gs.length > 1 ? ` (${gs.length} eventos)` : ""}`}
+        {busy ? "Emitiendo tus entradas…" : totalFinal && !prueba ? `Pagar ${eur(totalFinal)}` : `Conseguir mis entradas${gs.length > 1 ? ` (${gs.length} eventos)` : ""}`}
       </button>
       {prueba && <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13, marginTop: 8 }}>Venta de prueba: no se cobra nada y las entradas no son válidas.</div>}
       <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 12.5, marginTop: 8 }}>Se compra todo o nada: si una entrada se agota en este momento, no se emite ninguna.</div>

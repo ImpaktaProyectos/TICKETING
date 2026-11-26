@@ -19,6 +19,7 @@ export function Invitaciones({ ev, events, flash }) {
   const [nueva, setNueva] = useState(null);
   const [hecha, setHecha] = useState(null);           // invitación recién creada (para compartir)
   const [busy, setBusy] = useState(false);
+  const [espera, setEspera] = useState([]);
 
   useEffect(() => { crm.webListar().then(setConVenta).catch(() => setConVenta({})); }, []);
   const eventos = useMemo(() => (events || []).filter(e => conVenta?.[e.id]).sort((a, b) => String(b.startsAt || b.date || "").localeCompare(String(a.startsAt || a.date || ""))), [events, conVenta]);
@@ -27,11 +28,12 @@ export function Invitaciones({ ev, events, flash }) {
     setLista(null);
     crm.webCargar(eventoId).then(x => setTramos(x?.tramos || [])).catch(() => setTramos([]));
     crm.invitacionesListar(eventoId).then(setLista).catch(() => setLista([]));
+    crm.esperaListar(eventoId).then(setEspera).catch(() => setEspera([]));
   };
   useEffect(cargar, [eventoId]);
   const evSel = (events || []).find(e => e.id === eventoId) || ev;
 
-  const abrir = () => setNueva({ tramoId: tramos[0]?.id || "", nombre: "", email: "", cantidad: 1, aforo: true, nota: "" });
+  const abrir = (de = {}) => setNueva({ tramoId: tramos[0]?.id || "", nombre: "", email: "", cantidad: 1, aforo: true, nota: "", ...de });
   const crear = async () => {
     const n = nueva;
     if (!n.tramoId) return flash("Elige el tipo de entrada", "warn");
@@ -44,6 +46,7 @@ export function Invitaciones({ ev, events, flash }) {
       const m = envio?.ok ? "enviado" : envio?.motivo;
       flash(CORREO[m] || "Invitación creada. No se ha podido enviar el correo: comparte el enlace", m === "enviado" ? undefined : "warn");
       setHecha({ acceso: r.acceso, nombre: n.nombre.trim(), email: n.email.trim(), enviado: m === "enviado" });
+      if (n.esperaId) await crm.esperaAvisado([n.esperaId]).catch(() => {});
       setNueva(null); cargar();
     } catch (e) { flash(e.message || "No se ha podido crear", "warn"); } finally { setBusy(false); }
   };
@@ -76,7 +79,7 @@ export function Invitaciones({ ev, events, flash }) {
             </select>
           </Field>
         </div>
-        <button onClick={abrir} disabled={!tramos.length} style={{ ...C.btnPrimary, minHeight: 48, flex: isMobile ? "1 1 100%" : "0 0 auto" }}><Icon n="plus" s={16} w={2.4} />Nueva invitación</button>
+        <button onClick={() => abrir()} disabled={!tramos.length} style={{ ...C.btnPrimary, minHeight: 48, flex: isMobile ? "1 1 100%" : "0 0 auto" }}><Icon n="plus" s={16} w={2.4} />Nueva invitación</button>
       </div>
       {!tramos.length && lista && <div style={{ ...C.panel, color: "var(--amber)", fontWeight: 700 }}>Este evento aún no tiene tipos de entrada. Créalos en «Eventos › Entradas».</div>}
 
@@ -103,6 +106,32 @@ export function Invitaciones({ ev, events, flash }) {
               </span>}
             </div>); })}
       </Seccion>
+
+      {espera.length > 0 && (
+        <Seccion id="inv-espera" i="clock" t="Lista de espera" sub="Gente que se apuntó cuando estaba agotado. Invítales o avísales si sacas más entradas." total={`${espera.reduce((n, x) => n + x.cantidad, 0)} entradas`}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            <button onClick={() => copiar(espera.filter(x => !x.avisado_en).map(x => x.email).join(", "), "Correos copiados")} style={C.btnSm}><Icon n="copy" s={14} />Copiar correos sin avisar</button>
+            <button onClick={() => {
+              const filas = [["Nombre", "Correo", "Entradas", "Acepta novedades", "Apuntado", "Avisado"], ...espera.map(x => [x.nombre, x.email, x.cantidad, x.marketing ? "sí" : "no", new Date(x.creado_en).toLocaleString("es-ES"), x.avisado_en ? new Date(x.avisado_en).toLocaleString("es-ES") : ""])];
+              const blob = new Blob(["\ufeff" + filas.map(f => f.map(c => String(c).replace(/[;\r\n]+/g, " ").replace(/^([=+\-@])/, "'$1")).join(";")).join("\n")], { type: "text/csv;charset=utf-8" });
+              const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "lista-de-espera.csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+            }} style={C.btnSm}><Icon n="file" s={14} />CSV</button>
+            {espera.some(x => !x.avisado_en) && <button onClick={async () => { await crm.esperaAvisado(espera.filter(x => !x.avisado_en).map(x => x.id)); flash("Marcados como avisados"); cargar(); }} style={C.btnSm}><Icon n="check" s={14} />Marcar todos como avisados</button>}
+          </div>
+          {espera.map(x => (
+            <div key={x.id} style={{ ...C.row, flexWrap: "wrap", opacity: x.avisado_en ? .6 : 1 }}>
+              <span style={{ flex: "1 1 200px", minWidth: 0 }}>
+                <b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.nombre}</b>
+                <span style={{ display: "block", fontSize: 12.5, color: "var(--muted)", overflowWrap: "anywhere" }}>{x.email} · quiere {x.cantidad} · {fechaCorta(x.creado_en)}{x.avisado_en ? " · avisado" : ""}</span>
+              </span>
+              <span style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => abrir({ nombre: x.nombre, email: x.email, cantidad: Math.min(20, x.cantidad), esperaId: x.id })} disabled={!tramos.length} style={C.btnSm}><Icon n="mail" s={14} />Invitar</button>
+                <a href={`mailto:${x.email}?subject=${encodeURIComponent(`Entradas para ${evSel.name}`)}&body=${encodeURIComponent(`¡Hola, ${x.nombre.split(" ")[0]}! Te apuntaste a la lista de espera de ${evSel.name}. Ya hay entradas disponibles: ${conVenta?.[eventoId]?.slug ? `${window.location.origin}/e/${conVenta[eventoId].slug}` : ""}`)}`} onClick={() => crm.esperaAvisado([x.id]).then(cargar).catch(() => {})} style={{ ...C.btnSm, textDecoration: "none" }}>Avisar</a>
+                <button onClick={async () => { await crm.esperaBorrar(x.id); cargar(); }} aria-label={`Quitar a ${x.nombre} de la lista`} style={{ ...C.btnSm, width: 44, justifyContent: "center" }}><Icon n="trash" s={14} /></button>
+              </span>
+            </div>))}
+        </Seccion>
+      )}
 
       {nueva && (
         <Sheet title="Nueva invitación" onClose={() => setNueva(null)}
