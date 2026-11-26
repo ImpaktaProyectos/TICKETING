@@ -35,11 +35,19 @@ const guardar = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } 
 export const usadosLocales = (ev) => leer(kUsados(ev), {});          // { "uuid:idx": { t, barra, disp } }
 export function marcarUsado(ev, clave, info) { const u = usadosLocales(ev); u[clave] = { t: Date.now(), ...info }; guardar(kUsados(ev), u); }
 
+// Solo se piden los canjes NUEVOS desde la última vez (recibido_en): con 30 escáneres y 20.000 canjes,
+// descargarlo todo cada 15 s en cada móvil era el segundo mayor gasto de la base de datos.
+// La primera vez (o tras borrar los datos del móvil) se descarga todo.
+const kCurCanjes = (ev) => scopedKey("tixfast_qr_cursor_" + ev);
 export async function descargarCanjes(eventoId, puntos = []) {
   const nombre = (id) => puntos.find(p => p.id === id)?.name || "";
+  const cur = leer(kCurCanjes(eventoId), null);
+  const desde = cur && Number.isFinite(Date.parse(cur)) ? new Date(Date.parse(cur) - 60000).toISOString() : null;   // 1 min de margen
   const out = []; const page = 1000;
   for (let from = 0; ; from += page) {
-    const { data, error } = await supabase.from("ticket_canjes").select("venta_uuid, idx, canjeado_en, punto_id, dispositivo").eq("evento_id", eventoId).order("canjeado_en").range(from, from + page - 1);
+    let q = supabase.from("ticket_canjes").select("venta_uuid, idx, canjeado_en, punto_id, dispositivo, recibido_en").eq("evento_id", eventoId);
+    if (desde) q = q.gt("recibido_en", desde);
+    const { data, error } = await q.order("recibido_en").order("id").range(from, from + page - 1);
     if (error) throw error;
     out.push(...(data || []));
     if (!data || data.length < page) break;
@@ -47,6 +55,8 @@ export async function descargarCanjes(eventoId, puntos = []) {
   const u = usadosLocales(eventoId);
   out.forEach(c => { const k = `${c.venta_uuid}:${c.idx}`; if (!u[k] || u[k].local) u[k] = { t: new Date(c.canjeado_en).getTime(), barra: nombre(c.punto_id), disp: c.dispositivo || "" }; });
   guardar(kUsados(eventoId), u);
+  const ultimo = out.reduce((m, c) => (c.recibido_en && (!m || c.recibido_en > m) ? c.recibido_en : m), cur);
+  if (ultimo) guardar(kCurCanjes(eventoId), ultimo);
   return out.length;
 }
 
@@ -76,28 +86,42 @@ export function subirCola(eventoId, puntoId) {
 }
 
 /* ---------- Informe ---------- */
+// El servidor devuelve como mucho 1.000 filas por consulta: se piden por páginas (antes, con más de
+// 1.000 canjes el informe se quedaba corto y daba menos canjeados de los reales).
 export async function cargarInformeQR(eventoId) {
-  const [c, r] = await Promise.all([
-    supabase.from("ticket_canjes").select("venta_uuid, idx, unidades, nombre, punto_venta_id, punto_id, dispositivo, origen, sin_conexion, venta_pendiente, canjeado_en").eq("evento_id", eventoId).order("canjeado_en", { ascending: false }).limit(5000),
-    supabase.from("ticket_canje_rechazos").select("motivo, detalle, punto_id, dispositivo, sin_conexion, creado_en").eq("evento_id", eventoId).order("creado_en", { ascending: false }).limit(1000),
-  ]);
-  if (c.error) throw c.error;
-  if (r.error) throw r.error;
-  return { canjes: c.data || [], rechazos: r.data || [] };
+  const canjes = [], page = 1000, MAX = 50000;
+  const r = supabase.from("ticket_canje_rechazos").select("motivo, detalle, punto_id, dispositivo, sin_conexion, creado_en").eq("evento_id", eventoId).order("creado_en", { ascending: false }).limit(1000);
+  for (let from = 0; from < MAX; from += page) {
+    const { data, error } = await supabase.from("ticket_canjes").select("venta_uuid, idx, unidades, nombre, punto_venta_id, punto_id, dispositivo, origen, sin_conexion, venta_pendiente, canjeado_en").eq("evento_id", eventoId).order("canjeado_en", { ascending: false }).order("id").range(from, from + page - 1);
+    if (error) throw error;
+    canjes.push(...(data || []));
+    if (!data || data.length < page) break;
+  }
+  const rr = await r;
+  if (rr.error) throw rr.error;
+  return { canjes, rechazos: rr.data || [] };
 }
 
 /* ---------- Entradas online del evento (para validar también SIN internet) ----------
    Se descarga la lista (anuladas, reemitidas, titular) y desde cuándo vale el QR. */
 const kWeb = (ev) => scopedKey("tixfast_qr_web_" + ev);
 export const webLocal = (ev) => leer(kWeb(ev), { horas: 24, entradas: {} });
-export async function descargarWeb(eventoId) {
-  const [f, x] = await Promise.all([
-    supabase.from("ticket_web_eventos").select("qr_horas_antes").eq("evento_id", eventoId).maybeSingle(),
-    supabase.from("ticket_web_entradas").select("id, emision, estado, asistente, tramo_nombre, numero, prueba").eq("evento_id", eventoId).limit(50000),
-  ]);
-  if (f.error || x.error) throw f.error || x.error;
-  const entradas = {};
-  (x.data || []).forEach(e => { entradas[e.id] = { e: e.emision, a: e.estado === "anulada" ? 1 : 0, n: e.asistente, t: e.tramo_nombre, num: e.numero, p: e.prueba ? 1 : 0 }; });
+// Entradas online del evento (para validar sin internet). Cambian poco: se descargan como mucho cada
+// 5 minutos (antes, cada 15 s en cada escáner). Por páginas de 1.000, porque el servidor no devuelve
+// más de 1.000 filas por consulta: con más entradas, las de más allá se quedaban fuera.
+const CADA_WEB_MS = 5 * 60000;
+export async function descargarWeb(eventoId, { forzar = false } = {}) {
+  const previo = leer(kWeb(eventoId), null);
+  if (!forzar && previo?.t && Date.now() - previo.t < CADA_WEB_MS) return Object.keys(previo.entradas || {}).length;
+  const f = await supabase.from("ticket_web_eventos").select("qr_horas_antes").eq("evento_id", eventoId).maybeSingle();
+  if (f.error) throw f.error;
+  const entradas = {}; const page = 1000;
+  for (let from = 0; ; from += page) {
+    const { data, error } = await supabase.from("ticket_web_entradas").select("id, emision, estado, asistente, tramo_nombre, numero, prueba").eq("evento_id", eventoId).order("numero").range(from, from + page - 1);
+    if (error) throw error;
+    (data || []).forEach(e => { entradas[e.id] = { e: e.emision, a: e.estado === "anulada" ? 1 : 0, n: e.asistente, t: e.tramo_nombre, num: e.numero, p: e.prueba ? 1 : 0 }; });
+    if (!data || data.length < page) break;
+  }
   guardar(kWeb(eventoId), { horas: f.data?.qr_horas_antes ?? 24, entradas, t: Date.now() });
   return Object.keys(entradas).length;
 }

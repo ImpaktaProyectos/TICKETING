@@ -15,7 +15,7 @@ const evFromDb = (e) => ({
   pin_admin: e.pin_admin, pin_supervisor: e.pin_supervisor, pin_admin_huella: e.pin_admin_huella || null, pin_supervisor_huella: e.pin_supervisor_huella || null,
   puntos: (e.ticket_puntos || []).map(puntoFromDb),
 });
-const saleFromDb = (s) => ({ id: s.id, clientUuid: s.client_uuid, code: s.codigo, num: s.numero, eventId: s.evento_id, puntoId: s.punto_id, productId: s.producto_id, name: s.nombre, price: Number(s.precio), ts: new Date(s.creado_en).getTime(), voided: s.anulada, closureId: s.closure_id, operario: s.operario, pago: s.metodo_pago, invite: /^invitacion/.test(s.metodo_pago || ""), inviteValue: /^invitacion/.test(s.metodo_pago || "") ? (Number(String(s.metodo_pago).split(":")[1]) || 0) : 0, entregado: s.entregado != null ? Number(s.entregado) : null, cambio: s.cambio != null ? Number(s.cambio) : null, synced: true });
+const saleFromDb = (s) => ({ id: s.id, clientUuid: s.client_uuid, code: s.codigo, num: s.numero, eventId: s.evento_id, puntoId: s.punto_id, productId: s.producto_id, name: s.nombre, price: Number(s.precio), ts: new Date(s.creado_en).getTime(), voided: s.anulada, closureId: s.closure_id, operario: s.operario, pago: s.metodo_pago, invite: /^invitacion/.test(s.metodo_pago || ""), inviteValue: /^invitacion/.test(s.metodo_pago || "") ? (Number(String(s.metodo_pago).split(":")[1]) || 0) : 0, entregado: s.entregado != null ? Number(s.entregado) : null, cambio: s.cambio != null ? Number(s.cambio) : null, upd: s.actualizado_en || s.creado_en || null, synced: true });
 const gastoFromDb = (g) => ({ tipo: g.tipo === "entrada" ? "entrada" : "gasto", id: g.id, eventId: g.evento_id, puntoId: g.punto_id, importe: Number(g.importe), concepto: g.concepto || "", categoria: g.categoria || "", crmGastoId: g.crm_gasto_id || null, por: g.registrado_por || "", ts: new Date(g.creado_en).getTime(), voided: !!g.anulado, closureId: g.closure_id, synced: true });
 const closureFromDb = (c) => ({ id: c.id, eventId: c.evento_id, puntoId: c.punto_id, count: c.tickets, revenue: Number(c.facturacion), voids: c.anulaciones, lines: c.detalle || [], efectivo: Number(c.efectivo || 0), tarjeta: Number(c.tarjeta || 0), fondo: Number(c.fondo || 0), contado: c.contado != null ? Number(c.contado) : null, gastos: Number(c.gastos || 0), entradas: Number(c.entradas || 0), esperado: c.esperado != null ? Number(c.esperado) : null, ts: new Date(c.creado_en).getTime(), por: c.cerrado_por || "", revertidoEn: c.revertido_en || null, revertidoPor: c.revertido_por || "" });
 
@@ -40,17 +40,60 @@ async function fetchAll(buildQuery, pageSize = 1000) {
   return out;
 }
 
-export async function loadAll() {
+// Todas las ventas de un evento, por tramos de número de ticket (no por páginas con salto):
+// cada tramo usa el índice (dueño, evento, número) y cuesta lo mismo sea el primero o el 30.º.
+// Antes, cada página de 1.000 ordenaba todas las ventas de la cuenta (700 ms un festival; ahora 30 ms).
+// Solo las columnas que usa la app (sin dueño ni datos internos de la anulación: ~20 % menos por venta)
+const COLS_VENTA = "id, client_uuid, codigo, numero, evento_id, punto_id, producto_id, nombre, precio, creado_en, anulada, closure_id, operario, metodo_pago, entregado, cambio";
+let colsVenta = COLS_VENTA + ", actualizado_en";   // sin la migración de rendimiento, la columna aún no existe
+async function fetchVentasEvento(eventId, pageSize = 1000) {
+  const out = [], vistos = new Set();
+  let desde = 0;
+  for (;;) {
+    let { data, error } = await supabase.from("ticket_ventas").select(colsVenta).eq("evento_id", eventId).gte("numero", desde)
+      .order("numero", { ascending: true }).order("id", { ascending: true }).limit(pageSize);
+    if (error && colsVenta !== COLS_VENTA && /actualizado_en/i.test(error.message || "")) { colsVenta = COLS_VENTA; continue; }
+    if (error) throw error;
+    const nuevas = (data || []).filter(r => !vistos.has(r.id));
+    nuevas.forEach(r => { vistos.add(r.id); out.push(r); });
+    if (!data || data.length < pageSize || !nuevas.length) break;
+    desde = data[data.length - 1].numero;   // «desde» incluido: si dos ventas compartieran número, no se pierde ninguna
+  }
+  return out;
+}
+// Varias tareas a la vez, como mucho «n» (para no lanzar 50 descargas de golpe)
+async function enParalelo(items, n, fn) {
+  const out = new Array(items.length); let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) { const k = i++; out[k] = await fn(items[k]); } }));
+  return out;
+}
+
+async function loadEventosDb() {
   // Los eventos de la papelera no se cargan (si la base aún no tiene papelera, se cargan todos)
   const base = () => supabase.from("ticket_eventos").select("*, ticket_puntos(*, ticket_productos(*))").order("fecha", { ascending: true });
   let { data: eventos, error } = await base().is("borrado_en", null);
   if (error && /borrado_en/.test(error.message || "")) ({ data: eventos, error } = await base());
   if (error) throw error;
+  return eventos || [];
+}
+// Solo la configuración (eventos, barras, productos) y los cierres Z: lo que cambia cuando otro equipo
+// abre una barra, declara el fondo, marca un producto agotado o cierra una Z. Las ventas NO se recargan
+// aquí (van por el refresco incremental): antes cada uno de esos cambios hacía que todos los equipos
+// de la cuenta descargaran todas las ventas de todos los eventos.
+export async function loadConfig() {
+  const eventos = await loadEventosDb();
+  const eventIds = eventos.map(e => e.id);
+  const closures = eventIds.length ? await fetchAll(() => supabase.from("ticket_cierres").select("*").in("evento_id", eventIds).order("creado_en", { ascending: true }).order("id", { ascending: true })) : [];
+  return { events: eventos.map(evFromDb), closures: closures.map(closureFromDb) };
+}
+
+export async function loadAll() {
+  const eventos = await loadEventosDb();
   const eventIds = (eventos || []).map(e => e.id);
   let sales = [], closures = [], gastos = [];
   if (eventIds.length) {
     const [v, c, g] = await Promise.all([
-      fetchAll(() => supabase.from("ticket_ventas").select("*").in("evento_id", eventIds).order("creado_en", { ascending: true }).order("id", { ascending: true })),
+      enParalelo(eventIds, 4, fetchVentasEvento).then(listas => listas.flat().sort((a, b) => String(a.creado_en).localeCompare(String(b.creado_en)) || String(a.id).localeCompare(String(b.id)))),
       fetchAll(() => supabase.from("ticket_cierres").select("*").in("evento_id", eventIds).order("creado_en", { ascending: true }).order("id", { ascending: true })),
       fetchAll(() => supabase.from("ticket_gastos").select("*").in("evento_id", eventIds).order("creado_en", { ascending: true }).order("id", { ascending: true })).catch(() => []),
     ]);
@@ -70,8 +113,25 @@ export async function loadClosures(eventId) {
   return rows.map(closureFromDb);
 }
 export async function loadSales(eventId) {
-  const rows = await fetchAll(() => supabase.from("ticket_ventas").select("*").eq("evento_id", eventId).order("creado_en", { ascending: true }).order("id", { ascending: true }));
-  return rows.map(saleFromDb);
+  return (await fetchVentasEvento(eventId)).map(saleFromDb);
+}
+// Hasta qué momento (hora del servidor) están al día unas ventas: el cambio más reciente que traen
+export const cursorVentas = (sales) => sales.reduce((m, x) => (x.upd && (!m || x.upd > m) ? x.upd : m), null);
+// Solo las ventas creadas o cambiadas (anuladas, cerradas en una Z…) desde «desde».
+// Con margen de 30 s por si una venta se guardó justo mientras se preguntaba.
+// Devuelve null si hay que cargar todo: la base de datos aún no tiene la columna, o han cambiado
+// demasiadas a la vez (p. ej. una Z de una barra grande).
+const MARGEN_CAMBIOS_MS = 30000, MAX_CAMBIOS = 1000;
+export async function loadSalesCambios(eventId, desde) {
+  if (!desde) return null;
+  const t = Date.parse(desde);
+  if (!Number.isFinite(t)) return null;
+  const { data, error } = await supabase.from("ticket_ventas").select(COLS_VENTA + ", actualizado_en").eq("evento_id", eventId)
+    .gt("actualizado_en", new Date(t - MARGEN_CAMBIOS_MS).toISOString())
+    .order("actualizado_en", { ascending: true }).order("id", { ascending: true }).limit(MAX_CAMBIOS);
+  if (error) { if (/actualizado_en/i.test(error.message || "")) return null; throw error; }
+  if ((data || []).length >= MAX_CAMBIOS) return null;
+  return (data || []).map(saleFromDb);
 }
 
 // Si la cuenta no tiene eventos aún, crea uno por defecto para arrancar.
@@ -193,9 +253,37 @@ export function limpiarCopiaLocal() {
 }
 const QKEY = "ticketera_pending";
 const loadQ = () => { try { const q = JSON.parse(localStorage.getItem(scopedKey(QKEY)) || "[]"); return Array.isArray(q) ? q : []; } catch { return []; } };
-const saveQ = (q) => { try { localStorage.setItem(scopedKey(QKEY), JSON.stringify(q)); } catch (e) { console.error("No se pudo guardar la cola", e); } };
+// La cola es lo ÚNICO imprescindible del equipo. El almacenamiento del navegador ronda los 5 MB para
+// todo (copia de la app para trabajar sin internet, entradas online, tickets escaneados…): si se llena,
+// se libera primero lo que se puede volver a descargar y se reintenta. Si aun así no cabe, se avisa.
+let colaSinSitio = false;
+export const colaLlena = () => colaSinSitio;
+function liberarSitio() {
+  let libre = false;
+  try {   // 1) la copia para trabajar sin internet se queda sin sus ventas (conserva eventos y productos)
+    const k = scopedKey("ticketera_snapshot"), snap = JSON.parse(localStorage.getItem(k) || "null");
+    if (snap?.sales?.length) { localStorage.setItem(k, JSON.stringify({ ...snap, sales: [] })); libre = true; }
+  } catch {}
+  try {   // 2) listas que se vuelven a descargar solas en cuanto hay internet
+    const borrar = [];
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && /^(tixfast_qr_web_|tixfast_previstos_|tixfast_reservados_)/.test(k)) borrar.push(k); }
+    borrar.forEach(k => localStorage.removeItem(k)); if (borrar.length) libre = true;
+  } catch {}
+  return libre;
+}
+const saveQ = (q) => {
+  const txt = JSON.stringify(q);
+  try { localStorage.setItem(scopedKey(QKEY), txt); colaSinSitio = false; return true; }
+  catch (e) {
+    try { if (liberarSitio()) { localStorage.setItem(scopedKey(QKEY), txt); colaSinSitio = false; return true; } } catch {}
+    colaSinSitio = true;
+    console.error("No se pudo guardar la cola", e);
+    registrarError("cola", e, `memoria llena · ${q.length} pendientes`);
+    return false;
+  }
+};
 const newQid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random());
-const enqueue = (item) => { const q = loadQ(); q.push({ ...item, qid: item.qid || newQid() }); saveQ(q); };
+const enqueue = (item) => { const q = loadQ(); q.push({ ...item, qid: item.qid || newQid() }); return saveQ(q); };
 const removeQids = (ids) => { if (!ids.length) return; const set = new Set(ids); saveQ(loadQ().filter(it => !set.has(it.qid))); };
 export const pendingCount = () => loadQ().length;
 
@@ -216,6 +304,8 @@ export function pendingSales() {
   });
   return out;
 }
+// Eventos con algo pendiente de subir en este equipo
+export function pendingEventos() { const s = new Set(); loadQ().forEach(it => { const e = it.args?.p_evento || it.evento || it.row?.evento_id; if (e) s.add(e); }); return s; }
 export function pendingVoidUuids() { const s = new Set(); loadQ().forEach(it => { if (it.op === "anularVenta") s.add(it.clientUuid); }); return s; }
 
 const isDuplicate = (err) => err && (err.code === "23505" || /duplicate key/i.test(err.message || ""));
@@ -277,19 +367,35 @@ const addFailed = (it, err) => { registrarError("sincronizar", err, `operación:
 
 // Candado: una sola sincronización a la vez
 let syncing = null;
+let loteDisponible = null;   // la base de datos aún no tiene ticket_vender_lote → se sube de una en una
 export function syncPending() {
   if (syncing) return syncing;
   syncing = (async () => {
     const q = loadQ(); const done = [];
+    let sinLote = loteDisponible === false;
     try {
-      for (const it of q) {
+      for (let i = 0; i < q.length; i++) {
+        const it = q[i];
         if (!it.qid) it.qid = newQid();
+        // Varias ventas seguidas: se suben de golpe (hasta 100 por petición), en el mismo orden.
+        // Si el lote falla por lo que sea, se sigue de una en una como siempre.
+        if (it.op === "vender" && !sinLote) {
+          let j = i; while (j < q.length && j - i < 100 && q[j].op === "vender" && q[j].args) j++;
+          if (j - i >= 2) {
+            const lote = q.slice(i, j);
+            const { error } = await supabase.rpc("ticket_vender_lote", { p_ventas: lote.map(x => x.args) });
+            if (!error) { lote.forEach(x => { if (!x.qid) x.qid = newQid(); done.push(x.qid); }); i = j - 1; continue; }
+            if (error.code === "PGRST202" || /schema cache/i.test(error.message || "")) loteDisponible = false;   // la base aún no tiene la función
+            if (!isServerError(error)) break;                // sin red: se para aquí, como siempre
+            sinLote = true;                                  // en esta subida, ya de una en una
+          }
+        }
         try { await runItem(it); done.push(it.qid); }
         catch (err) {
           if (isServerError(err)) {
             const tries = (it.tries || 0) + 1;
             if (tries >= 5) { addFailed(it, err); done.push(it.qid); continue; }   // no bloquea la cola
-            const cur = loadQ(); const i = cur.findIndex(x => x.qid === it.qid); if (i > -1) { cur[i].tries = tries; saveQ(cur); }
+            const cur = loadQ(); const k = cur.findIndex(x => x.qid === it.qid); if (k > -1) { cur[k].tries = tries; saveQ(cur); }
           }
           break;                                            // orden estricto: paramos aquí
         }
@@ -312,7 +418,12 @@ async function doOrQueue(item) {
   // PRIMERO se guarda en el equipo y DESPUÉS se sube: si se corta el wifi, se apaga
   // el ordenador o el wifi está "conectado pero sin internet", la venta nunca se pierde.
   const it = { ...item, qid: item.qid || newQid() };
-  enqueue(it);
+  if (!enqueue(it)) {
+    // No cabe en el equipo (memoria llena). Con internet, las ventas, gastos y copias se suben ya
+    // directamente; lo demás (anulaciones, Z…) no puede adelantarse a lo pendiente: se avisa.
+    if (navigator.onLine && ["vender", "gasto", "backup"].includes(it.op)) { try { await runItem(it); return { offline: false }; } catch {} }
+    return { offline: true, sinGuardar: true };
+  }
   if (!navigator.onLine) return { offline: true };
   const inQ = () => loadQ().some(x => x.qid === it.qid);
   const until = Date.now() + 6000;
@@ -346,12 +457,16 @@ export async function vincularGastoCRM(gastoId, crmGastoId) {
   if (crmGastoId && !data?.crm_gasto_id) throw Object.assign(new Error("Ese gasto del CRM no es de este evento"), { mostrar: true });
   return data?.crm_gasto_id || null;
 }
+let enlaceCRM = false;
 export async function loadPrevistosCRM(eventoId) {
   const key = scopedKey("tixfast_previstos_" + eventoId);
   try {
     // Sin la migración que enlaza caja y CRM, la lista no se muestra (así nunca se paga dos veces lo mismo)
-    const probe = await supabase.from("ticket_gastos").select("crm_gasto_id").limit(1);
-    if (probe.error) { if (/crm_gasto_id/i.test(probe.error.message || "")) { try { localStorage.removeItem(key); } catch {} return []; } throw probe.error; }
+    if (!enlaceCRM) {   // ¿la base ya enlaza caja y CRM? se pregunta una vez por sesión
+      const probe = await supabase.from("ticket_gastos").select("crm_gasto_id").limit(1);
+      if (probe.error) { if (/crm_gasto_id/i.test(probe.error.message || "")) { try { localStorage.removeItem(key); } catch {} return []; } throw probe.error; }
+      enlaceCRM = true;
+    }
     const { data, error } = await supabase.from("ticket_crm_gastos").select("id, padre_id, tipo, categoria, concepto, proveedor, previsto, real, estado, personas, horas, precio_hora").eq("evento_id", eventoId).order("creado_en", { ascending: true });
     if (error) throw error;
     const filas = (data || []).map(g => ({ id: g.id, padreId: g.padre_id || null, tipo: g.tipo, categoria: g.categoria || "", concepto: g.concepto || "", proveedor: g.proveedor || "", previsto: g.previsto != null ? Number(g.previsto) : null, real: g.real != null ? Number(g.real) : null, estado: g.estado || "previsto" }));
@@ -483,20 +598,44 @@ export async function resetStats(eventId) {
 /* ===================== REALTIME ===================== */
 // Cambios de configuración hechos desde OTRO equipo de la misma cuenta (RLS: solo llegan los de esta cuenta)
 export function subscribeConfig(onChange) {
+  // Con el filtro por cuenta, el servidor de avisos descarta al momento los cambios de las demás cuentas
+  // (sin filtro tenía que comprobar cada cambio de toda la plataforma contra cada equipo conectado)
+  const f = SCOPE ? { filter: `owner_id=eq.${SCOPE}` } : {};
   const ch = supabase.channel("cfg-" + Math.random().toString(36).slice(2))
-    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_eventos" }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_puntos" }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_productos" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_eventos", ...f }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_puntos", ...f }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_productos", ...f }, onChange)
     .subscribe();
   return () => supabase.removeChannel(ch);
 }
+// ¿Tiene ya la base de datos la señal por evento (un aviso por operación)? Se pregunta una vez.
+let senalEvento = null;
+async function haySenalEvento() {
+  if (senalEvento !== null) return senalEvento;
+  const { error } = await supabase.from("ticket_evento_cambios").select("evento_id").limit(1);
+  if (error && (!error.code || /fetch|network/i.test(error.message || ""))) return false;   // sin red: se vuelve a preguntar la próxima vez
+  senalEvento = !error;
+  return senalEvento;
+}
 export function subscribeEvento(eventoId, onChange) {
-  const ch = supabase.channel("ev-" + eventoId)
-    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_ventas", filter: `evento_id=eq.${eventoId}` }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_cierres", filter: `evento_id=eq.${eventoId}` }, onChange)
-    .on("postgres_changes", { event: "*", schema: "public", table: "ticket_gastos", filter: `evento_id=eq.${eventoId}` }, onChange)
-    .subscribe();
-  return () => supabase.removeChannel(ch);
+  let ch = null, cerrado = false;
+  (async () => {
+    const senal = await haySenalEvento().catch(() => false);
+    if (cerrado) return;
+    ch = supabase.channel("ev-" + eventoId);
+    if (senal) {
+      // Un aviso pequeño por operación (una venta, un ×5, una anulación o una Z entera), no uno por venta.
+      // Si la operación fue un borrado de ventas, borradas_en = ventas_en: hay que recargarlo todo.
+      ch = ch.on("postgres_changes", { event: "*", schema: "public", table: "ticket_evento_cambios", filter: `evento_id=eq.${eventoId}` },
+        (p) => { const n = p?.new || {}; onChange(n.borradas_en && n.borradas_en === n.ventas_en ? { completo: true } : {}); });
+    } else {
+      ch = ch.on("postgres_changes", { event: "*", schema: "public", table: "ticket_ventas", filter: `evento_id=eq.${eventoId}` }, (p) => onChange(p?.eventType === "DELETE" ? { completo: true } : {}));
+    }
+    ch.on("postgres_changes", { event: "*", schema: "public", table: "ticket_cierres", filter: `evento_id=eq.${eventoId}` }, onChange)
+      .on("postgres_changes", { event: "*", schema: "public", table: "ticket_gastos", filter: `evento_id=eq.${eventoId}` }, onChange)
+      .subscribe();
+  })();
+  return () => { cerrado = true; if (ch) supabase.removeChannel(ch); };
 }
 
 /* ===================== RESERVADOS VIP =====================

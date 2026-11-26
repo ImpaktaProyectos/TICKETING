@@ -68,7 +68,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.26e";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.26f";   // súbela al publicar cambios para verificar la actualización
 globalThis.TIXFAST_VERSION = APP_VERSION;
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
@@ -417,6 +417,13 @@ export default function App() {
     if (kind !== "warn") toastTimer.current = setTimeout(() => setToast(null), 1700);
   };
 
+  // Tras guardar una operación en el equipo: contador de pendientes y, si la memoria del equipo está
+  // llena y no hay internet (la operación no se ha podido guardar), aviso que no se va solo.
+  const trasGuardar = (r) => {
+    if (r?.offline) setPending(db.pendingCount());
+    if (r?.sinGuardar) flash("La memoria de este equipo está llena y no hay internet: lo último NO se ha podido guardar. Conecta el wifi cuanto antes.", "warn");
+  };
+
   // ===== Tickets con QR de un solo uso =====
   // Si el evento lo tiene activado, cada ticket impreso lleva su QR firmado (se firma aquí, sin internet).
   // Con QR, "un ticket = un producto": la venta ×3 imprime 3 tickets, cada uno con su código.
@@ -451,6 +458,7 @@ export default function App() {
   };
 
   const SNAP = db.scopedKey("ticketera_snapshot");
+  const cargaServidor = useRef(0);   // cuándo se trajeron TODAS las ventas del servidor (0 = vienen de la copia del equipo)
   const hydrate = async () => {
     let data;
     try {
@@ -459,6 +467,7 @@ export default function App() {
       data = await Promise.race([db.loadAll(), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 5000))]);
       if (!data.events.length) { await db.ensureDefaultEvent(); data = await db.loadAll(); }
       setFromCache(false);
+      cargaServidor.current = Date.now();   // ventas recién traídas del servidor: el refresco solo pedirá lo nuevo
       try { localStorage.setItem(SNAP, JSON.stringify({ events: data.events, closures: data.closures, gastos: data.gastos || [], sales: data.sales.slice(-4000) })); } catch {}
     } catch (e) {
       // Sin conexión al arrancar: usamos la última copia guardada para poder vender igual
@@ -486,46 +495,119 @@ export default function App() {
       currentPuntoId: stateRef.current.currentPuntoId || (first.puntos.find(p => !p.archivado) || first.puntos[0])?.id,
     } });
   };
+  // Recarga ligera: solo eventos, barras, productos y cierres Z (las ventas van por el refresco incremental).
+  // Es lo que se usa cuando otro equipo cambia algo, al volver internet o tras una Z.
+  const ventasRef = useRef(null);   // pide al refresco de ventas del evento abierto que se ponga al día
+  const hydrateLigero = async () => {
+    if (!navigator.onLine) return;
+    const { events, closures } = await db.loadConfig();
+    if (!events.length) return hydrate();
+    const merged = mergePending(events, []);
+    const st = stateRef.current;
+    const first = merged.events.find(e => e.id === st.currentEventId) || eventoPorDefecto(merged.events) || merged.events[0];
+    baseDispatch({ type: "HYDRATE", payload: {
+      events: merged.events, closures,
+      currentEventId: first.id,
+      currentPuntoId: st.currentPuntoId || (first.puntos.find(p => !p.archivado) || first.puntos[0])?.id,
+    } });
+    try { const snap = JSON.parse(localStorage.getItem(SNAP) || "null"); if (snap) localStorage.setItem(SNAP, JSON.stringify({ ...snap, events, closures })); } catch {}
+    ventasRef.current?.();
+  };
   useEffect(() => { (async () => {
     if (navigator.onLine) db.syncPending().then(() => setPending(db.pendingCount())).catch(() => {});   // en segundo plano: no frena el arranque
     try { await hydrate(); } catch (e) { console.error(e); flash("Error cargando datos", "warn"); }
     setLoading(false);
   })(); }, []);
 
-  // Realtime: refresca las ventas del evento cuando cualquier barra vende o cierra
+  // Realtime: refresca las ventas del evento cuando cualquier barra vende o cierra.
+  // Solo se piden las ventas nuevas o cambiadas desde la última vez (en un festival con 30.000 ventas,
+  // recargarlo todo en cada equipo cada 2,5 s tumbaba la base de datos). Cada 5 minutos, o si alguien
+  // borra ventas, se recarga todo para quedar 100 % igual que el servidor.
   useEffect(() => {
     if (!ev.id) return;
-    let timer = null, busy = false;
+    let timer = null, busy = false, completo = false, vivo = true;
+    // Si las ventas en pantalla se acaban de traer del servidor, ya se parte de ahí y solo se piden cambios
+    // (antes se volvían a descargar todas a los pocos segundos de abrir). Si vienen de la copia del
+    // equipo, la primera recarga es completa.
+    let cursor = null, ultimaCompleta = 0;
+    if (cargaServidor.current && Date.now() - cargaServidor.current < 5 * 60000) {
+      cursor = db.cursorVentas(stateRef.current.sales.filter(s => s.eventId === ev.id && s.synced !== false));
+      if (cursor) ultimaCompleta = cargaServidor.current;
+    }
     const refresh = async () => {
+      if (!vivo) return;
       if (busy) { timer = setTimeout(refresh, 2500); return; }
       busy = true;
       try {
-        const [server, gs] = await Promise.all([db.loadSales(ev.id), db.loadGastos(ev.id).catch(() => null)]);
-        const { sales } = mergePending([], server);
-        baseDispatch({ type: "HYDRATE_SALES", sales: stateRef.current.sales.filter(s => s.eventId !== ev.id).concat(sales) });
-        if (gs) baseDispatch({ type: "HYDRATE_GASTOS", gastos: (stateRef.current.gastos || []).filter(g => g.eventId !== ev.id).concat(mergeGastos(gs)) });
+        const pideTodo = completo || !cursor || Date.now() - ultimaCompleta > 5 * 60000;
+        completo = false;
+        const [cambios, gs] = await Promise.all([
+          pideTodo ? null : db.loadSalesCambios(ev.id, cursor).catch(() => null),
+          db.loadGastos(ev.id).catch(() => null),
+        ]);
+        let server, sinNovedad = false;
+        if (cambios) {
+          // Lo que ya tenía este equipo del servidor + lo nuevo o cambiado (la venta del servidor sustituye a la provisional)
+          const pend = db.pendingSaleUuids();
+          const porId = new Map();
+          stateRef.current.sales.forEach(s => { if (s.eventId === ev.id && !(s.clientUuid && pend.has(s.clientUuid))) porId.set(s.clientUuid || s.id, s); });
+          // ¿Trae algo que este equipo no tenga ya igual? (si no, no se toca la pantalla: nada que recalcular)
+          sinNovedad = cambios.every(c => { const y = porId.get(c.clientUuid || c.id); return y && y.upd === c.upd && y.voided === c.voided && y.closureId === c.closureId && y.num === c.num; });
+          cambios.forEach(s => porId.set(s.clientUuid || s.id, s));
+          server = [...porId.values()];
+          cursor = db.cursorVentas(cambios) || cursor;
+        } else {
+          server = await db.loadSales(ev.id);
+          cursor = db.cursorVentas(server); ultimaCompleta = Date.now();
+        }
+        if (!vivo) return;
+        if (!sinNovedad) {
+          const { sales } = mergePending([], server);
+          baseDispatch({ type: "HYDRATE_SALES", sales: stateRef.current.sales.filter(s => s.eventId !== ev.id).concat(sales) });
+        }
+        if (gs) {
+          const nuevos = mergeGastos(gs), firma = (g) => `${g.id}|${g.voided}|${g.closureId}|${g.crmGastoId}|${g.importe}|${g.synced}`;
+          const actuales = (stateRef.current.gastos || []).filter(g => g.eventId === ev.id);
+          const iguales = actuales.length === nuevos.length && actuales.map(firma).join() === nuevos.map(firma).join();
+          if (!iguales) baseDispatch({ type: "HYDRATE_GASTOS", gastos: (stateRef.current.gastos || []).filter(g => g.eventId !== ev.id).concat(nuevos) });
+        }
       } catch {} finally { busy = false; }
     };
+    const pedir = (o) => { if (o?.completo) completo = true; if (!timer) timer = setTimeout(() => { timer = null; refresh(); }, 2500); };
     // Agrupa avisos: como mucho una recarga cada 2,5 s aunque vendan varias barras a la vez
-    const unsub = db.subscribeEvento(ev.id, () => { if (!timer) timer = setTimeout(() => { timer = null; refresh(); }, 2500); });
-    return () => { clearTimeout(timer); unsub(); };
+    const unsub = db.subscribeEvento(ev.id, pedir);
+    ventasRef.current = pedir;
+    // Por si el aviso en directo no llega (sin cobertura, límite de conexiones del servidor…):
+    // cada 20-30 s se piden los cambios igualmente (es una consulta pequeña)
+    const t = setInterval(() => { if (navigator.onLine && document.visibilityState !== "hidden") pedir(); }, 20000 + Math.floor(Math.random() * 10000));
+    return () => { vivo = false; clearTimeout(timer); clearInterval(t); unsub(); if (ventasRef.current === pedir) ventasRef.current = null; };
   }, [ev.id]);
 
   // Multi-dispositivo: si otro equipo cambia productos, precios, barras o ajustes, este se actualiza solo
   useEffect(() => {
     let t = null;
-    const unsub = db.subscribeConfig(() => { clearTimeout(t); t = setTimeout(() => { if (navigator.onLine) hydrate().catch(() => {}); }, 2500); });
+    const unsub = db.subscribeConfig(() => { clearTimeout(t); t = setTimeout(() => { if (navigator.onLine) hydrateLigero().catch(() => {}); }, 2500); });
     return () => { clearTimeout(t); unsub(); };
   }, []);
 
   // Conexión + cola offline (automático) + reintento periódico
   useEffect(() => {
+    // Al volver internet en una fiesta se reconectan todos los equipos a la vez: nada de recargarlo todo.
+    // Solo si lo subido era de OTRO evento (no del abierto) se recarga todo, y con una espera al azar
+    // para que no lo hagan todos los equipos en el mismo segundo.
     const trySync = async () => {
       if (!navigator.onLine || db.pendingCount() === 0) { setPending(db.pendingCount()); return; }
+      const otros = [...db.pendingEventos()].some(id => id !== stateRef.current.currentEventId);
       const r = await db.syncPending(); setPending(db.pendingCount());
-      if (r.synced) { flash(`${r.synced} operaciones sincronizadas`); if (r.remaining === 0) await hydrate().catch(() => {}); }
+      if (r.synced) {
+        flash(`${r.synced} operaciones sincronizadas`);
+        if (r.remaining === 0) {
+          if (otros) setTimeout(() => { hydrate().catch(() => {}); }, Math.random() * 20000);
+          else await hydrateLigero().catch(() => {});
+        }
+      }
     };
-    const on = async () => { setOnline(true); await trySync(); if (db.pendingCount() === 0) await hydrate().catch(() => {}); };
+    const on = async () => { setOnline(true); await trySync(); if (db.pendingCount() === 0) await hydrateLigero().catch(() => {}); };
     const off = () => setOnline(false);
     window.addEventListener("online", on); window.addEventListener("offline", off);
     const t = setInterval(trySync, 30000);
@@ -593,7 +675,7 @@ export default function App() {
       flash(invite ? `Invitación · ${qty > 1 ? qty + "× " : ""}${product.name}` : `${qty > 1 ? qty + "× " : ""}${product.name}`);
     } else flash(invite ? `Invitación guardada · ${product.name} (sin ticket)` : `Venta guardada · ${qty > 1 ? qty + "× " : ""}${product.name} (sin ticket)`);
     if (navigator.vibrate) navigator.vibrate(invite ? [20, 40, 20] : 25);
-    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: invite ? { ...product, price: 0 } : product, qty, operario: punto.name, folios, clientUuids, pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: invite ? { ...product, price: 0 } : product, qty, operario: punto.name, folios, clientUuids, pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { trasGuardar(r); });
   };
 
   // Invitación: el ticket sale normal, la venta cuenta a 0 € y queda marcada como invitación
@@ -641,7 +723,7 @@ export default function App() {
       const folios = nextFolios(ev.id, punto.id, prefijoDePunto(punto), qty);
       const clientUuids = folios.map(() => uid());
       folios.forEach((f, i) => { n++; rows.push({ id: clientUuids[i], clientUuid: clientUuids[i], code: f, num: n, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: product.price, ts: Date.now() + rows.length, synced: online, voided: false, closureId: null, pago: pay?.pago || null, entregado: (first && i === 0) ? (pay?.entregado ?? null) : null, cambio: (first && i === 0) ? (pay?.cambio ?? null) : null }); tickets.push({ product, num: n, folio: f, qr: qrDe(product) ? firmar(clientUuids[i], product) : null }); });
-      db.vender({ eventoId: ev.id, puntoId: punto.id, producto: product, qty, operario: punto.name, folios, clientUuids, pago: pay?.pago || null, entregado: first ? (pay?.entregado ?? null) : null, cambio: first ? (pay?.cambio ?? null) : null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+      db.vender({ eventoId: ev.id, puntoId: punto.id, producto: product, qty, operario: punto.name, folios, clientUuids, pago: pay?.pago || null, entregado: first ? (pay?.entregado ?? null) : null, cambio: first ? (pay?.cambio ?? null) : null }).then(r => { trasGuardar(r); });
       first = false;
     });
     if (!rows.length) return;
@@ -659,7 +741,7 @@ export default function App() {
     baseDispatch({ type: "VOID_ONE", saleId: last.id, by });
     flash(`Anulado: ${last.name}`, "warn");
     const r = await db.anularVenta(last.clientUuid || last.id, by);
-    if (r.offline) setPending(db.pendingCount());
+    trasGuardar(r);
   };
   const requestVoidCajero = () => { if (testMode) { flash("Modo prueba: no hay ventas que anular", "warn"); return; } if (ev.anularPin) setAskVoidPin(true); else voidLast(punto.name); };
 
@@ -697,7 +779,7 @@ export default function App() {
     if (tickets.length) setPrintJob({ kind: "multi", tickets, time: timeNow(), n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(45);
     flash((inviteVal != null ? "Invitación · " : "") + (tickets.length ? `${combo.name} · ${tickets.length} tickets` : `Venta guardada · ${combo.name} (sin ticket)`));
-    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: combo.name, price }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: combo.name, price }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { trasGuardar(r); });
   };
   // ===== Reservados VIP =====
   const abrirCobroRes = (item, fijo = null) => {
@@ -735,7 +817,7 @@ export default function App() {
     setPrintJob({ kind: "ticket", product: { id: item.id, name: item.nombre, price: precio }, time: timeNow(), num: saleRow.num, folio, qty: 1, notas: notasRes(d), n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(45);
     flash(`${item.nombre} · ${reservado.nombre}`);
-    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: item.nombre, price: precio }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+    db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: item.nombre, price: precio }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { trasGuardar(r); });
     enlazarRes(d, cu);
   };
   // Quien compra está dentro: el reservado pasa a «Ha llegado» (con la tarifa queda apuntada) y la venta se suma a su cuenta
@@ -744,7 +826,7 @@ export default function App() {
     const tarifa = item.tipo === "tarifa";
     const esTarifaReal = tarifa && resCfg(ev).tarifas.some(t => t.id === item.id);
     if (actual.estado !== "llegado" || (esTarifaReal && actual.tarifaId !== item.id)) res.guardar({ ...actual, estado: "llegado", tarifaId: esTarifaReal ? item.id : actual.tarifaId, llegadaEn: actual.llegadaEn || new Date().toISOString() });
-    res.enlazar({ clientUuid: cu, reservadoId: reservado.id, tipo: tarifa ? "tarifa" : "extra", itemId: item.id, nombre: item.nombre, botellas: Number(item.botellas) || 0, total: tarifa ? cobro.total : precio, senal: tarifa ? cobro.senal : 0 }).then(r => { if (r?.offline) setPending(db.pendingCount()); });
+    res.enlazar({ clientUuid: cu, reservadoId: reservado.id, tipo: tarifa ? "tarifa" : "extra", itemId: item.id, nombre: item.nombre, botellas: Number(item.botellas) || 0, total: tarifa ? cobro.total : precio, senal: tarifa ? cobro.senal : 0 }).then(r => { trasGuardar(r); });
   };
   // Venta de un socio desde el móvil: sin ticket, a la caja que elija, con efectivo/tarjeta y PIN de admin
   const venderSocio = (d) => {
@@ -759,7 +841,7 @@ export default function App() {
     baseDispatch({ type: "SELL", rows: [saleRow] });
     if (navigator.vibrate) navigator.vibrate(45);
     flash(`${item.nombre} · ${reservado.nombre} · ${money(precio)} ${metodo} → ${caja.name}`);
-    db.vender({ eventoId: ev.id, puntoId: caja.id, producto: { id: null, name: item.nombre, price: precio }, qty: 1, operario, folios: [folio], clientUuids: [cu], pago: metodo, entregado: null, cambio: null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
+    db.vender({ eventoId: ev.id, puntoId: caja.id, producto: { id: null, name: item.nombre, price: precio }, qty: 1, operario, folios: [folio], clientUuids: [cu], pago: metodo, entregado: null, cambio: null }).then(r => { trasGuardar(r); });
     enlazarRes(d, cu);
   };
   const guardarCfgRes = (cfg) => dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: { style: { ...(ev.style || {}), reservados: cfg } } });
@@ -767,7 +849,7 @@ export default function App() {
   const accApp = useAcceso();
   const vistaRes = (extra = {}) => <ReservadosVista ev={ev} punto={punto} role={role} res={res} sales={evSales} isMobile={isMobile} flash={flash} onGuardarCfg={guardarCfgRes} onCobrarTarifa={(t, r) => abrirCobroRes({ ...t, tipo: "tarifa" }, r.id)} onVentaSocio={(role === "admin" || role === "supervisor") ? (fijo) => setResSocio({ fijo }) : null} {...extra} />;
 
-  const voidOne = async (sale, by) => { baseDispatch({ type: "VOID_ONE", saleId: sale.id, by }); const r = await db.anularVenta(sale.clientUuid || sale.id, by); if (r.offline) setPending(db.pendingCount()); };
+  const voidOne = async (sale, by) => { baseDispatch({ type: "VOID_ONE", saleId: sale.id, by }); const r = await db.anularVenta(sale.clientUuid || sale.id, by); trasGuardar(r); };
 
   // ===== Gastos / retiradas de caja =====
   // Dinero que sale del cajón durante la noche. La facturación NO cambia; el cierre lo descuenta
@@ -809,7 +891,7 @@ export default function App() {
     flash(`${g.tipo === "entrada" ? "Cambio añadido" : "Gasto registrado"}${extra.puntoId ? ` en ${P.name}` : ""} · ${money(imp)}${g.tipo !== "entrada" ? " · " + categoriaDe(g).t : ""}${g.concepto && g.concepto !== categoriaDe(g).t ? " · " + g.concepto : ""}`);
     if (navigator.vibrate) navigator.vibrate(30);
     const r = await db.registrarGasto({ id, tipo: g.tipo, eventoId: ev.id, puntoId: P.id, importe: imp, concepto: g.concepto, categoria: g.categoria, crmGastoId: g.crmGastoId, por });
-    if (r.offline) setPending(db.pendingCount());
+    trasGuardar(r);
     return true;
   };
   const anularGasto = async (g) => {
@@ -817,7 +899,7 @@ export default function App() {
     flash(`${isEntrada(g) ? "Entrada de cambio" : "Gasto"} anulado · ${money(g.importe)}`, "warn");
     const por = role === "cajero" ? punto.name : role === "admin" ? "Admin" : "Supervisor";
     const r = await db.anularGasto(g.id, ev.id, por);
-    if (r.offline) setPending(db.pendingCount());
+    trasGuardar(r);
     // Si ese movimiento era el cambio de un socio o su devolución, se deshace también la aportación
     const lista = aportaciones || (await sd.loadAportaciones(ev.id).catch(() => null)) || [];
     const ligada = lista.find(a => a.gastoEntradaId === g.id || a.gastoDevolucionId === g.id);
@@ -854,8 +936,8 @@ export default function App() {
     setPrintJob({ kind: "z", z, n: Date.now() });
     flash(`Cierre Z de ${puntoObj.name} · turno cerrado`);
     const r = await db.cerrarZ(ev.id, puntoObj.id, puntoObj.name, contado);
-    if (r.offline) setPending(db.pendingCount());
-    else await hydrate().catch(() => {});
+    trasGuardar(r);
+    if (!r.offline) await hydrateLigero().catch(() => {});
   };
 
   // Evento recién creado (inicio o CRM): se añade, queda elegido y se recarga del servidor para tenerlo todo al día
@@ -983,14 +1065,14 @@ export default function App() {
     setOpening(false);
     if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
     const r = await db.abrirBarra(punto.id, ev.id, fondo, quien());
-    if (r.offline) setPending(db.pendingCount());
+    trasGuardar(r);
     flash(`Venta iniciada en ${punto.name}${fondo != null ? ` · fondo ${money(fondo)}` : ""}`);
   };
   // Volver a modo prueba (solo admin): reabrir tras un Z o deshacer un inicio por error
   const pasarPrueba = async (puntoObj) => {
     baseDispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: puntoObj.id, patch: { estado: "prueba", fondo: null } });
     const r = await db.pasarPrueba(puntoObj.id, ev.id, quien());
-    if (r.offline) setPending(db.pendingCount());
+    trasGuardar(r);
     flash(`${puntoObj.name} en modo prueba`, "warn");
   };
 

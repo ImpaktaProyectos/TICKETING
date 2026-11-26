@@ -1,0 +1,12 @@
+-- =====================================================================
+-- TIXFAST · ESCANEO DE TICKETS DEL TPV MÁS RÁPIDO
+-- ---------------------------------------------------------------------
+-- Cada ticket con QR lleva los 12 primeros caracteres del producto. Al escanearlo (escáner del TPV
+-- o puesto de Multipuesto), ticket_canje_nucleo busca ese producto así:
+--   left(replace(p.id::text, '-', ''), 12) = v_prod
+-- Sin índice, Postgres recorría TODOS los productos de TODAS las cuentas de la plataforma en cada
+-- escaneo (13.755 productos en la prueba de carga: 11,7 ms; y crece con cada cliente nuevo).
+-- Con este índice la búsqueda es inmediata (0,05 ms) tenga la plataforma los productos que tenga.
+-- El canje completo de un puesto pasa de 2,9 ms a 1 ms. No cambia ninguna función.
+-- =====================================================================
+create index if not exists ticket_productos_prefijo on public.ticket_productos ((left(replace(id::text, '-', ''), 12)));

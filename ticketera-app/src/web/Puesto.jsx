@@ -224,6 +224,16 @@ function Escaner({ sesion, info, onSalir, onBloqueada }) {
       if (data?.ok) setPanel(data);
     } catch {}
   };
+  // Tras un canje, el panel (resumen y facturación) se actualiza como mucho una vez cada 8 s:
+  // con la cola a tope, recalcularlo en cada ticket era lo que más cargaba al servidor desde un puesto.
+  // El pedido en curso («3 × Hamburguesa») se cuenta en el propio móvil, así que no se nota.
+  const panelTimer = useRef(null), panelUltimo = useRef(0);
+  const panelPronto = () => {
+    if (panelTimer.current) return;
+    const espera = Math.max(0, 8000 - (Date.now() - panelUltimo.current));
+    panelTimer.current = setTimeout(() => { panelTimer.current = null; panelUltimo.current = Date.now(); cargarPanel(); }, espera);
+  };
+  useEffect(() => () => clearTimeout(panelTimer.current), []);
   useEffect(() => {
     cargarPanel();
     const on = () => setOnline(true), off = () => setOnline(false);
@@ -252,7 +262,7 @@ function Escaner({ sesion, info, onSalir, onBloqueada }) {
   const tratar = (r) => {
     if (r?.motivo === "sesion") { onSalir("Este móvil ya no está vinculado al puesto. Pide a la organización un código de activación."); return null; }
     if (r?.motivo === "bloqueada") { onBloqueada(); return null; }
-    if (r?.ok) { if (!r.repetido) sumarPedido(r.nombre, r.unidades || 1); cargarPanel(); return { ...r, tipo: "ok" }; }
+    if (r?.ok) { if (!r.repetido) sumarPedido(r.nombre, r.unidades || 1); panelPronto(); return { ...r, tipo: "ok" }; }
     return { ...r, tipo: "mal" };
   };
 

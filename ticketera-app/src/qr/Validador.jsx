@@ -210,7 +210,7 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
         </button>
         <button onClick={onExit} style={V.salir}>Salir</button>
       </header>
-      {!snd.mudo && !snd.listo && <button onClick={snd.probar} style={{ display: "block", width: "100%", minHeight: 44, border: 0, background: "#ffb400", color: "#1a1300", padding: "8px 12px", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: "pointer" }}>🔈 Toca aquí para activar el sonido</button>}
+      {!snd.mudo && !snd.listo && <button onClick={snd.probar} style={{ display: "block", width: "100%", minHeight: 44, border: 0, background: "#ffb400", color: "#1a1300", padding: "8px 12px", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: "pointer" }}><IcoUI n="altavoz" s={16} style={ikUI} />Toca aquí para activar el sonido</button>}
 
       {/* Cámara */}
       <div style={V.cam}>
