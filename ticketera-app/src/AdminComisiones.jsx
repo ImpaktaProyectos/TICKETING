@@ -73,6 +73,10 @@ export function Comisiones({ avisar }) {
         <Campo l="Stripe (%)"><input inputMode="decimal" value={a.stripe_pct} onChange={e => set("stripe_pct", e.target.value)} style={K.input} /></Campo>
         <Campo l="Stripe fijo (€)"><input inputMode="decimal" value={a.stripe_fijo} onChange={e => set("stripe_fijo", e.target.value)} style={K.input} /></Campo>
       </div>
+      <label style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 12, cursor: "pointer", fontSize: 14, minHeight: 44 }}>
+        <input type="checkbox" checked={a.comision_efectivo !== false} onChange={e => set("comision_efectivo", e.target.checked)} style={{ width: 22, height: 22, accentColor: "var(--accent)", flexShrink: 0 }} />
+        <span><b>Cobrar también la comisión de las entradas que venden los RRPP en efectivo</b><br /><span style={{ color: "var(--muted)" }}>Se descuenta de lo cobrado online del evento; si no llega, sale en la factura como pendiente de pago.</span></span>
+      </label>
       <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 8 }}>La tarifa de Stripe solo se usa en la calculadora. Lo que cobra de verdad se guarda en cada pago y sale en el informe de abajo.</div>
     </section>
 
@@ -108,7 +112,7 @@ export function Comisiones({ avisar }) {
         <div style={{ display: "grid", gap: 6, marginTop: 10 }}>{inf.map(e => (
           <div key={e.evento_id} style={{ borderTop: "1px solid var(--line)", paddingTop: 8, fontSize: 13.5 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between" }}><b style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.evento}</b>{e.factura && <span style={K.badge((ESTADO_FAC[e.factura.estado] || [])[1] || "var(--muted)")}>{e.factura.codigo || (ESTADO_FAC[e.factura.estado] || [])[0]}</span>}</div>
-            <div style={{ color: "var(--muted)" }}>{e.entradas} entradas · comisión {eur(e.comision)} · Stripe {e.stripe != null ? eur(e.stripe) : "—"}</div>
+            <div style={{ color: "var(--muted)" }}>{e.entradas} entradas · comisión {eur(e.comision)}{Number(e.comision_efectivo) > 0 ? ` (${eur(e.comision_efectivo)} del efectivo)` : ""} · Stripe {e.stripe != null ? eur(e.stripe) : "—"}{Number(e.devuelto) > 0 ? ` · devuelto ${eur(e.devuelto)}` : ""}</div>
           </div>))}</div>
       </>)}
     </section>

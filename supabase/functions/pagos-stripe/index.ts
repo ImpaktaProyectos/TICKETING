@@ -2,12 +2,15 @@
 // Comprueba la firma de cada aviso con los secretos guardados por «pagos › preparar» y:
 //   · pago completado → emite las entradas (una sola vez) y guarda lo que cobró Stripe
 //   · pago caducado o fallido → suelta la reserva
+//   · devolución (total o parcial) → la apunta, anula las entradas si es total y, si el evento ya se repartió,
+//     recupera lo devuelto de lo que se le mandó al organizador (lo que no se pueda, queda como deuda)
 //   · cambio en un monedero (alta) → actualiza su estado
 //   · retirada al banco pagada / fallida → actualiza la retirada
 // Todo es idempotente: si Stripe repite un aviso, no pasa nada.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
 const SK = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+const MODO = SK.startsWith("sk_live") ? "real" : "pruebas";
 const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 const ok = (b: unknown = { recibido: true }, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json" } });
 
@@ -24,6 +27,39 @@ async function firmaValida(cuerpo: string, cabecera: string, secreto: string) {
 async function stripeGet(ruta: string) {
   const r = await fetch(`https://api.stripe.com/v1/${ruta}`, { headers: { Authorization: `Bearer ${SK}` } });
   const d = await r.json(); if (!r.ok) throw new Error(d?.error?.message || "Stripe"); return d;
+}
+
+async function stripePost(ruta: string, params: Record<string, string>, clave: string) {
+  const r = await fetch(`https://api.stripe.com/v1/${ruta}`, { method: "POST", headers: { Authorization: `Bearer ${SK}`, "Content-Type": "application/x-www-form-urlencoded", "Idempotency-Key": clave }, body: new URLSearchParams(params) });
+  const d = await r.json(); if (!r.ok) throw new Error(d?.error?.message || "Stripe"); return d;
+}
+const cts = (n: unknown) => Math.round(Number(n || 0) * 100);
+
+// Devolución después del reparto: se recupera de las transferencias del organizador de ese evento
+// (primero las que salieron de ese mismo cobro). Lo que no se pueda recuperar queda como deuda del organizador.
+async function recuperarDevolucion(evento: string, cargo: string, delta: number, refTotal: number) {
+  const { data: filas } = await admin.from("ticket_repartos").select("id, transferencias, detalle").eq("evento_id", evento).eq("modo", MODO).eq("beneficiario", "organizador").eq("estado", "enviado");
+  if (!filas?.length) return { recuperado: 0, deuda: 0, antes_del_reparto: true };
+  let falta = cts(delta), recuperado = 0;
+  const orden = (t: any) => (t.cargo === cargo ? 0 : 1);
+  for (const f of filas) {
+    const trs = [...(f.transferencias || [])].sort((a, b) => orden(a) - orden(b));
+    let deEsta = 0;
+    for (const t of trs) {
+      if (falta <= 0) break;
+      const libre = cts(t.importe) - cts(t.revertido);
+      if (libre <= 0) continue;
+      const n = Math.min(libre, falta);
+      await stripePost(`transfers/${t.id}/reversals`, { amount: String(n), "metadata[motivo]": "devolucion", "metadata[cargo]": cargo }, `rev-${t.id}-${cargo}-${refTotal}`);
+      t.revertido = Math.round(cts(t.revertido) + n) / 100; falta -= n; recuperado += n; deEsta += n;
+    }
+    if (deEsta > 0) await admin.from("ticket_repartos").update({ transferencias: trs, detalle: { ...(f.detalle || {}), devoluciones: Math.round(cts(f.detalle?.devoluciones) + deEsta) / 100 } }).eq("id", f.id);
+  }
+  if (falta > 0) {   // no había bastante en sus transferencias: se apunta como deuda en el reparto principal
+    const f = filas[0];
+    await admin.from("ticket_repartos").update({ detalle: { ...(f.detalle || {}), deuda: Math.round(cts(f.detalle?.deuda) + falta) / 100 } }).eq("id", f.id);
+  }
+  return { recuperado: recuperado / 100, deuda: falta / 100 };
 }
 
 Deno.serve(async (req) => {
@@ -56,6 +92,12 @@ Deno.serve(async (req) => {
       case "checkout.session.async_payment_failed": {
         const pedido = o?.metadata?.pedido;
         if (pedido) await admin.rpc("pago_caducar", { p_pedido: pedido });
+        break;
+      }
+      case "charge.refunded": {
+        const { data: d, error } = await admin.rpc("pago_devolucion", { p_cargo: o.id, p_reembolsado: Math.round(o.amount_refunded || 0) / 100 });
+        if (error) throw error;
+        if (d?.ok && !d.ya && d.delta > 0 && SK) await recuperarDevolucion(d.evento, o.id, d.delta, o.amount_refunded || 0);
         break;
       }
       case "account.updated": {

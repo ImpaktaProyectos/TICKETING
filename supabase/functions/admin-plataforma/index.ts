@@ -94,6 +94,7 @@ Deno.serve(async (req) => {
       for (const [k, max] of [["razon_social", 160], ["direccion", 200], ["cp", 10], ["ciudad", 80], ["provincia", 80], ["email", 160]] as [string, number][])
         if (x[k] !== undefined) fila[k] = txt(x[k], max);
       if (x.nif !== undefined) { const nif = String(x.nif || "").toUpperCase().replace(/[^A-Z0-9]/g, ""); if (nif && !/^[A-Z0-9]{8,12}$/.test(nif)) return json({ ok: false, motivo: "nif" }); fila.nif = nif || null; }
+      if (x.comision_efectivo !== undefined) fila.comision_efectivo = !!x.comision_efectivo;
       if (x.serie !== undefined) { const serie = String(x.serie || "").toUpperCase(); if (!/^[A-Z]{1,4}$/.test(serie)) return json({ ok: false, motivo: "serie" }); fila.serie = serie; }
       const { error } = await admin.from("ticket_plataforma_ajustes").update(fila).eq("id", true);
       if (error) throw error;

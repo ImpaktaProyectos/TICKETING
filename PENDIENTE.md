@@ -40,6 +40,19 @@ refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las fun
 - [ ] Que el organizador tenga sus datos fiscales (Facturación › Datos fiscales); si no, su factura espera.
 - [ ] Más adelante: enviar también la factura en PDF por correo (ahora le aparece sola en Facturación › Gastos).
 
+## 2c-ter. Pagos transparentes: RRPP, efectivo y devoluciones (27/11/2026)
+Estado a 27/11: los monederos **nunca se han usado** (0 RRPP, 0 monederos) y Stripe no está conectado (la tarea de
+`pagos` responde «sin_pasarela» cada 10 min). Orden para dejarlo funcionando:
+- [ ] Poner `STRIPE_SECRET_KEY` (`sk_test_…`) en Supabase › Edge Functions › Secrets.
+- [ ] Aplicar `20261127090000_ticket_comision_plataforma.sql` y después `20261127100000_ticket_pagos_transparentes.sql`
+      (probadas juntas en una transacción que se deshace: efectivo, devolución parcial y total, factura y CRM).
+- [ ] Publicar `pagos`, `pagos-stripe` y `admin-plataforma`; después la app.
+- [ ] Lanzar `pagos › preparar` (da de alta los avisos de Stripe, ahora también las devoluciones `charge.refunded`).
+- [ ] Prueba completa con la tarjeta 4242: RRPP con monedero, RRPP sin monedero (se le guarda y le llega al abrirlo),
+      venta en efectivo de RRPP, devolución desde el panel de Stripe antes y después del reparto, retirada al banco.
+- [ ] Decidir con la gestoría la política de devoluciones: ahora la comisión de TIXFAST no se devuelve y lo devuelto
+      se descuenta al organizador. Si se devuelve después de emitir la factura, la factura no cambia (no hay rectificativa automática).
+
 ## 2d. Rendimiento con mucha gente a la vez (prueba de carga del 18/11/2026, ver supabase/pruebas-carga/)
 - [ ] **Aplicar, por este orden** (probarlas antes en una transacción que se deshace) y después publicar la app:
       1. `20261120090000_ticket_rendimiento.sql` (número de ticket, refresco incremental, tope de 500 unidades)
