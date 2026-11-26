@@ -68,7 +68,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.26f";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.26g";   // súbela al publicar cambios para verificar la actualización
 globalThis.TIXFAST_VERSION = APP_VERSION;
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
@@ -296,6 +296,38 @@ function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio, qr, n
   );
 }
 
+const ESCALAS = [{ v: 0.85, t: "S", n: "pequeño" }, { v: 1, t: "M", n: "normal" }, { v: 1.2, t: "L", n: "grande" }, { v: 1.4, t: "XL", n: "muy grande" }];
+
+/* ---------------------- Copia del pago para el cliente ----------------------
+   Justificante de lo que ha pagado (no es una factura ni sirve para canjear nada). */
+const METODO_PAGO = { efectivo: "Efectivo", tarjeta: "Tarjeta", bizum: "Bizum" };
+function ReciboCliente({ ev, punto, venta }) {
+  const mm = ev.paper === 58 ? 46 : 68;
+  const fila = { display: "flex", justifyContent: "space-between", gap: "2mm", fontSize: 12, color: "#000", fontWeight: 700 };
+  const raya = <div style={{ borderTop: "2px dashed #000", margin: "1.5mm 0" }} />;
+  const hoy = new Date().toLocaleDateString("es-ES");
+  return (
+    <div style={{ fontFamily: "'Roboto Mono', ui-monospace, monospace", color: "#000", background: "#fff", width: mm + "mm", padding: "1.5mm 2mm 2.5mm", boxSizing: "border-box", lineHeight: 1.3, fontWeight: 700 }}>
+      <div style={{ textAlign: "center", fontWeight: 900, fontSize: 16 }}>COPIA DE PAGO</div>
+      <div style={{ textAlign: "center", fontSize: 13, fontWeight: 800, textTransform: "uppercase" }}>{ev.name}</div>
+      {ev.venue && <div style={{ textAlign: "center", fontSize: 11 }}>{ev.venue}</div>}
+      <div style={{ textAlign: "center", fontSize: 11, marginTop: "0.5mm" }}>{hoy} · {venta.time}{punto?.name ? ` · ${punto.name}` : ""}</div>
+      {raya}
+      {venta.lines.map((l, i) => <div key={i} style={fila}><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{l.qty} × {l.name}</span><span style={{ whiteSpace: "nowrap" }}>{money(l.price * l.qty)}</span></div>)}
+      {raya}
+      <div style={{ ...fila, fontWeight: 900, fontSize: 16 }}><span>TOTAL</span><span>{money(venta.total)}</span></div>
+      {venta.pago && <div style={{ ...fila, marginTop: "1mm" }}><span>Pagado con</span><span>{METODO_PAGO[venta.pago] || venta.pago}</span></div>}
+      {venta.pago === "efectivo" && venta.entregado != null && venta.entregado > 0 && <>
+        <div style={fila}><span>Entregado</span><span>{money(venta.entregado)}</span></div>
+        <div style={fila}><span>Cambio</span><span>{money(venta.cambio || 0)}</span></div>
+      </>}
+      {raya}
+      <div style={{ textAlign: "center", fontSize: 10.5 }}>Justificante de pago · no es una factura</div>
+      {ev.footer && <div style={{ textAlign: "center", fontSize: 11, marginTop: "1mm" }}>{ev.footer}</div>}
+    </div>
+  );
+}
+
 /* ---------------------- Ticket de cierre Z ---------------------- */
 function ZTicket({ ev, z }) {
   const mm = ev.paper === 58 ? 46 : 68;
@@ -371,6 +403,7 @@ export default function App() {
   const [appMode, setAppMode] = useState("tpv");   // "tpv" | "crm" (el CRM solo para admin)
   const [toast, setToast] = useState(null);
   const [printJob, setPrintJob] = useState(null);
+  const [ultimaVenta, setUltimaVenta] = useState(null);   // para la copia de pago del cliente
   const [showRevenue, setShowRevenue] = useState(false);
   const [askRevenue, setAskRevenue] = useState(false);
   const [askVoidPin, setAskVoidPin] = useState(false);
@@ -668,6 +701,7 @@ export default function App() {
     const baseNum = evSales.length;
     const rows = folios.map((f, i) => ({ id: clientUuids[i], clientUuid: clientUuids[i], code: f, num: baseNum + i + 1, eventId: ev.id, puntoId: punto.id, productId: product.id, name: product.name, price: salePrice, ts: Date.now() + i, synced: online, voided: false, closureId: null, pago: pay?.pago || null, invite, inviteValue: invite ? product.price : 0, entregado: i === 0 ? (pay?.entregado ?? null) : null, cambio: i === 0 ? (pay?.cambio ?? null) : null }));
     baseDispatch({ type: "SELL", rows });
+    if (!invite) setUltimaVenta({ lines: [{ name: product.name, qty, price: salePrice }], total: round2(salePrice * qty), pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null, time, folio: rows[0].code });
     if (product.print !== false) {
       // Con ×2, ×3… se imprime un ticket por unidad, cada uno con su número y su folio (nunca uno solo con «10 × precio»)
       if (qty > 1) setPrintJob({ kind: "multi", tickets: rows.map(r => ({ product, num: r.num, folio: r.code, qr: qrDe(product) ? firmar(r.clientUuid, product) : null })), time, n: Date.now() });
@@ -697,6 +731,7 @@ export default function App() {
     doSellCombo(combo, vouchers, 0, { pago: invPago(value) }, value);
   };
 
+  const reciboCliente = () => { if (!ultimaVenta) { flash("Aún no hay ninguna venta", "warn"); return; } setPrintJob({ kind: "recibo", venta: ultimaVenta, n: Date.now() }); flash("Imprimiendo copia para el cliente"); };
   const reprint = () => { if (!printJob) { flash("Nada que reimprimir", "warn"); return; } setPrintJob({ ...printJob, n: Date.now() }); flash("Reimprimiendo último ticket"); };
 
   const sellMany = (items) => {
@@ -728,6 +763,7 @@ export default function App() {
     });
     if (!rows.length) return;
     baseDispatch({ type: "SELL", rows });
+    setUltimaVenta({ lines: items.map(({ product, qty }) => ({ name: product.name, qty, price: product.price })), total: round2(rows.reduce((t, r) => t + r.price, 0)), pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null, time, folio: rows[0].code });
     const toPrint = tickets.filter(t => t.product.print !== false);
     if (toPrint.length) setPrintJob({ kind: "multi", tickets: toPrint, time, n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(40);
@@ -775,6 +811,7 @@ export default function App() {
     const cu = uid();
     const saleRow = { id: cu, clientUuid: cu, code: folio, num: evSales.length + 1, eventId: ev.id, puntoId: punto.id, productId: null, name: combo.name, price, ts: Date.now(), synced: online, voided: false, closureId: null, pago: pay?.pago || null, invite: inviteVal != null, inviteValue: inviteVal || 0, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null };
     baseDispatch({ type: "SELL", rows: [saleRow] });
+    if (inviteVal == null) setUltimaVenta({ lines: [{ name: combo.name, qty: 1, price }], total: round2(price), pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null, time: timeNow(), folio });
     const tickets = vouchers.map((p, i) => ({ product: p, folio: `${folio}·${i + 1}`, qr: qrDe(p) ? firmar(cu, p, i + 1) : null })).filter(t => t.product.print !== false);
     if (tickets.length) setPrintJob({ kind: "multi", tickets, time: timeNow(), n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(45);
@@ -1152,7 +1189,7 @@ export default function App() {
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn} aria-label="Menú"><Ic n="menu" /></button>
           </header>
           <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onRecibo={reciboCliente} canRecibo={!!ultimaVenta} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
           </div>
         </div>
       ) : (
@@ -1165,7 +1202,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.topBtn}><Ic n="lock" s={16} />Salir</button></div>
           </header>
           <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onRecibo={reciboCliente} canRecibo={!!ultimaVenta} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
           </div>
         </div>
       ))}
@@ -1210,7 +1247,7 @@ export default function App() {
                 <button onClick={verFacturacion} style={{ ...S.iconBtn, color: "var(--accent)" }} aria-label="Consultar facturación"><Ic n="euro" /></button>
               </div>
             </div>}
-            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
+            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onRecibo={reciboCliente} canRecibo={!!ultimaVenta} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
             {safeView === "reservados" && vistaRes({ onCerrar: () => setView("pos"), enBarra: true })}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
             {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} onBorrar={borrarEvento} onRestaurar={restaurarEvento} onEliminar={eliminarEvento} dispatch={dispatch} flash={flash} />}
@@ -1259,7 +1296,7 @@ export default function App() {
             </header>
             <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
               {avisoPin}
-              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
+              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onRecibo={reciboCliente} canRecibo={!!ultimaVenta} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
               {safeView === "reservados" && vistaRes({ onCerrar: () => setView("pos") })}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
               {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} onBorrar={borrarEvento} onRestaurar={restaurarEvento} onEliminar={eliminarEvento} dispatch={dispatch} flash={flash} />}
@@ -1359,6 +1396,7 @@ export default function App() {
       {/* ===== Zona de impresión oculta (fuera de pantalla; en impresión se coloca en 0,0) ===== */}
       {createPortal(<div id="thermal-print-area" aria-hidden style={{ position: "absolute", left: -9999, top: 0 }}>
         {printJob?.kind === "ticket" && <div className="ticket-page"><ThermalTicket ev={ev} product={printJob.product} time={printJob.time} num={printJob.num} qty={printJob.qty} folio={printJob.folio} qr={printJob.qr} notas={printJob.notas} /></div>}
+        {printJob?.kind === "recibo" && <div className="ticket-page"><ReciboCliente ev={ev} punto={punto} venta={printJob.venta} /></div>}
         {printJob?.kind === "z" && <div className="ticket-page z-page"><ZTicket ev={ev} z={printJob.z} /></div>}
         {printJob?.kind === "multi" && printJob.tickets.map((t, i) => (
           <div key={i} className="ticket-page">
@@ -2203,13 +2241,16 @@ function Stat({ label, value, accent }) {
 /* ============================================================
    POS
    ============================================================ */
-function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onInvite, onComboInvite, onSellMany, onVoid, onReprint, canReprint, onCombo, extra = null, testMode, closed, advanced, canArrange = false, onGasto, gastoTotal = 0, entradaTotal = 0, fondo = null, onIniciar }) {
+function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onInvite, onComboInvite, onSellMany, onVoid, onReprint, canReprint, onRecibo, canRecibo, onCombo, extra = null, testMode, closed, advanced, canArrange = false, onGasto, gastoTotal = 0, entradaTotal = 0, fondo = null, onIniciar }) {
   const isMobile = useIsMobile();
   const combos = punto.combos || [];
   const [qty, setQty] = useState(1);
   const [grouping, setGrouping] = useState(false);
   const [cart, setCart] = useState([]); // [{product, qty}]
   const [charging, setCharging] = useState(null);
+  // Tamaño del TPV: se guarda en ESTE dispositivo (cada móvil o tablet elige el suyo)
+  const [escala, setEscala] = useState(() => { try { const v = Number(localStorage.getItem("tixfast.tpv.escala")); return ESCALAS.some(e => e.v === v) ? v : 1; } catch { return 1; } });
+  const cambiarEscala = (v) => { setEscala(v); try { localStorage.setItem("tixfast.tpv.escala", String(v)); } catch {} };
 
   // Orden de los productos: manual, o "más vendidos primero".
   // En modo ventas el orden se CONGELA mientras vendes (no salta bajo el dedo);
@@ -2304,6 +2345,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
     <button onClick={startGroup} style={S.actBtn}><Ic n="list" s={17} />Varios productos</button>
     {onGasto && <button onClick={openCaja} style={S.actBtn} title="Sacar dinero (gastos) o meter cambio en la caja"><Ic n="cash" s={17} />Caja{entradaTotal > 0 ? <span style={S.actBadge}>+{money(entradaTotal)}</span> : null}{gastoTotal > 0 ? <span style={S.actBadge}>-{money(gastoTotal)}</span> : null}</button>}
     <button onClick={onReprint} disabled={!canReprint} style={{ ...S.actBtn, opacity: canReprint ? 1 : .45 }}><Ic n="printer" s={17} />Reimprimir</button>
+    <button onClick={onRecibo} disabled={!canRecibo} style={{ ...S.actBtn, opacity: canRecibo ? 1 : .45 }} title="Imprime una copia del pago para que el cliente se la lleve"><Ic n="printer" s={17} />Copia cliente</button>
     <button onClick={onVoid} style={{ ...S.actBtn, color: "var(--red)", borderColor: "rgba(255,77,77,.45)" }}><Ic n="undo" s={17} />Anular</button>
   </>);
 
@@ -2355,6 +2397,10 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
             {[1, 2, 3, 5, 10].map(q => <button key={q} role="radio" aria-checked={qty === q} onClick={() => setQty(q)} style={{ ...S.qtyChip, padding: isMobile ? "9px 0" : "9px 0", ...(qty === q ? S.qtyActive : {}) }}>×{q}</button>)}
           </div>
           {!isMobile && <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{actionBtns}</div>}
+          <div role="radiogroup" aria-label="Tamaño de los botones" style={{ display: "flex", alignItems: "center", gap: 6, width: isMobile ? "100%" : "auto" }}>
+            <span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 800, textTransform: "uppercase", letterSpacing: 1, marginRight: 2 }}>Tamaño</span>
+            {ESCALAS.map(e => <button key={e.v} role="radio" aria-checked={escala === e.v} aria-label={`Tamaño ${e.n}`} onClick={() => cambiarEscala(e.v)} style={{ ...S.qtyChip, flex: isMobile ? 1 : "none", minWidth: 44, minHeight: 44, padding: "0 12px", ...(escala === e.v ? S.qtyActive : {}) }}>{e.t}</button>)}
+          </div>
         </div>
       )}
       {grouping && (
@@ -2394,7 +2440,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
             </div>
           ))}
           {punto.products.length === 0 ? <Empty msg={`“${punto.name}” aún no tiene productos.`} /> : (
-            <div ref={gridRef} style={{ ...S.grid, gridTemplateColumns: isMobile ? "repeat(auto-fill, minmax(130px,1fr))" : "repeat(auto-fill, minmax(170px,1fr))" }}>
+            <div ref={gridRef} style={{ ...S.grid, zoom: escala, gridTemplateColumns: isMobile ? "repeat(auto-fill, minmax(130px,1fr))" : "repeat(auto-fill, minmax(170px,1fr))" }}>
               {viewProducts.map((p, i) => {
                 const badge = grouping ? cartQty(p.id) : totals.perProduct[p.id];
                 const isDrag = dragT && dragT.id === p.id;
@@ -2427,7 +2473,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
           {!grouping && combos.length > 0 && (
             <div style={{ marginTop: 20 }}>
               <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, fontWeight: 800, marginBottom: 10 }}><IcoUI n="ticket" s={16} style={ikUI} />Bonos / Ofertas</div>
-              <div style={{ ...S.grid, gridTemplateColumns: isMobile ? "repeat(auto-fill, minmax(150px,1fr))" : "repeat(auto-fill, minmax(180px,1fr))" }}>
+              <div style={{ ...S.grid, zoom: escala, gridTemplateColumns: isMobile ? "repeat(auto-fill, minmax(150px,1fr))" : "repeat(auto-fill, minmax(180px,1fr))" }}>
                 {combos.map(c => {
                   const units = (c.items || []).reduce((t, it) => t + (it.qty || 1), 0);
                   const price = (c.price === "" || c.price == null) ? (c.items || []).reduce((t, it) => { const p = punto.products.find(x => x.id === it.productId); return t + (p ? p.price * (it.qty || 1) : 0); }, 0) : Number(c.price);
@@ -2487,6 +2533,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
             <div style={S.grab} />
             <div className="menu-group" style={S.menuGroup}>
               <MenuRow big icon="gift" label={inviting ? "Cancelar invitación" : "Invitación"} onClick={toggleInvite} />
+              <MenuRow big icon="printer" label="Copia del pago para el cliente" onClick={() => { setMoreOpen(false); onRecibo(); }} />
               <MenuRow big icon="list" label="Varios productos" onClick={() => { setMoreOpen(false); startGroup(); }} />
               {canArrange && punto.products.length > 1 && <MenuRow big icon="grip" label="Mover productos" onClick={() => { setMoreOpen(false); startArrange(); }} />}
             </div>

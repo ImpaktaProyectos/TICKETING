@@ -1,0 +1,13 @@
+import assert from "node:assert/strict";
+import { textoAutorizacion, organizadorDe } from "./autorizacion.js";
+let n = 0; const ok = (name, f) => { f(); n++; console.log("✓", name); };
+const o = organizadorDe({ razon_social: "Fiestas SL", nif: "B12345678", direccion: "Calle Mayor 1", cp: "28001", ciudad: "Madrid", email: "hola@fiestas.es" });
+const T = textoAutorizacion({ organizador: o, evento: { nombre: "Noche Joven", inicio: "2026-12-05T23:00:00", lugar: "Sala Luna", edadMinima: 14, vestimenta: "Elegante" }, edad: 18 });
+const todo = JSON.stringify(T);
+ok("los datos fiscales se ponen solos", () => { assert.ok(todo.includes("Fiestas SL")); assert.ok(todo.includes("B12345678")); assert.ok(todo.includes("Calle Mayor 1, 28001 Madrid")); });
+ok("los datos del evento se ponen solos", () => { assert.ok(todo.includes("Noche Joven")); assert.ok(todo.includes("Sala Luna")); assert.ok(todo.includes("diciembre")); assert.ok(todo.includes("14 años")); assert.ok(todo.includes("Elegante")); });
+ok("la edad que se pide sale en el texto", () => assert.ok(todo.includes("menores de 18 años")));
+ok("deja en blanco los datos del tutor y del menor", () => { assert.equal(T.secciones[0].campos.length, 4); assert.equal(T.secciones[1].campos.length, 3); });
+ok("incluye protección de datos y firma", () => { assert.ok(todo.includes("Protección de datos")); assert.equal(T.firma.length, 2); });
+ok("sin datos opcionales no aparecen huecos raros", () => { const t = JSON.stringify(textoAutorizacion({ organizador: organizadorDe({ razon_social: "X SL" }), evento: { nombre: "E" } })); assert.ok(!t.includes("undefined")); assert.ok(!t.includes("null")); });
+console.log(`\n${n} pruebas OK`);

@@ -2,7 +2,7 @@
 // Solo entradas vendidas por ticketeras: TIXFAST online (integrada), Fourvenues, otras ticketeras (CSV)
 // y las ventas apuntadas a mano con su cantidad exacta. Lo cobrado en el TPV (taquilla, reservados, señales)
 // NO entra aquí: vive en Ingresos › Ventas del TPV.
-import React, { useState } from "react";
+import React, { useState, lazy, Suspense } from "react";
 import { money, r2, hoy, parseImporte, useIsMobile, C, Icon, Tile, Badge, Avatar, Sheet, Field, MoneyInput, Seg } from "./ui";
 import { catInfo, OTRAS_CAT } from "./categorias";
 
@@ -36,8 +36,10 @@ export function canalesEntradas(ingresos) {
 }
 
 /* ---------- Tarjeta grande: el dinero de entradas siempre a la vista ---------- */
-export function DineroEntradas({ ingresos, onAnadir, onEditar, onClientes, acciones, nota, titulo = "Dinero de entradas" }) {
+const FacturarEntradas = lazy(() => import("./FacturarEntradas"));
+export function DineroEntradas({ ingresos, onAnadir, onEditar, onClientes, acciones, nota, titulo = "Dinero de entradas", facturar }) {
   const isMobile = useIsMobile();
+  const [verFacturar, setVerFacturar] = useState(false);
   const D = canalesEntradas(ingresos);
   const conUds = D.lista.filter(c => c.udsSabidas && c.uds > 0);   // la media solo con los canales que dicen cuántas entradas
   const medio = conUds.length ? conUds.reduce((t, c) => t + c.importe, 0) / conUds.reduce((t, c) => t + c.uds, 0) : null;
@@ -55,6 +57,7 @@ export function DineroEntradas({ ingresos, onAnadir, onEditar, onClientes, accio
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {acciones}
+          {facturar && D.total > 0 && <button onClick={() => setVerFacturar(true)} style={C.btnGhost}><Icon n="file" s={16} />Facturar</button>}
           {onAnadir && <button onClick={onAnadir} style={{ ...C.btnPrimary, ...(isMobile ? { flex: "1 1 auto" } : {}) }}><Icon n="plus" s={17} w={2.4} />Añadir ventas</button>}
         </div>
       </div>
@@ -86,6 +89,7 @@ export function DineroEntradas({ ingresos, onAnadir, onEditar, onClientes, accio
       </>) : (
         <div style={{ ...C.empty, marginTop: 14 }}>Aún no hay dinero de entradas en este evento. Llega solo desde TIXFAST y Fourvenues; las demás ticketeras, o una cantidad exacta de entradas, se añaden con «Añadir ventas».</div>
       )}
+      {verFacturar && <Suspense fallback={null}><FacturarEntradas ingresos={ingresos} evNombre={facturar.evNombre} ajustes={facturar.ajustes} flash={facturar.flash} onIrFacturacion={facturar.onIrFacturacion} onClose={() => setVerFacturar(false)} /></Suspense>}
     </section>
   );
 }
