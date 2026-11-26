@@ -60,7 +60,7 @@ export function Escaparate({ activo, libre = "", funcion = null, children }) {
       {children}
       <Capa>
         <div data-libre role="status" style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: "calc(84px + env(safe-area-inset-bottom))", zIndex: 125, display: "flex", alignItems: "center", gap: 10, maxWidth: "calc(100vw - 24px)", boxSizing: "border-box", padding: "8px 8px 8px 14px", borderRadius: 999, background: "var(--surface)", border: "1px solid var(--accent)", boxShadow: "0 8px 30px rgba(0,0,0,.45)" }}>
-          <span style={{ fontSize: 13.5, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{mejorar ? "🔒 No incluido en tu plan" : "👀 Vista previa"}</span>
+          <span style={{ fontSize: 13.5, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{mejorar ? "No incluido en tu plan" : "Vista previa"}</span>
           <button onClick={() => setVer(true)} style={{ minHeight: 40, padding: "0 14px", borderRadius: 999, border: "none", background: "var(--accent)", color: "#fff", fontWeight: 900, fontSize: 14, cursor: "pointer", whiteSpace: "nowrap" }}>{mejorar ? "Ver planes" : "Suscribirme"}</button>
         </div>
       </Capa>

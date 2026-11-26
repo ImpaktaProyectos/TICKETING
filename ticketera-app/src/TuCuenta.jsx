@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 import { cargarCuenta, cargarOfertas, irAStripe, retener, cambiarPlan, resumenPlan, sinSuscripcion, diasRestantes, ESTADO_CUENTA, eurosTxt } from "./cuenta";
 import { Suscripcion } from "./Suscripcion";
 import { logout } from "./auth";
+import { Icono as IcoUI, enTexto as ikUI } from "./iconos";
 
 const fechaEs = (iso) => iso ? new Date(iso).toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" }) : "";
 const K = {
@@ -53,7 +54,7 @@ export function TuCuenta({ inicial = null }) {
         <div style={K.fila}><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800 }}>Suscripción{c.plan && !fundador && !sin ? ` · ${c.plan.nombre}` : ""}</div>{detalle && <div style={{ fontSize: 13, color: "var(--muted)" }}>{detalle}</div>}</div><span style={K.badge(est.c)}>{est.t}</span></div>
         <div style={{ ...K.fila, borderBottom: "none" }}><div style={{ flex: 1 }}><div style={{ fontWeight: 800 }}>Ticketera</div><div style={{ fontSize: 13, color: "var(--muted)" }}>La venta de entradas online es siempre gratuita.</div></div><span style={K.badge("var(--green)")}>Gratis</span></div>
         <div style={{ display: "grid", gap: 8, marginTop: 6 }}>
-          {f?.cliente_pago_id && <button disabled={busy} onClick={() => hacer(() => irAStripe("portal"))} style={K.btn}>{f.estado === "impagada" ? "💳 Actualizar mi tarjeta" : "Tarjeta y facturas"}</button>}
+          {f?.cliente_pago_id && <button disabled={busy} onClick={() => hacer(() => irAStripe("portal"))} style={K.btn}>{f.estado === "impagada" ? "Actualizar mi tarjeta" : "Tarjeta y facturas"}</button>}
           {(f?.cancela_al_final || pausada) && <button disabled={busy} onClick={() => hacer(() => retener("reanudar"), pausada ? "✓ Suscripción reanudada" : "✓ Seguirás con TIXFAST")} style={K.prim}>{pausada ? "Reanudar ahora" : "Seguir con mi suscripción"}</button>}
           {puedeCancelar && paso === null && <button disabled={busy} onClick={() => setPaso("motivo")} style={{ ...K.btn, background: "transparent", color: "var(--muted)", border: "none", minHeight: 44 }}>Cancelar suscripción</button>}
         </div>
@@ -124,12 +125,12 @@ function Retencion({ paso, setPaso, busy, hacer }) {
       {ofertas === undefined && <div style={{ color: "var(--muted)", fontSize: 14, marginTop: 8 }}>Cargando…</div>}
       {ofertas !== undefined && <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
         {verDescuento && <div style={{ border: "1px solid var(--accent)", borderRadius: 14, padding: 12, background: "rgba(255,90,60,.08)" }}>
-          <div style={{ fontWeight: 900, fontSize: 16 }}>🎁 {ret.descuento} % de descuento durante {ret.meses} {ret.meses === 1 ? "mes" : "meses"}</div>
+          <div style={{ fontWeight: 900, fontSize: 16 }}><IcoUI n="regalo" s={16} style={ikUI} />{ret.descuento} % de descuento durante {ret.meses} {ret.meses === 1 ? "mes" : "meses"}</div>
           <div style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 3 }}>Sigues con todo y pagas menos. Se aplica en tus próximas cuotas.</div>
           <button disabled={busy} onClick={() => hacer(() => retener("descuento", datos), `✓ ¡Hecho! Tienes un ${ret.descuento} % de descuento`)} style={{ ...K.prim, marginTop: 10 }}>Quedarme con el descuento</button>
         </div>}
         {verPausa && <div style={{ border: "1px solid var(--line)", borderRadius: 14, padding: 12 }}>
-          <div style={{ fontWeight: 900, fontSize: 16 }}>⏸️ Pausar sin pagar</div>
+          <div style={{ fontWeight: 900, fontSize: 16 }}><IcoUI n="pausa" s={16} style={ikUI} />Pausar sin pagar</div>
           <div style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 3 }}>Ideal para la temporada baja: no se cobra nada y se reanuda sola. Tus datos se quedan guardados.</div>
           <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>{Array.from({ length: maxPausa }, (_, i) => i + 1).map(n =>
             <button key={n} onClick={() => setMeses(n)} style={{ minHeight: 42, padding: "0 14px", borderRadius: 12, border: `1px solid ${meses === n ? "var(--accent)" : "var(--line)"}`, background: meses === n ? "rgba(255,90,60,.12)" : "var(--surface2)", color: "var(--text)", fontWeight: 800, cursor: "pointer" }}>{n} {n === 1 ? "mes" : "meses"}</button>)}</div>

@@ -50,7 +50,7 @@ export function CierreNoche({ ev, evSales, evGastos, res, role, flash }) {
       const nombre = `Cierre_${String(ev.name || "evento").replace(/[^\p{L}\p{N}]+/gu, "_")}_${ev.date || ""}.pdf`.replace(/_+/g, "_");
       const u = URL.createObjectURL(doc.output("blob"));
       const a = document.createElement("a"); a.href = u; a.download = nombre; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000);
-      flash("📄 PDF del cierre descargado");
+      flash("PDF del cierre descargado");
     } catch { flash("No se ha podido crear el PDF", "warn"); } finally { setPdf(false); }
   };
   const devolver = async ({ socio, items }) => {
@@ -113,7 +113,7 @@ export function CierreNoche({ ev, evSales, evGastos, res, role, flash }) {
         {/* ---------- Gastos por categoría ---------- */}
         <div style={K.tile}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 10 }}><b style={{ fontSize: 15.5 }}>Gastos por categoría</b><b style={{ color: G.total ? "var(--amber)" : "var(--muted)", fontSize: 16 }}>{money(G.total)}</b></div>
-          {G.porCategoria.length === 0 ? <div style={{ color: "var(--muted)", fontSize: 13.5, padding: "8px 0" }}>Sin gastos de caja esta noche. Se apuntan desde el botón 💰 Caja de cada barra.</div> : G.porCategoria.map(c => { const on = abierta === c.k; return (
+          {G.porCategoria.length === 0 ? <div style={{ color: "var(--muted)", fontSize: 13.5, padding: "8px 0" }}>Sin gastos de caja esta noche. Se apuntan desde el botón Caja de cada barra.</div> : G.porCategoria.map(c => { const on = abierta === c.k; return (
             <div key={c.k} style={{ borderTop: "1px solid var(--line)" }}>
               <button onClick={() => setAbierta(on ? null : c.k)} aria-expanded={on} style={{ width: "100%", background: "transparent", border: "none", color: "var(--text)", cursor: "pointer", padding: "10px 0", textAlign: "left", font: "inherit" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
@@ -171,7 +171,7 @@ export function CierreNoche({ ev, evSales, evGastos, res, role, flash }) {
             <b style={{ fontSize: 15.5 }}>Cambio que han puesto los socios</b>
             <b style={{ color: R.cambioPendiente > 0 ? "#60a5fa" : "var(--green)", fontSize: 16 }}>{R.cambioPendiente > 0 ? `Hay que devolver ${money(R.cambioPendiente)}` : "Todo devuelto"}</b>
           </div>
-          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>No cuenta como ingreso ni como gasto. Se devuelve desde 💰 Caja → Sacar dinero → «Devolver cambio a un socio», o se marca en el CRM (Socios).</div>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>No cuenta como ingreso ni como gasto. Se devuelve desde Caja → Sacar dinero → «Devolver cambio a un socio», o se marca en el CRM (Socios).</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 240px), 1fr))", gap: 10 }}>
             {R.cambioSocios.map(s => (
               <div key={s.socio} style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 12, padding: 12 }}>

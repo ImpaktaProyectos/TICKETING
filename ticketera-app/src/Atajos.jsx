@@ -47,7 +47,7 @@ export function Atajos({ ev, gastosCaja = [], flash, onMovimiento, onCerrar }) {
       <header style={K.head}>
         <button onClick={() => vista ? setVista(null) : onCerrar()} aria-label={vista ? "Volver a los atajos" : "Cerrar"} style={K.icoBtn}>{P(vista ? ICO.atras : ICO.x, 20)}</button>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 900, fontSize: 18 }}>{vista ? titulos[vista] : "⚡ Atajos rápidos"}</div>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>{vista ? titulos[vista] : "Atajos rápidos"}</div>
           <div style={{ fontSize: 13, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.name}</div>
         </div>
       </header>
@@ -112,8 +112,8 @@ function FormGasto({ ev, flash, onMovimiento, onHecho }) {
       if (x.foto) { try { const { subirFotoGasto } = await import("./fotosGasto"); await crm.setGastoArchivo(g.id, await subirFotoGasto(ev.id, g.id, x.foto)); } catch (e) { flash(e?.mostrar ? `Gasto guardado, pero la foto no: ${e.message}` : "Gasto guardado, pero la foto no se ha subido", "warn"); } }
       if (x.pago === "caja") {
         const ok = await onMovimiento(x.barra, imp, `${x.proveedor.trim() ? x.proveedor.trim() + " · " : ""}${x.concepto.trim()}`.slice(0, 120), "gasto", categoriaTPV(g), g.id, { puntoId: x.barra, por: "Admin" });
-        if (!ok) { flash("El gasto está en el CRM, pero no ha salido de la caja: hazlo desde 💰 Caja", "warn"); setBusy(false); return; }
-      } else flash(`💸 ${x.concepto.trim()} · ${money(imp)} apuntado en el CRM${x.pago === "pagado" ? " como pagado" : ""}`);
+        if (!ok) { flash("El gasto está en el CRM, pero no ha salido de la caja: hazlo desde Caja", "warn"); setBusy(false); return; }
+      } else flash(`${x.concepto.trim()} · ${money(imp)} apuntado en el CRM${x.pago === "pagado" ? " como pagado" : ""}`);
       onHecho();
     } catch (e) { flash(navigator.onLine ? "No se ha podido guardar el gasto" : "Sin conexión: los gastos del CRM necesitan internet", "warn"); }
     setBusy(false);
@@ -137,7 +137,7 @@ function FormGasto({ ev, flash, onMovimiento, onHecho }) {
       <div style={K.nota}>Sale del cajón de esa barra (cuenta en su cierre Z) y en el CRM queda pagado con este importe.</div>
     </>}
     <div style={K.label}>Foto de la factura o del ticket (opcional)</div>
-    <label style={{ ...K.chip(!!x.foto, "var(--green)"), display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>{P(ICO.foto, 20)}<span style={{ flex: 1 }}>{x.foto ? `📷 ${x.foto.name || "Foto"} · cambiar` : "Hacer foto o subir"}</span>
+    <label style={{ ...K.chip(!!x.foto, "var(--green)"), display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>{P(ICO.foto, 20)}<span style={{ flex: 1 }}>{x.foto ? `${x.foto.name || "Foto"} · cambiar` : "Hacer foto o subir"}</span>
       <input type="file" accept="image/*,application/pdf" capture="environment" style={{ display: "none" }} onChange={e => { set("foto", e.target.files?.[0] || null); e.target.value = ""; }} /></label>
     <button onClick={guardar} disabled={!listo || busy} style={{ ...K.primary, opacity: listo && !busy ? 1 : .45 }}>{busy ? "Guardando…" : listo ? (x.pago === "caja" ? `Pagar ${money(imp)} desde ${ev.puntos.find(p => p.id === x.barra)?.name || "la caja"}` : `Guardar gasto · ${money(imp)}`) : "Escribe qué es y el importe"}</button>
   </>);
@@ -225,7 +225,7 @@ function Pagos({ ev, gastosCaja, flash }) {
           style={{ width: 36, height: 36, borderRadius: 11, flexShrink: 0, display: "grid", placeItems: "center", cursor: caja ? "default" : "pointer", border: `2px solid ${pag ? "var(--green)" : "var(--line)"}`, background: pag ? "var(--green)" : "transparent", color: "#04231a", opacity: busy === g.id ? .5 : 1 }}>{pag ? P(ICO.pagos, 20) : null}</button>
         <span style={{ flex: 1, minWidth: 0 }}>
           <b style={{ display: "block", fontSize: 15, textDecoration: pag ? "line-through" : "none", color: pag ? "var(--muted)" : "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nombre(g)}</b>
-          <span style={{ display: "block", fontSize: 12.5, color: caja ? "var(--green)" : "var(--muted)" }}>{caja ? "Pagado desde la caja del TPV" : g.categoria}{g.archivoPath ? " · 📷" : ""}</span>
+          <span style={{ display: "block", fontSize: 12.5, color: caja ? "var(--green)" : "var(--muted)" }}>{caja ? "Pagado desde la caja del TPV" : g.categoria}{g.archivoPath ? " · " : ""}</span>
         </span>
         <span style={{ textAlign: "right", flexShrink: 0 }}><b style={{ display: "block", color: pag ? "var(--green)" : "var(--text)" }}>{money(imp(g))}</b>{g.real != null && g.previsto != null && Math.abs(g.real - g.previsto) >= 0.01 && <span style={{ fontSize: 11.5, color: g.real > g.previsto ? "var(--red)" : "var(--green)", fontWeight: 700 }}>{g.real > g.previsto ? "+" : "−"}{money(Math.abs(g.real - g.previsto))} vs previsto</span>}</span>
       </div>); })}

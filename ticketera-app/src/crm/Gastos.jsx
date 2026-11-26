@@ -8,6 +8,7 @@ import { GCATS, CAJA_CAT, COMIS_CAT, IVA_CAT, gcatInfo, catsGasto, esAuto } from
 import { importe, ivaGasto, ivaDe, TIPOS_IVA } from "./fiscal";
 import { aplicarCaja } from "../gastosPrevistos";
 import { ConfirmarPago } from "../ConfirmarPago";
+import { Icono as IcoUI, enTexto as ikUI } from "../iconos";
 
 export { GCATS, CAJA_CAT, gcatInfo } from "./categorias";
 export { importe } from "./fiscal";
@@ -258,7 +259,7 @@ function Fila({ g, socioById, onClick, ivaOn, onPagado, busy, sinBorde }) {
           <FacturaBadge g={g} ivaOn={ivaOn} />
           {s && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--blue)", fontWeight: 800 }}><Avatar nombre={s.nombre} c={s.color} s={16} />pagó {s.nombre}</span>}
           {g.cajaPagado != null && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--green)", fontWeight: 800 }}><Icon n="check" s={12} w={2.6} />pagado desde la caja del TPV</span>}
-          {g.archivoPath && <span title="Tiene foto de la factura o ticket" style={{ fontWeight: 800 }}>📷</span>}
+          {g.archivoPath && <span title="Tiene foto de la factura o ticket" style={{ fontWeight: 800 }}><IcoUI n="camara" s={16} style={ikUI} /></span>}
         </span>
       </span>
       <Importe g={g} />
@@ -276,7 +277,7 @@ function Artista({ a, hijos, total, socioById, onEdit, onAdd, ivaOn, onPagado, b
           <CheckPago g={h} onPagado={onPagado} busy={busy} s={26} />
           <button onClick={() => onEdit(h, a)} style={{ ...C.listBtn, borderTop: "none", padding: "7px 2px", flex: 1, minWidth: 0 }}>
             <Tile n={hi.i} c={hi.c} s={28} />
-            <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 700 }}>{h.concepto || "Gasto"}{h.archivoPath ? " 📷" : ""}</span>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 700 }}>{h.concepto || "Gasto"}{h.archivoPath ? " " : ""}</span>
             <span style={{ fontSize: 14, fontWeight: 800, color: h.estado === "pagado" ? "var(--green)" : "var(--text)" }}>{money(importe(h))}</span>
           </button></div>); })}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, paddingTop: 6, flexWrap: "wrap-reverse" }}>
@@ -412,7 +413,7 @@ function GastoForm({ tipo, gasto, padre, socios, usadas, hijos, busy, ivaOn, onC
               <input type="file" accept="image/*,application/pdf" capture="environment" style={{ display: "none" }} onChange={async (e) => { const file = e.target.files?.[0]; e.target.value = ""; if (!file) return; if (!gasto.id) { setFotoNueva(file); return; } setSubiendo(true); await onFoto(gasto, file); setSubiendo(false); }} /></label>
             {gasto.archivoPath && !fotoNueva && <button onClick={() => onVerFoto(gasto.archivoPath)} style={C.btnSm}><Icon n="eye" s={15} />Ver foto</button>}
             {gasto.archivoPath && <button onClick={async () => { setSubiendo(true); await onFoto(gasto, null); setSubiendo(false); }} style={{ ...C.btnSm, color: "var(--muted)" }}>Quitar</button>}
-            {fotoNueva && <span style={{ fontSize: 12.5, color: "var(--green)", fontWeight: 700 }}>📷 {fotoNueva.name || "Foto"} · se sube al guardar</span>}
+            {fotoNueva && <span style={{ fontSize: 12.5, color: "var(--green)", fontWeight: 700 }}><IcoUI n="camara" s={16} style={ikUI} />{fotoNueva.name || "Foto"} · se sube al guardar</span>}
           </div>
         </Field>}
       </div>

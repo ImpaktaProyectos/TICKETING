@@ -11,6 +11,7 @@ import { useAcceso, puede, avisoNuevoEvento, avisoNuevaBarra, hoyLocal, diasRest
 import { Suscripcion } from "./Suscripcion";
 import { TuCuenta } from "./TuCuenta";
 import { Capa } from "./Capa";
+import { IconoProducto, SelectorIcono } from "./iconosProducto";
 import { Escaparate } from "./Escaparate";
 const AdminPlataforma = lazy(() => import("./AdminPlataforma"));
 import { eventoPorDefecto, estadoFecha, ordenarEventos } from "./eventos";
@@ -23,6 +24,7 @@ import QrCodigo from "./qr/QrCodigo";
 import { crearToken } from "./qr/token";
 import InformeQR from "./qr/InformeQR";
 import { esMultipuesto, MODALIDADES } from "./multipuesto/modelo";
+import { Icono as IcoUI, enTexto as ikUI } from "./iconos";
 const Puestos = React.lazy(() => import("./multipuesto/Puestos").then(m => ({ default: m.Puestos })));
 const InformePuestos = React.lazy(() => import("./multipuesto/InformePuestos"));
 // Modo CRM: código aparte que solo se descarga al abrirlo (el TPV no pesa más ni arranca más lento)
@@ -56,7 +58,7 @@ const Validador = lazy(() => import("./qr/Validador.jsx"));
 const PALETTE = ["#ff5a5f", "#ffb400", "#22d3a6", "#3b82f6", "#a855f7", "#ec4899", "#f97316", "#14b8a6", "#eab308", "#6366f1"];
 const money = (n) => new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(n || 0);
 const timeNow = () => new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-const dateFmt = (iso) => { try { return new Date(iso + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
+const dateFmt = (iso) => { try { const d = new Date(iso + "T00:00:00"); if (!iso || isNaN(d)) return iso || "Sin fecha"; return d.toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" }); } catch { return iso; } };
 const shortCode = (id) => String(id).slice(0, 6).toUpperCase();
 const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 // Fecha y hora de fin del evento: se guarda con zona horaria; el campo de la pantalla usa la hora local
@@ -66,7 +68,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.20c";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.26a";   // súbela al publicar cambios para verificar la actualización
 globalThis.TIXFAST_VERSION = APP_VERSION;
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
@@ -231,7 +233,7 @@ function ThermalTicketBody({ ev, product, time, num, qty = 1, code, folio, qr, n
   } else if (ev.template === "clasico") {
     inner = (<>
       <Logo />
-      {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 900, fontSize: 14, textTransform: "uppercase", letterSpacing: 1, color: "#000" }}>★ {ev.name} ★</div>}
+      {ev.showEventName && <div style={{ textAlign: "center", fontWeight: 900, fontSize: 14, textTransform: "uppercase", letterSpacing: 1, color: "#000" }}>{ev.name} </div>}
       <Sub />
       {dashed}
       <Name size={big} />
@@ -521,7 +523,7 @@ export default function App() {
     const trySync = async () => {
       if (!navigator.onLine || db.pendingCount() === 0) { setPending(db.pendingCount()); return; }
       const r = await db.syncPending(); setPending(db.pendingCount());
-      if (r.synced) { flash(`✅ ${r.synced} operaciones sincronizadas`); if (r.remaining === 0) await hydrate().catch(() => {}); }
+      if (r.synced) { flash(`${r.synced} operaciones sincronizadas`); if (r.remaining === 0) await hydrate().catch(() => {}); }
     };
     const on = async () => { setOnline(true); await trySync(); if (db.pendingCount() === 0) await hydrate().catch(() => {}); };
     const off = () => setOnline(false);
@@ -553,7 +555,7 @@ export default function App() {
     const r = await db.backupSnapshot(e.id, datos);
     setPending(db.pendingCount());
     if (!r.offline) setLastBackup(db.lastBackupAt());
-    if (manual) flash(r.offline ? "💾 Copia guardada en el equipo · subirá al volver internet" : "☁️ Copia de seguridad subida", r.offline ? "warn" : "ok");
+    if (manual) flash(r.offline ? "Copia guardada en el equipo · subirá al volver internet" : "Copia de seguridad subida", r.offline ? "warn" : "ok");
   };
   useEffect(() => {
     const first = setTimeout(() => makeBackup(false), 60000);          // primera copia al minuto de abrir
@@ -568,7 +570,7 @@ export default function App() {
     if (product.soldOut) { flash("Producto agotado", "warn"); return; }
     if (ev.closed) { flash("Caja cerrada · no se puede vender", "warn"); return; }
     const time = timeNow();
-    if (testMode) { imprimirPrueba(product, qty); flash("🧪 Prueba (no cuenta)"); return; }
+    if (testMode) { imprimirPrueba(product, qty); flash("Prueba (no cuenta)"); return; }
     // Venta avanzada: primero se cobra (efectivo/tarjeta + cambio), luego se imprime
     if (ev.advanced) { setPayFlow({ kind: "single", product, qty, total: round2(product.price * qty) }); return; }
     doSell(product, qty);
@@ -588,8 +590,8 @@ export default function App() {
       // Con ×2, ×3… se imprime un ticket por unidad, cada uno con su número y su folio (nunca uno solo con «10 × precio»)
       if (qty > 1) setPrintJob({ kind: "multi", tickets: rows.map(r => ({ product, num: r.num, folio: r.code, qr: qrDe(product) ? firmar(r.clientUuid, product) : null })), time, n: Date.now() });
       else setPrintJob({ kind: "ticket", product, time, num: rows[0].num, folio: rows[0].code, qty, qr: qrDe(product) ? firmar(rows[0].clientUuid, product) : null, n: Date.now() });
-      flash(invite ? `🎁 Invitación · ${qty > 1 ? qty + "× " : ""}${product.name}` : `🖨️ ${qty > 1 ? qty + "× " : ""}${product.name}`);
-    } else flash(invite ? `🎁 Invitación guardada · ${product.name} (sin ticket)` : `✅ Venta guardada · ${qty > 1 ? qty + "× " : ""}${product.name} (sin ticket)`);
+      flash(invite ? `Invitación · ${qty > 1 ? qty + "× " : ""}${product.name}` : `${qty > 1 ? qty + "× " : ""}${product.name}`);
+    } else flash(invite ? `Invitación guardada · ${product.name} (sin ticket)` : `Venta guardada · ${qty > 1 ? qty + "× " : ""}${product.name} (sin ticket)`);
     if (navigator.vibrate) navigator.vibrate(invite ? [20, 40, 20] : 25);
     db.vender({ eventoId: ev.id, puntoId: punto.id, producto: invite ? { ...product, price: 0 } : product, qty, operario: punto.name, folios, clientUuids, pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
   };
@@ -599,7 +601,7 @@ export default function App() {
     if (!ev.id || !punto?.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return; }
     if (product.soldOut) { flash("Producto agotado", "warn"); return; }
     if (ev.closed) { flash("Caja cerrada · no se puede vender", "warn"); return; }
-    if (testMode) { imprimirPrueba(product, qty); flash("🧪 Prueba (no cuenta)"); return; }
+    if (testMode) { imprimirPrueba(product, qty); flash("Prueba (no cuenta)"); return; }
     doSell(product, qty, null, true);
   };
   const sellComboInvite = (combo) => {
@@ -608,12 +610,12 @@ export default function App() {
     const vouchers = [];
     (combo.items || []).forEach(it => { const p = punto.products.find(x => x.id === it.productId); if (p) for (let k = 0; k < (it.qty || 1); k++) vouchers.push(p); });
     if (!vouchers.length) { flash("Bono sin productos válidos", "warn"); return; }
-    if (testMode) { setPrintJob({ kind: "multi", tickets: vouchers.map((p, i) => ({ product: p, folio: "PRUEBA", qr: qrPrueba(p, i + 1) })), time: timeNow(), n: Date.now() }); flash("🧪 Prueba (no cuenta)"); return; }
+    if (testMode) { setPrintJob({ kind: "multi", tickets: vouchers.map((p, i) => ({ product: p, folio: "PRUEBA", qr: qrPrueba(p, i + 1) })), time: timeNow(), n: Date.now() }); flash("Prueba (no cuenta)"); return; }
     const value = round2((combo.price === "" || combo.price == null) ? vouchers.reduce((t, p) => t + p.price, 0) : Number(combo.price));
     doSellCombo(combo, vouchers, 0, { pago: invPago(value) }, value);
   };
 
-  const reprint = () => { if (!printJob) { flash("Nada que reimprimir", "warn"); return; } setPrintJob({ ...printJob, n: Date.now() }); flash("🖨️ Reimprimiendo último ticket"); };
+  const reprint = () => { if (!printJob) { flash("Nada que reimprimir", "warn"); return; } setPrintJob({ ...printJob, n: Date.now() }); flash("Reimprimiendo último ticket"); };
 
   const sellMany = (items) => {
     if (!ev.id || !punto?.id) { flash("Sin datos del evento · conéctate a internet", "warn"); return; }
@@ -622,7 +624,7 @@ export default function App() {
     if (testMode) {
       const tks = [];
       items.forEach(({ product, qty }) => { for (let i = 0; i < qty; i++) tks.push({ product, folio: "PRUEBA", qr: qrPrueba(product) }); });
-      if (tks.length) { setPrintJob({ kind: "multi", tickets: tks, time, n: Date.now() }); flash("🧪 Prueba (no cuenta)"); }
+      if (tks.length) { setPrintJob({ kind: "multi", tickets: tks, time, n: Date.now() }); flash("Prueba (no cuenta)"); }
       return;
     }
     const total = round2(items.reduce((t, it) => t + it.product.price * it.qty, 0));
@@ -647,11 +649,11 @@ export default function App() {
     const toPrint = tickets.filter(t => t.product.print !== false);
     if (toPrint.length) setPrintJob({ kind: "multi", tickets: toPrint, time, n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(40);
-    flash(toPrint.length ? `🖨️ ${toPrint.length} tickets · ${money(rows.reduce((t, r) => t + r.price, 0))}` : `✅ Venta guardada · ${money(rows.reduce((t, r) => t + r.price, 0))} (sin ticket)`);
+    flash(toPrint.length ? `${toPrint.length} tickets · ${money(rows.reduce((t, r) => t + r.price, 0))}` : `Venta guardada · ${money(rows.reduce((t, r) => t + r.price, 0))} (sin ticket)`);
   };
 
   const voidLast = async (by) => {
-    if (testMode) { flash("🧪 Modo prueba: no hay ventas que anular", "warn"); return; }
+    if (testMode) { flash("Modo prueba: no hay ventas que anular", "warn"); return; }
     const last = evSales.filter(s => s.puntoId === punto.id && !s.voided && !s.closureId).sort((a, b) => b.ts - a.ts)[0];
     if (!last) { flash("No hay tickets que anular en este turno", "warn"); return; }
     baseDispatch({ type: "VOID_ONE", saleId: last.id, by });
@@ -659,7 +661,7 @@ export default function App() {
     const r = await db.anularVenta(last.clientUuid || last.id, by);
     if (r.offline) setPending(db.pendingCount());
   };
-  const requestVoidCajero = () => { if (testMode) { flash("🧪 Modo prueba: no hay ventas que anular", "warn"); return; } if (ev.anularPin) setAskVoidPin(true); else voidLast(punto.name); };
+  const requestVoidCajero = () => { if (testMode) { flash("Modo prueba: no hay ventas que anular", "warn"); return; } if (ev.anularPin) setAskVoidPin(true); else voidLast(punto.name); };
 
   // Venta avanzada (cobro con efectivo/tarjeta y cambio). La elige cualquiera ANTES de vender;
   // en cuanto una barra inicia la venta (o hay ventas reales) queda fija para todo el evento,
@@ -680,7 +682,7 @@ export default function App() {
     const vouchers = [];
     (combo.items || []).forEach(it => { const p = punto.products.find(x => x.id === it.productId); if (p) for (let k = 0; k < (it.qty || 1); k++) vouchers.push(p); });
     if (!vouchers.length) { flash("Bono sin productos válidos", "warn"); return; }
-    if (testMode) { setPrintJob({ kind: "multi", tickets: vouchers.map((p, i) => ({ product: p, folio: "PRUEBA", qr: qrPrueba(p, i + 1) })), time: timeNow(), n: Date.now() }); flash("🧪 Prueba (no cuenta)"); return; }
+    if (testMode) { setPrintJob({ kind: "multi", tickets: vouchers.map((p, i) => ({ product: p, folio: "PRUEBA", qr: qrPrueba(p, i + 1) })), time: timeNow(), n: Date.now() }); flash("Prueba (no cuenta)"); return; }
     const price = round2((combo.price === "" || combo.price == null) ? vouchers.reduce((t, p) => t + p.price, 0) : Number(combo.price));
     if (ev.advanced) { setPayFlow({ kind: "combo", combo, vouchers, total: price }); return; }
     doSellCombo(combo, vouchers, price);
@@ -694,7 +696,7 @@ export default function App() {
     const tickets = vouchers.map((p, i) => ({ product: p, folio: `${folio}·${i + 1}`, qr: qrDe(p) ? firmar(cu, p, i + 1) : null })).filter(t => t.product.print !== false);
     if (tickets.length) setPrintJob({ kind: "multi", tickets, time: timeNow(), n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(45);
-    flash((inviteVal != null ? "🎁 Invitación · " : "") + (tickets.length ? `🎟️ ${combo.name} · ${tickets.length} tickets` : `✅ Venta guardada · ${combo.name} (sin ticket)`));
+    flash((inviteVal != null ? "Invitación · " : "") + (tickets.length ? `${combo.name} · ${tickets.length} tickets` : `Venta guardada · ${combo.name} (sin ticket)`));
     db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: combo.name, price }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
   };
   // ===== Reservados VIP =====
@@ -720,7 +722,7 @@ export default function App() {
   const cobrarRes = (d) => {
     setResCobro(null);
     const product = { id: d.item.id, name: d.item.nombre, price: d.precio };
-    if (testMode) { setPrintJob({ kind: "ticket", product, time: timeNow(), num: null, folio: "PRUEBA", qty: 1, notas: notasRes(d), n: Date.now() }); flash("🧪 Prueba (no cuenta)"); return; }
+    if (testMode) { setPrintJob({ kind: "ticket", product, time: timeNow(), num: null, folio: "PRUEBA", qty: 1, notas: notasRes(d), n: Date.now() }); flash("Prueba (no cuenta)"); return; }
     if (ev.advanced) { setPayFlow({ kind: "reservado", res: d, total: d.precio }); return; }
     doSellRes(d);
   };
@@ -732,7 +734,7 @@ export default function App() {
     baseDispatch({ type: "SELL", rows: [saleRow] });
     setPrintJob({ kind: "ticket", product: { id: item.id, name: item.nombre, price: precio }, time: timeNow(), num: saleRow.num, folio, qty: 1, notas: notasRes(d), n: Date.now() });
     if (navigator.vibrate) navigator.vibrate(45);
-    flash(`⭐ ${item.nombre} · ${reservado.nombre}`);
+    flash(`${item.nombre} · ${reservado.nombre}`);
     db.vender({ eventoId: ev.id, puntoId: punto.id, producto: { id: null, name: item.nombre, price: precio }, qty: 1, operario: punto.name, folios: [folio], clientUuids: [cu], pago: pay?.pago || null, entregado: pay?.entregado ?? null, cambio: pay?.cambio ?? null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
     enlazarRes(d, cu);
   };
@@ -756,7 +758,7 @@ export default function App() {
     const saleRow = { id: cu, clientUuid: cu, code: folio, num: evSales.length + 1, eventId: ev.id, puntoId: caja.id, productId: null, name: item.nombre, price: precio, ts: Date.now(), synced: online, voided: false, closureId: null, operario, pago: metodo, invite: false, inviteValue: 0, entregado: null, cambio: null };
     baseDispatch({ type: "SELL", rows: [saleRow] });
     if (navigator.vibrate) navigator.vibrate(45);
-    flash(`💶 ${item.nombre} · ${reservado.nombre} · ${money(precio)} ${metodo} → ${caja.name}`);
+    flash(`${item.nombre} · ${reservado.nombre} · ${money(precio)} ${metodo} → ${caja.name}`);
     db.vender({ eventoId: ev.id, puntoId: caja.id, producto: { id: null, name: item.nombre, price: precio }, qty: 1, operario, folios: [folio], clientUuids: [cu], pago: metodo, entregado: null, cambio: null }).then(r => { if (r.offline) setPending(db.pendingCount()); });
     enlazarRes(d, cu);
   };
@@ -804,7 +806,7 @@ export default function App() {
       cargarAportaciones();
     }
     baseDispatch({ type: "ADD_GASTO", gasto: g });
-    flash(`${g.tipo === "entrada" ? "➕ Cambio añadido" : "💸 Gasto registrado"}${extra.puntoId ? ` en ${P.name}` : ""} · ${money(imp)}${g.tipo !== "entrada" ? " · " + categoriaDe(g).t : ""}${g.concepto && g.concepto !== categoriaDe(g).t ? " · " + g.concepto : ""}`);
+    flash(`${g.tipo === "entrada" ? "Cambio añadido" : "Gasto registrado"}${extra.puntoId ? ` en ${P.name}` : ""} · ${money(imp)}${g.tipo !== "entrada" ? " · " + categoriaDe(g).t : ""}${g.concepto && g.concepto !== categoriaDe(g).t ? " · " + g.concepto : ""}`);
     if (navigator.vibrate) navigator.vibrate(30);
     const r = await db.registrarGasto({ id, tipo: g.tipo, eventoId: ev.id, puntoId: P.id, importe: imp, concepto: g.concepto, categoria: g.categoria, crmGastoId: g.crmGastoId, por });
     if (r.offline) setPending(db.pendingCount());
@@ -863,7 +865,7 @@ export default function App() {
   const vincularGasto = async (g, crmId, nombre) => {
     try { const r = await db.vincularGastoCRM(g.id, crmId); baseDispatch({ type: "LINK_GASTO", id: g.id, crmGastoId: r }); }
     catch (e) { flash(e?.mostrar ? e.message : "No se ha podido vincular", "warn"); return false; }
-    flash(crmId ? `🔗 Vinculado a ${nombre || "su gasto del CRM"}: allí queda pagado con ${money(g.importe)}` : "Vínculo quitado: el gasto del CRM vuelve a como estaba");
+    flash(crmId ? `Vinculado a ${nombre || "su gasto del CRM"}: allí queda pagado con ${money(g.importe)}` : "Vínculo quitado: el gasto del CRM vuelve a como estaba");
     return true;
   };
 
@@ -924,9 +926,9 @@ export default function App() {
 
   // Ticket de prueba para calibrar la impresora sin hacer una venta
   const testPrint = () => {
-    const demo = punto.products[0] || { id: "demo", name: "TICKET DE PRUEBA", price: 0, emoji: "🎟️", color: "#ff5a3c" };
+    const demo = punto.products[0] || { id: "demo", name: "TICKET DE PRUEBA", price: 0, emoji: "i:entrada", color: "#ff5a3c" };
     setPrintJob({ kind: "ticket", product: demo, time: timeNow(), num: null, folio: "PRUEBA", qty: 1, qr: qrPrueba(demo), n: Date.now() });
-    flash("🖨️ Ticket de prueba enviado");
+    flash("Ticket de prueba enviado");
   };
 
   // Resetear estadísticas del evento (borra ventas y cierres). Solo admin, doble confirmación.
@@ -947,7 +949,7 @@ export default function App() {
     try { await db.borrarEvento(e.id); }
     catch (err) { flash(err?.mostrar ? err.message : "No se ha podido borrar el evento", "warn"); return false; }
     await hydrate().catch(() => {});
-    flash(`🗑️ «${e.name}» está en la papelera. Puedes rescatarlo durante ${db.DIAS_PAPELERA} días desde Evento › Eventos borrados.`);
+    flash(`«${e.name}» está en la papelera. Puedes rescatarlo durante ${db.DIAS_PAPELERA} días desde Evento › Eventos borrados.`);
     return true;
   };
   const restaurarEvento = async (e) => {
@@ -982,14 +984,14 @@ export default function App() {
     if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
     const r = await db.abrirBarra(punto.id, ev.id, fondo, quien());
     if (r.offline) setPending(db.pendingCount());
-    flash(`🟢 Venta iniciada en ${punto.name}${fondo != null ? ` · fondo ${money(fondo)}` : ""}`);
+    flash(`Venta iniciada en ${punto.name}${fondo != null ? ` · fondo ${money(fondo)}` : ""}`);
   };
   // Volver a modo prueba (solo admin): reabrir tras un Z o deshacer un inicio por error
   const pasarPrueba = async (puntoObj) => {
     baseDispatch({ type: "UPDATE_PUNTO", eventId: ev.id, puntoId: puntoObj.id, patch: { estado: "prueba", fondo: null } });
     const r = await db.pasarPrueba(puntoObj.id, ev.id, quien());
     if (r.offline) setPending(db.pendingCount());
-    flash(`🧪 ${puntoObj.name} en modo prueba`, "warn");
+    flash(`${puntoObj.name} en modo prueba`, "warn");
   };
 
   // Quien ya entró como administrador ve la facturación sin volver a poner el PIN
@@ -1016,11 +1018,11 @@ export default function App() {
   const safeView = navItems.find(n => n.id === view && n.id !== "crm") ? view : "pos";
   const goNav = (id) => { if (id === "crm") { setMenuOpen(false); setAppMode("crm"); } else setView(id); };
 
-  const syncNow = async () => { const r = await db.syncPending(); setPending(db.pendingCount()); if (r.synced) { flash(`✅ ${r.synced} ventas sincronizadas`); await hydrate().catch(() => {}); } else flash(pending ? "Aún sin conexión" : "Todo sincronizado"); };
+  const syncNow = async () => { const r = await db.syncPending(); setPending(db.pendingCount()); if (r.synced) { flash(`${r.synced} ventas sincronizadas`); await hydrate().catch(() => {}); } else flash(pending ? "Aún sin conexión" : "Todo sincronizado"); };
   const OnlinePill = ({ small }) => (
     <button onClick={syncNow} style={{ ...S.printerStatusSm, borderColor: !online ? "rgba(255,77,77,.5)" : pending || fromCache ? "rgba(255,180,0,.5)" : "var(--line)", color: !online ? "var(--red)" : pending || fromCache ? "var(--amber)" : "var(--text)", fontWeight: pending ? 800 : 700 }} title="Conexión (offline-first) · toca para sincronizar">
       <span style={{ ...S.stDot, background: online ? (pending || fromCache ? "var(--amber)" : "var(--green)") : "var(--red)", boxShadow: `0 0 0 3px ${online ? (pending || fromCache ? "rgba(255,180,0,.18)" : "rgba(34,211,166,.18)") : "rgba(255,77,77,.18)"}` }} />
-      {online ? (pending ? `⏳ ${pending} sin subir` : fromCache ? "Datos guardados" : "En línea") : `Sin conexión · ${pending}`}
+      {online ? (pending ? `${pending} sin subir` : fromCache ? "Datos guardados" : "En línea") : `Sin conexión · ${pending}`}
     </button>
   );
   const PrinterPill = () => (
@@ -1031,7 +1033,7 @@ export default function App() {
   );
 
   if (loading) return (
-    <div style={{ height: "100vh", display: "grid", placeItems: "center", background: "#0b0c10", color: "#838aa0", fontFamily: "Inter,-apple-system,sans-serif" }}>
+    <div style={{ height: "100dvh", display: "grid", placeItems: "center", background: "#0b0c10", color: "#838aa0", fontFamily: "Inter,-apple-system,sans-serif" }}>
       <div style={{ textAlign: "center" }}>
         <img src="/brand/tixfast_logo_horizontal_oscuro.svg" alt="TIXFAST" style={{ height: 34, width: "auto", display: "block", margin: "0 auto 14px" }} />
         Cargando…
@@ -1061,14 +1063,14 @@ export default function App() {
               <div style={S.mEvent}>{ev.name}</div>
               <div style={S.mSub}><Ic n="store" s={12} w={2.2} />{punto.name}</div>
             </div>
-            <button onClick={syncNow} aria-label={online ? (pending ? `${pending} operaciones sin subir` : "En línea") : "Sin conexión"} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", border: "none", padding: "6px 2px", color: !online ? "var(--red)" : pending || fromCache ? "var(--amber)" : "var(--muted)", fontSize: 12, fontWeight: 800, flexShrink: 0 }}>
+            <button onClick={syncNow} aria-label={online ? (pending ? `${pending} operaciones sin subir` : "En línea") : "Sin conexión"} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", border: "none", padding: "0 6px", minWidth: 44, minHeight: 44, justifyContent: "center", color: !online ? "var(--red)" : pending || fromCache ? "var(--amber)" : "var(--muted)", fontSize: 12, fontWeight: 800, flexShrink: 0 }}>
               <span style={{ ...S.stDot, background: online ? (pending || fromCache ? "var(--amber)" : "var(--green)") : "var(--red)", boxShadow: `0 0 0 4px ${online ? (pending || fromCache ? "rgba(255,180,0,.16)" : "rgba(34,211,166,.16)") : "rgba(255,77,77,.16)"}` }} />
               {!online ? "Sin conexión" : pending ? `${pending} sin subir` : fromCache ? "Datos guardados" : null}
             </button>
             <button onClick={() => setMenuOpen(true)} style={S.iconBtn} aria-label="Menú"><Ic n="menu" /></button>
           </header>
           <div style={{ padding: 12, flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
           </div>
         </div>
       ) : (
@@ -1076,12 +1078,12 @@ export default function App() {
           <header style={S.cashierTop}>
             <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
               <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width="38" height="38" style={{ flexShrink: 0, display: "block" }} />
-              <div style={{ minWidth: 0 }}><div style={S.topTitle}>{ev.name} {(() => { const x = estadoFecha(ev); return <span title="Momento del evento" style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: .5, color: x.c, border: `1px solid ${x.c}`, borderRadius: 999, padding: "1px 7px", verticalAlign: 3 }}>{x.t}</span>; })()}</div><div style={S.topSub}><span style={S.barTag}><Ic n="store" s={12} w={2.2} />{punto.name}</span>{dateFmt(ev.date)}</div></div>
+              <div style={{ minWidth: 0 }}><div style={S.topTitle}>{ev.name} {(() => { const x = estadoFecha(ev); return <span title="Momento del evento" style={{ fontSize: 11.5, fontWeight: 900, letterSpacing: .5, color: x.c, border: `1px solid ${x.c}`, borderRadius: 999, padding: "1px 7px", verticalAlign: 3 }}>{x.t}</span>; })()}</div><div style={S.topSub}><span style={S.barTag}><Ic n="store" s={12} w={2.2} />{punto.name}</span>{dateFmt(ev.date)}</div></div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}><OnlinePill /><PrinterPill /><button onClick={exitToLogin} style={S.topBtn}><Ic n="lock" s={16} />Salir</button></div>
           </header>
           <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
-            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
+            <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => requestVoidCajero()} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />
           </div>
         </div>
       ))}
@@ -1126,7 +1128,7 @@ export default function App() {
                 <button onClick={verFacturacion} style={{ ...S.iconBtn, color: "var(--accent)" }} aria-label="Consultar facturación"><Ic n="euro" /></button>
               </div>
             </div>}
-            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
+            {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
             {safeView === "reservados" && vistaRes({ onCerrar: () => setView("pos"), enBarra: true })}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
             {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} onBorrar={borrarEvento} onRestaurar={restaurarEvento} onEliminar={eliminarEvento} dispatch={dispatch} flash={flash} />}
@@ -1138,7 +1140,7 @@ export default function App() {
           {/* La barra de abajo está siempre (también en Reservados): se navega igual desde cualquier pantalla */}
           <nav style={S.bottomNav}>
             {navItems.map(n => <button key={n.id} aria-label={n.label} aria-current={safeView === n.id ? "page" : undefined} onClick={() => goNav(n.id)} style={{ ...S.bTab, ...(safeView === n.id ? S.bTabActive : {}) }}>
-              <span style={{ ...S.bTabIco, ...(safeView === n.id ? S.bTabIcoActive : {}) }}><Ic n={n.icon} s={21} w={safeView === n.id ? 2.2 : 1.9} /></span><span style={{ maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: navItems.length > 5 ? 10.5 : 12 }}>{navItems.length > 5 ? (n.short || n.label) : n.label}</span>
+              <span style={{ ...S.bTabIco, ...(safeView === n.id ? S.bTabIcoActive : {}) }}><Ic n={n.icon} s={21} w={safeView === n.id ? 2.2 : 1.9} /></span><span style={{ maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: navItems.length > 5 ? 11 : 12 }}>{navItems.length > 5 ? (n.short || n.label) : n.label}</span>
             </button>)}
           </nav>
         </div>
@@ -1157,7 +1159,7 @@ export default function App() {
             </nav>
             <div style={{ marginTop: "auto", paddingTop: 16 }}>
               <div style={S.sideLabel}>Punto de venta activo</div>
-              <select value={punto.id} onChange={e => dispatch({ type: "SET_PUNTO", id: e.target.value })} style={{ ...S.select, fontSize: 13 }}>{activePuntos.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+              <select value={punto.id} onChange={e => dispatch({ type: "SET_PUNTO", id: e.target.value })} style={{ ...S.select, fontSize: 16 }}>{activePuntos.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
               <div style={{ display: "flex", gap: 6, margin: "10px 0 12px" }}><OnlinePill /><PrinterPill /></div>
               <div style={S.sideDivider} />
               <MenuRow icon="printer" label="Ticket de prueba" onClick={testPrint} />
@@ -1167,7 +1169,7 @@ export default function App() {
           </aside>
           <main style={S.main}>
             <header style={S.top}>
-              <div style={{ minWidth: 0 }}><div style={S.topTitle}>{ev.name} {(() => { const x = estadoFecha(ev); return <span title="Momento del evento" style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: .5, color: x.c, border: `1px solid ${x.c}`, borderRadius: 999, padding: "1px 7px", verticalAlign: 3 }}>{x.t}</span>; })()}</div><div style={S.topSub}><span style={S.barTag}><Ic n="store" s={12} w={2.2} />{punto.name}</span>{dateFmt(ev.date)}{ev.venue ? ` · ${ev.venue}` : ""}</div></div>
+              <div style={{ minWidth: 0 }}><div style={S.topTitle}>{ev.name} {(() => { const x = estadoFecha(ev); return <span title="Momento del evento" style={{ fontSize: 11.5, fontWeight: 900, letterSpacing: .5, color: x.c, border: `1px solid ${x.c}`, borderRadius: 999, padding: "1px 7px", verticalAlign: 3 }}>{x.t}</span>; })()}</div><div style={S.topSub}><span style={S.barTag}><Ic n="store" s={12} w={2.2} />{punto.name}</span>{dateFmt(ev.date)}{ev.venue ? ` · ${ev.venue}` : ""}</div></div>
               <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                 <Stat label={`Tickets · ${punto.name}`} value={totals.count} accent="var(--text)" />
                 <button onClick={verFacturacion} style={S.topBtn}><span style={{ color: "var(--accent)", display: "flex" }}><Ic n="euro" s={17} /></span>Consultar facturación</button>
@@ -1175,7 +1177,7 @@ export default function App() {
             </header>
             <div style={{ padding: 22, flex: 1, overflow: "auto" }}>
               {avisoPin}
-              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("🧪 Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
+              {safeView === "pos" && <POS punto={punto} totals={totals} rankCounts={rankCounts} onReorder={reorderProducts} onSetSortMode={setPuntoSortMode} onSell={sell} onInvite={sellInvite} onComboInvite={sellComboInvite} onSellMany={sellMany} onVoid={() => voidLast(role)} onReprint={reprint} canReprint={!!printJob} onCombo={sellCombo} extra={lineaRes} testMode={testMode} closed={ev.closed} advanced={!!ev.advanced} canArrange={isPriv} onGasto={() => { if (testMode) { flash("Inicia la venta para usar la caja", "warn"); return; } setShowGasto(true); }} onIniciar={pedirIniciar} gastoTotal={sumMov(turnoMovs, "gasto")} entradaTotal={sumMov(turnoMovs, "entrada")} fondo={punto.fondo} />}
               {safeView === "reservados" && vistaRes({ onCerrar: () => setView("pos") })}
             {safeView === "template" && <TemplateDesigner ev={ev} dispatch={dispatch} flash={flash} />}
               {safeView === "config" && <EventConfig state={state} ev={ev} punto={punto} evSales={evSales} role={role} onReset={resetStats} onBorrar={borrarEvento} onRestaurar={restaurarEvento} onEliminar={eliminarEvento} dispatch={dispatch} flash={flash} />}
@@ -1295,7 +1297,7 @@ export default function App() {
             <div style={{ textAlign: "left", borderTop: "1px solid var(--line)", paddingTop: 12, marginBottom: 14 }}>
               {ev.puntos.map(p => { const r = evSales.filter(s => s.puntoId === p.id && !s.voided).reduce((t, s) => t + s.price, 0); return <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "4px 0" }}><span style={{ color: "var(--muted)" }}>{p.name}</span><b>{money(r)}</b></div>; })}
               {(() => { const gt = sumMov(evGastos, "gasto"); return gt > 0 ? (<>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "8px 0 4px", marginTop: 6, borderTop: "1px solid var(--line)" }}><span style={{ color: "var(--amber)" }}>💸 Gastos de caja</span><b style={{ color: "var(--amber)" }}>-{money(gt)}</b></div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "8px 0 4px", marginTop: 6, borderTop: "1px solid var(--line)" }}><span style={{ color: "var(--amber)" }}><IcoUI n="dinero" s={16} style={ikUI} />Gastos de caja</span><b style={{ color: "var(--amber)" }}>-{money(gt)}</b></div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "4px 0" }}><span>A cuadrar (efectivo + datáfono)</span><b>{money(round2(eventRevenue - gt))}</b></div>
                 {ev.advanced && <div style={{ fontSize: 12, color: "var(--muted)" }}>Sin contar el fondo inicial de los cajones.</div>}
               </>) : null; })()}
@@ -1307,7 +1309,7 @@ export default function App() {
 
       {updateReady && (
         <div style={S.updateBar} role="status">
-          <span style={{ fontSize: 18 }}>✨</span>
+          <span style={{ fontSize: 18 }}><IcoUI n="chispa" s={13} w={1.6} /></span>
           <span style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 1.3 }}><b>Versión nueva lista.</b> Actualiza cuando no haya cola (las ventas no se pierden).</span>
           <button onClick={() => window.location.reload()} style={S.updateBtn}>Actualizar</button>
           <button onClick={() => setUpdateReady(false)} style={S.updateX} aria-label="Más tarde">✕</button>
@@ -1515,7 +1517,7 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
   const entrarBarra = (m, id) => { try { localStorage.setItem(claveUltima, id); } catch {} onRole(m, id); };
   useEffect(() => { setMode(null); }, [ev.id]);
   const abiertas = puntos.filter(p => p.estado === "abierta").length;
-  const fechaEv = (() => { try { return new Date((ev.startsAt || ev.date + "T12:00")).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" }); } catch { return ev.date; } })();
+  const fechaEv = (() => { if (!ev.startsAt && !ev.date) return "Sin fecha"; const d = new Date(ev.startsAt || ev.date + "T12:00"); return isNaN(d) ? (ev.date || "Sin fecha") : d.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" }); })();
   const horaEv = ev.startsAt && ev.startsAt.length > 10 ? ev.startsAt.slice(11, 16) : "";
   const roles = [
     { k: "supervisor", icon: "eye", t: "Supervisor", d: "Informes, cierres y anulaciones", pin: true },
@@ -1554,10 +1556,10 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
             </span>
             {events.length > 1 && <span className="tg-cambiar">Cambiar<Ic n="chev" s={14} /></span>}
           </button>
-          {sugerido && <button type="button" className="tg-aviso-ev" onClick={() => onSelectEvent(sugerido.id)}>⚠️ Este evento ya pasó. <b>Ir a {sugerido.name}</b> ({estadoFecha(sugerido).t.toLowerCase()})</button>}
+          {sugerido && <button type="button" className="tg-aviso-ev" onClick={() => onSelectEvent(sugerido.id)}><IcoUI n="aviso" s={16} style={ikUI} />Este evento ya pasó. <b>Ir a {sugerido.name}</b> ({estadoFecha(sugerido).t.toLowerCase()})</button>}
           {/* Accesos rápidos, a la vista nada más entrar (antes los atajos estaban al final de la pantalla) */}
           <div className="tg-accesos">
-            {ev.id && <button type="button" onClick={() => (sinTpv ? setVerSusc(true) : setAtajos("pin"))} className="tg-atajos" aria-label="Atajos rápidos: gastos, cambio y dinero de socios">⚡ Atajos rápidos</button>}
+            {ev.id && <button type="button" onClick={() => (sinTpv ? setVerSusc(true) : setAtajos("pin"))} className="tg-atajos" aria-label="Atajos rápidos: gastos, cambio y dinero de socios"><IcoUI n="rayo" s={16} style={ikUI} />Atajos rápidos</button>}
             <button type="button" className="tg-nuevo-ev" onClick={() => setNuevoEv("pin")}><Ic n="plus" s={15} w={2.4} />Nuevo evento</button>
           </div>
           {accGate?.en_prueba && (() => { const d = diasRestantes(accGate); const prueba = true; return (
@@ -1630,7 +1632,7 @@ export function RoleGate({ ev, events, onSelectEvent, onRole, online = true, pen
 
       <footer className="tg-pie">
         <span>TIXFAST · versión {APP_VERSION}</span>
-        {soyAdmin && <button type="button" onClick={() => setPanel(true)} className="tg-panel">🛠️ Panel TIXFAST</button>}
+        {soyAdmin && <button type="button" onClick={() => setPanel(true)} className="tg-panel"><IcoUI n="ajustes" s={16} style={ikUI} />Panel TIXFAST</button>}
       </footer>
       {panel && <Suspense fallback={null}><AdminPlataforma onCerrar={() => setPanel(false)} /></Suspense>}
       {nuevoEv === "pin" && <PinModal secreto={secretoDe(ev, "admin")} onOk={() => setNuevoEv("abierto")} onClose={() => setNuevoEv(null)} label="PIN de administrador para crear un evento" />}
@@ -1697,12 +1699,12 @@ const TG_CSS = `
 .tg-evento{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:16px;border-radius:20px;background:linear-gradient(135deg,rgba(255,90,60,.16),rgba(255,90,60,.05));border:1.5px solid rgba(255,90,60,.75);box-shadow:0 0 0 1px rgba(255,90,60,.15),0 0 28px rgba(255,90,60,.35),0 0 64px rgba(255,90,60,.16);backdrop-filter:blur(10px);transition:border-color .15s,background .15s,box-shadow .15s}
 .tg-evento:hover{border-color:var(--accent);box-shadow:0 0 0 1px rgba(255,90,60,.25),0 0 34px rgba(255,90,60,.45),0 0 72px rgba(255,90,60,.2)}
 .tg-evento:focus-visible{outline:2px solid #fff;outline-offset:3px}
-.tg-ev-chip{display:inline-block;margin-left:8px;font-size:10.5px;font-weight:900;letter-spacing:.6px;border:1px solid;border-radius:999px;padding:1px 7px;vertical-align:1px}
+.tg-ev-chip{display:inline-block;margin-left:8px;font-size:11px;font-weight:900;letter-spacing:.6px;border:1px solid;border-radius:999px;padding:1px 7px;vertical-align:1px}
 .tg-aviso-ev{display:block;width:100%;text-align:left;margin-top:10px;padding:11px 14px;border-radius:14px;border:1px solid rgba(255,180,0,.5);background:rgba(255,180,0,.1);color:var(--text);font-size:13.5px;cursor:pointer}
 .tg-aviso-ev b{color:var(--amber)}
 .tg-accesos{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .tg-accesos .tg-atajos{border-color:rgba(255,180,0,.55);color:var(--text);background:rgba(255,180,0,.1)}
-.tg-nuevo-ev{display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:0 14px;border-radius:999px;border:1px dashed rgba(255,255,255,.25);background:transparent;color:var(--text);font-weight:800;font-size:13px;cursor:pointer}
+.tg-nuevo-ev{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 14px;border-radius:999px;border:1px dashed rgba(255,255,255,.25);background:transparent;color:var(--text);font-weight:800;font-size:13px;cursor:pointer}
 .tg-nuevo-ev:hover{border-color:var(--accent);color:var(--accent)}
 .tg-nuevo-ev:focus-visible,.tg-aviso-ev:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .tg-ev-ico{width:52px;height:52px;border-radius:14px;display:grid;place-items:center;flex-shrink:0;background:rgba(255,90,60,.14);color:var(--accent);overflow:hidden}
@@ -1733,7 +1735,7 @@ const TG_CSS = `
 .tg-rol-ico{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;background:rgba(255,255,255,.07);margin-bottom:8px}
 .tg-rol-t{font-size:16px;font-weight:900;letter-spacing:-.01em}
 .tg-rol-d{font-size:12.5px;color:var(--muted);line-height:1.35}
-.tg-pin{position:absolute;top:12px;right:12px;display:inline-flex;align-items:center;gap:3px;font-size:10.5px;font-weight:900;letter-spacing:.06em;color:var(--muted);padding:3px 7px;border-radius:999px;border:1px solid rgba(255,255,255,.12)}
+.tg-pin{position:absolute;top:12px;right:12px;display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:900;letter-spacing:.06em;color:var(--muted);padding:3px 7px;border-radius:999px;border:1px solid rgba(255,255,255,.12)}
 .tg-volver{display:inline-flex;align-items:center;gap:6px;background:none;border:none;padding:6px 2px;margin-bottom:10px;font-size:14px;font-weight:800;color:var(--muted)}
 .tg-barras{display:flex;flex-direction:column;gap:10px}
 .tg-barra{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:16px;border-radius:18px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(10px);transition:border-color .15s,transform .1s;min-height:76px}
@@ -1743,85 +1745,12 @@ const TG_CSS = `
 .tg-barra-n{display:block;font-size:18px;font-weight:900;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tg-barra-e{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);margin-top:3px}
 .tg-vacio{padding:18px;border-radius:16px;border:1px dashed rgba(255,255,255,.15);color:var(--muted);font-size:14px;text-align:center}
-.tg-pie{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;font-size:12px;color:var(--muted);max-width:1120px;width:100%;margin:0 auto}.tg-pie>span{opacity:.8}.tg-atajos{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 16px;border-radius:999px;border:1px solid var(--line);background:var(--surface2);color:var(--text);font-weight:800;font-size:13.5px;cursor:pointer}.tg-atajos:hover{border-color:var(--accent)}.tg-atajos:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tg-pie{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;font-size:12px;color:var(--muted);max-width:1120px;width:100%;margin:0 auto}.tg-pie>span{opacity:.8}.tg-atajos{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 16px;border-radius:999px;border:1px solid var(--line);background:var(--surface2);color:var(--text);font-weight:800;font-size:13.5px;cursor:pointer}.tg-atajos:hover{border-color:var(--accent)}.tg-atajos:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .tg-evrow{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:14px;border-radius:14px;border:1px solid var(--line);color:var(--text);font:inherit;cursor:pointer}
 @media (max-width:520px){.tg-evento{align-items:flex-start;padding:14px}.tg-ev-ico{width:44px;height:44px}.tg-cambiar{padding:7px 8px;font-size:12.5px}}
 @media (max-width:360px){.tg-cambiar{font-size:0;gap:0;padding:8px}.tg-cambiar svg{width:16px;height:16px}.tg-cajero{padding:18px 14px;gap:12px}.tg-cajero-t{font-size:24px}.tg-cajero-ico{width:48px;height:48px}.tg-rol{min-height:108px;padding:14px 12px}.tg-roles{gap:10px}}
 `;
 
-/* ---------------------- Selector de iconos (emojis por categorías) ---------------------- */
-const EMOJI_CATS = [
-  { k: "comida", l: "🍔 Comida", items: [
-    ["🍔","hamburguesa burger"],["🌭","perrito caliente hot dog salchicha salchipapa"],["🍟","patatas fritas papas salchipapa"],["🍕","pizza porcion"],["🌮","taco mexicano"],["🌯","burrito wrap kebab"],["🥙","kebab durum pita"],["🥪","bocadillo sandwich montado"],["🥖","pan baguette barra bocata"],["🧆","falafel croqueta"],["🍗","pollo muslo alitas"],["🍖","carne costillas churrasco"],["🥩","filete carne chuleton"],["🥓","bacon panceta"],["🍳","huevo frito"],["🥚","huevo"],["🧀","queso"],["🥗","ensalada"],["🍝","pasta espagueti"],["🍜","sopa ramen fideos"],["🍲","guiso olla caldo"],["🥘","paella cazuela migas"],["🍛","curry arroz"],["🍚","arroz"],["🍱","bento menu"],["🍣","sushi"],["🍤","gamba frita tempura"],["🦐","gamba marisco"],["🦑","calamares bravas"],["🐙","pulpo"],["🥟","empanadilla gyoza"],["🫓","pan pita tortita"],["🥞","tortitas crepes"],["🧇","gofre waffle"],["🥨","pretzel"],["🥐","croissant cruasan"],["🍞","pan tostada"],["🌽","maiz mazorca"],["🥔","patata"],["🫒","aceitunas olivas"],["🥜","cacahuetes frutos secos"],["🍿","palomitas"],["🧂","sal snack"],["🥫","lata conserva"],["🍢","brocheta pincho"],["🍡","pincho dulce"],["🫕","fondue"],["🥣","cuenco bol"]]},
-  { k: "dulce", l: "🍩 Dulces", items: [
-    ["🍩","donut rosquilla"],["🍪","galleta cookie"],["🎂","tarta cumpleaños"],["🍰","pastel tarta porcion"],["🧁","cupcake magdalena"],["🥧","tarta pie"],["🍫","chocolate"],["🍬","caramelo chuche"],["🍭","piruleta chuches"],["🍮","flan"],["🍦","helado cucurucho"],["🍨","helado copa"],["🍧","granizado hielo"],["🍯","miel"],["🍓","fresa"],["🍉","sandia"],["🍌","platano"],["🍎","manzana"],["🍊","naranja"],["🍋","limon"],["🍍","piña"],["🥥","coco"],["🍇","uvas"],["🍒","cerezas"]]},
-  { k: "bebida", l: "🥤 Bebidas", items: [
-    ["🥤","refresco cola vaso"],["💧","agua"],["🧃","zumo brick"],["🧋","batido bubble tea"],["🥛","leche batido"],["☕","cafe cortado"],["🍵","te infusion"],["🧉","mate"],["🧊","hielo cubitos"],["🫗","rellenar chupito servir"],["🍶","sake botella"],["🥥","coco"],["⚡","energetica red bull"]]},
-  { k: "alcohol", l: "🍺 Copas", items: [
-    ["🍺","cerveza caña"],["🍻","cervezas jarra doble"],["🍷","vino tinto"],["🥂","cava champan brindis"],["🍾","botella champan reservado"],["🍸","coctel martini copa"],["🍹","coctel tropical mojito"],["🥃","whisky chupito copa"],["🍶","licor"],["🧉","combinado"],["🍋","limon gin tonic"],["🫒","vermut"]]},
-  { k: "entrada", l: "🎟️ Entradas", items: [
-    ["🎟️","entrada ticket"],["🎫","ticket billete pase"],["⭐","vip estrella"],["🌟","premium"],["👑","vip corona reservado"],["💎","vip diamante"],["🎉","fiesta"],["🎊","celebracion"],["🎶","musica concierto"],["🎵","musica"],["🎤","karaoke microfono"],["🎧","dj"],["🪩","discoteca bola"],["🔥","hot fuego"],["💃","baile"],["🕺","baile"],["🎭","teatro"],["🎪","circo feria"],["🎡","noria feria atraccion"],["🎠","tiovivo atraccion"],["🎢","montaña rusa atraccion"],["🎯","dardos tiro"],["🎳","bolos"],["🎱","billar"],["🏆","premio torneo"],["🥇","oro primero"],["🍀","sorteo suerte"],["🎰","sorteo rifa"],["🅿️","parking aparcamiento"],["🚌","bus autobus lanzadera"],["🔞","mayores 18"],["🧒","niños infantil"],["🎃","halloween"],["🎄","navidad"],["❤️","amor"],["☀️","dia"],["🌙","noche"]]},
-  { k: "merch", l: "👕 Merch", items: [
-    ["👕","camiseta"],["🧥","sudadera chaqueta guardarropa ropero"],["🧢","gorra"],["👜","bolso"],["🎒","mochila"],["👓","gafas"],["🕶️","gafas sol"],["🧣","bufanda"],["🧦","calcetines"],["🪭","abanico"],["🌂","paraguas chubasquero"],["🔑","taquilla llave"],["🔦","linterna"],["🔋","bateria carga movil"],["📱","movil carga"],["💡","pulsera luz"],["🏷️","pulsera etiqueta"],["🎁","regalo"],["🧸","peluche"],["🎈","globo"],["🪪","acreditacion"],["🧴","crema"],["🚬","tabaco"],["🧻","papel"],["🚻","baños"]]},
-  { k: "otros", l: "✨ Otros", items: [
-    ["🪙","ficha moneda token"],["💶","euro dinero"],["💳","tarjeta"],["🧾","ticket recibo"],["✅","ok"],["➕","extra suplemento"],["🆓","gratis"],["🆕","nuevo"],["🔴","rojo"],["🟠","naranja"],["🟡","amarillo"],["🟢","verde"],["🔵","azul"],["🟣","morado"],["⚫","negro"],["⚪","blanco"],["1️⃣","uno 1"],["2️⃣","dos 2"],["3️⃣","tres 3"],["🅰️","a"],["🅱️","b"]]},
-];
-const EMOJI_ALL = EMOJI_CATS.flatMap(c => c.items);
-const normTxt = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-const RECENT_KEY = "ticketera_recent_emojis";
-const getRecent = () => { try { const r = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); return Array.isArray(r) ? r : []; } catch { return []; } };
-const pushRecent = (e) => { try { localStorage.setItem(RECENT_KEY, JSON.stringify([e, ...getRecent().filter(x => x !== e)].slice(0, 16))); } catch {} };
-
-function EmojiPicker({ value, onChange, size = 52 }) {
-  const isMobile = useIsMobile();
-  const [open, setOpen] = useState(false);
-  const [cat, setCat] = useState(null);
-  const [q, setQ] = useState("");
-  const [custom, setCustom] = useState("");
-  const recent = getRecent();
-  const pick = (e) => { const v = String(e).trim(); if (!v) return; pushRecent(v); onChange(v); setOpen(false); setQ(""); setCustom(""); };
-  const nq = normTxt(q.trim());
-  const list = nq ? EMOJI_ALL.filter(([, kw]) => normTxt(kw).includes(nq))
-    : cat ? (EMOJI_CATS.find(c => c.k === cat)?.items || []) : null;
-  const cell = { fontSize: 30, height: 54, borderRadius: 12, border: "1px solid var(--line)", background: "var(--surface2)", cursor: "pointer", display: "grid", placeItems: "center", padding: 0 };
-  const Grid = ({ items }) => (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(54px, 1fr))", gap: 8 }}>
-      {items.map(([e, kw], i) => <button key={e + i} title={kw} onClick={() => pick(e)} style={{ ...cell, ...(e === value ? { borderColor: "var(--accent)", boxShadow: "0 0 0 2px var(--accent)" } : {}) }}>{e}</button>)}
-    </div>
-  );
-  return (
-    <>
-      <button type="button" onClick={() => setOpen(true)} title="Elegir icono" style={{ width: size, height: size, flexShrink: 0, borderRadius: 12, border: "2px dashed var(--line)", background: "var(--surface2)", cursor: "pointer", fontSize: size * 0.5, display: "grid", placeItems: "center", padding: 0, lineHeight: 1 }}>{value || "➕"}</button>
-      {open && (
-        <div style={{ ...(isMobile ? S.sheetWrap : S.overlay), zIndex: 95 }} onClick={() => setOpen(false)}>
-          <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, width: 560, maxWidth: "94vw", maxHeight: "86dvh", overflow: "auto", textAlign: "left" }} onClick={e => e.stopPropagation()}>
-            {isMobile && <div style={S.grab} />}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 10 }}>
-              <div style={{ fontWeight: 800, fontSize: 17 }}>Elige un icono</div>
-              <button onClick={() => setOpen(false)} style={S.iconBtn} aria-label="Cerrar"><Ic n="close" /></button>
-            </div>
-            <input autoFocus={!isMobile} value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar: hamburguesa, perrito, cerveza, vip…" style={{ ...S.input, marginBottom: 10 }} />
-            {!nq && (
-              <div className="scroll-x" style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-                <button onClick={() => setCat(null)} style={{ ...S.chip, flexShrink: 0, ...(cat === null ? S.chipActive : {}) }}>⏱️ Recientes</button>
-                {EMOJI_CATS.map(c => <button key={c.k} onClick={() => setCat(c.k)} style={{ ...S.chip, flexShrink: 0, ...(cat === c.k ? S.chipActive : {}) }}>{c.l}</button>)}
-              </div>
-            )}
-            {list ? (list.length ? <Grid items={list} /> : <div style={{ color: "var(--muted)", fontSize: 13, padding: "10px 0" }}>Sin resultados. Pega el emoji abajo.</div>)
-              : (recent.length ? <Grid items={recent.map(e => [e, "reciente"])} /> : <div style={{ color: "var(--muted)", fontSize: 13, padding: "6px 0 2px" }}>Aún no hay recientes. Elige una categoría o busca arriba.</div>)}
-            <div style={{ borderTop: "1px solid var(--line)", marginTop: 14, paddingTop: 12 }}>
-              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>¿No está? Escribe o pega cualquier emoji (puedes combinar dos, ej. 🌭🍟 para salchipapas)</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input value={custom} onChange={e => setCustom(Array.from(e.target.value).slice(0, 4).join(""))} placeholder="🌭🍟" style={{ ...S.input, fontSize: 22, textAlign: "center" }} />
-                <button onClick={() => pick(custom)} disabled={!custom.trim()} style={{ ...S.btnPrimary, width: "auto", padding: "0 18px", opacity: custom.trim() ? 1 : .4 }}>Usar</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
 
 /* ---------------------- Modo de cobro ----------------------
    Queda fijo en cuanto cualquier barra del evento inicia la venta o hay ventas reales. */
@@ -1831,7 +1760,7 @@ function modoCobroBloqueado(ev, evSales) {
 function ModoCobroGate({ advanced, puntoName, onChoose, onBack }) {
   const opt = (adv, ico, title, desc) => (
     <button onClick={() => onChoose(adv)} style={{ display: "flex", alignItems: "center", gap: 14, width: "100%", textAlign: "left", padding: "18px 16px", marginBottom: 12, borderRadius: 16, cursor: "pointer", color: "var(--text)", background: advanced === adv ? "rgba(34,211,166,.10)" : "var(--surface)", border: `2px solid ${advanced === adv ? "var(--green)" : "var(--line)"}` }}>
-      <span style={{ fontSize: 34, flexShrink: 0 }} aria-hidden="true">{ico}</span>
+      <span style={{ width: 48, height: 48, borderRadius: 12, background: "var(--surface2)", display: "grid", placeItems: "center", flexShrink: 0 }} aria-hidden="true"><IcoUI n={ico} s={24} /></span>
       <span style={{ flex: 1, minWidth: 0 }}>
         <span style={{ display: "block", fontWeight: 900, fontSize: 17 }}>{title}</span>
         <span style={{ display: "block", fontSize: 13.5, color: "var(--muted)", marginTop: 2 }}>{desc}</span>
@@ -1846,8 +1775,8 @@ function ModoCobroGate({ advanced, puntoName, onChoose, onBack }) {
           <div style={{ ...S.display, marginTop: 4 }}>¿Cómo vais a cobrar?</div>
           <div style={{ color: "var(--muted)", fontSize: 14, marginTop: 6 }}>Vale para todas las barras del evento. <b style={{ color: "var(--text)" }}>Cuando empiece la venta ya no se podrá cambiar.</b></div>
         </div>
-        {opt(false, "🎟️", "Venta rápida", "Tocas el producto y sale el ticket. Efectivo y datáfono se cuadran juntos al cerrar.")}
-        {opt(true, "💶", "Venta avanzada", "En cada venta eliges efectivo o tarjeta y te calcula el cambio. El cierre separa el cajón del datáfono.")}
+        {opt(false, "ticket", "Venta rápida", "Tocas el producto y sale el ticket. Efectivo y datáfono se cuadran juntos al cerrar.")}
+        {opt(true, "tarjeta", "Venta avanzada", "En cada venta eliges efectivo o tarjeta y te calcula el cambio. El cierre separa el cajón del datáfono.")}
         <button onClick={onBack} style={{ ...S.btnGhost, width: "100%", marginTop: 4, padding: "13px" }}>Cancelar · seguir en modo prueba</button>
         <div style={{ fontSize: 12.5, color: "var(--muted)", textAlign: "center", marginTop: 10 }}>Barra: {puntoName}</div>
       </div>
@@ -1866,13 +1795,13 @@ function FondoGate({ puntoName, previsto = null, ultimo = null, onSave, onBack, 
   const wrap = { position: "fixed", inset: 0, zIndex: 85, background: "var(--bg)", overflow: "auto", padding: "calc(18px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom))" };
   const head = (
     <div style={{ textAlign: "center", marginBottom: 18 }}>
-      <div style={{ fontSize: 44 }}>💰</div>
+      <div style={{ fontSize: 44 }}><IcoUI n="dinero" s={33} w={1.6} /></div>
       <div style={{ ...S.display, marginTop: 4 }}>Iniciar venta</div>
       <div style={{ color: "var(--muted)", fontSize: 13.5, marginTop: 4 }}>Cuenta el cambio del cajón de <b style={{ color: "var(--accent)" }}>{puntoName}</b>. Desde ahora todo lo que se venda <b style={{ color: "var(--text)" }}>cuenta en la caja</b>.</div>
     </div>
   );
   const foot = (<>
-    {pending && <div style={{ fontSize: 12, color: "var(--amber)", textAlign: "center", marginTop: 10 }}>⏳ Se guardará en este equipo y subirá solo cuando haya conexión.</div>}
+    {pending && <div style={{ fontSize: 12, color: "var(--amber)", textAlign: "center", marginTop: 10 }}><IcoUI n="reloj" s={16} style={ikUI} />Se guardará en este equipo y subirá solo cuando haya conexión.</div>}
     <button onClick={onBack} style={{ ...S.btnGhost, width: "100%", marginTop: 12, padding: "13px" }}>Cancelar · seguir en modo prueba</button>
   </>);
 
@@ -1885,8 +1814,8 @@ function FondoGate({ puntoName, previsto = null, ultimo = null, onSave, onBack, 
           <div style={{ fontSize: 58, fontWeight: 900, lineHeight: 1.05, color: "var(--green)", margin: "4px 0" }}>{money(sugerido)}</div>
           <div style={{ fontSize: 13, color: "var(--muted)" }}>¿Es lo que hay en el cajón?</div>
         </div>
-        <button onClick={() => onSave(round2(sugerido))} style={{ ...S.btnPrimary, width: "100%", padding: "20px", fontSize: 18, background: "var(--green)", color: "#04241b" }}>✅ Sí, hay {money(sugerido)} · Iniciar venta</button>
-        <button onClick={() => { setV(""); setEdit(true); }} style={{ ...S.btnGhost, width: "100%", marginTop: 10, padding: "15px", fontSize: 15, fontWeight: 800 }}>✏️ Hay otra cantidad</button>
+        <button onClick={() => onSave(round2(sugerido))} style={{ ...S.btnPrimary, width: "100%", padding: "20px", fontSize: 18, background: "var(--green)", color: "#04241b" }}><IcoUI n="ok" s={16} style={ikUI} />Sí, hay {money(sugerido)} · Iniciar venta</button>
+        <button onClick={() => { setV(""); setEdit(true); }} style={{ ...S.btnGhost, width: "100%", marginTop: 10, padding: "15px", fontSize: 15, fontWeight: 800 }}><IcoUI n="lapiz" s={16} style={ikUI} />Hay otra cantidad</button>
         {previsto != null && ultimo != null && ultimo !== previsto && <button onClick={() => onSave(round2(ultimo))} style={{ ...S.btnGhost, width: "100%", marginTop: 8, padding: "13px" }}>↺ Lo mismo que el turno anterior ({money(ultimo)})</button>}
         {sugerido !== 0 && <button onClick={() => onSave(0)} style={{ ...S.btnGhost, width: "100%", marginTop: 8, padding: "13px", color: "var(--muted)" }}>Sin cambio (0 €)</button>}
         {foot}
@@ -1914,7 +1843,7 @@ function FondoGate({ puntoName, previsto = null, ultimo = null, onSave, onBack, 
         </div>
 
         <button disabled={v === ""} onClick={() => onSave(round2(amount))} style={{ ...S.btnPrimary, width: "100%", marginTop: 14, padding: "18px", fontSize: 17, opacity: v === "" ? .4 : 1, background: "var(--green)", color: "#04241b" }}>
-          ✅ {v === "" ? "Escribe el fondo" : `Iniciar venta con ${money(amount)}`}
+          {v === "" ? "Escribe el fondo" : `Iniciar venta con ${money(amount)}`}
         </button>
         {sugerido != null && <button onClick={() => setEdit(false)} style={{ ...S.btnGhost, width: "100%", marginTop: 10, padding: "13px" }}>← Volver ({money(sugerido)})</button>}
         <div style={{ fontSize: 12, color: "var(--muted)", textAlign: "center", marginTop: 10 }}>Al cerrar el turno se usa para cuadrar la caja.</div>
@@ -1968,17 +1897,17 @@ export function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose, pre
   const difLiq = liq && liq.previsto != null && imp > 0 ? round2(imp - liq.previsto) : 0;
   const hora = (ts) => new Date(ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
   const seg = (t, ico, label, c) => (
-    <button onClick={() => switchTipo(t)} style={{ flex: 1, padding: "12px 6px", borderRadius: 12, fontWeight: 900, fontSize: 15, cursor: "pointer", border: `2px solid ${tipo === t ? c : "var(--line)"}`, background: tipo === t ? c : "var(--surface2)", color: tipo === t ? "#1a1205" : "var(--text)" }}>{ico} {label}</button>
+    <button onClick={() => switchTipo(t)} style={{ flex: 1, padding: "12px 6px", borderRadius: 12, fontWeight: 900, fontSize: 15, cursor: "pointer", border: `2px solid ${tipo === t ? c : "var(--line)"}`, background: tipo === t ? c : "var(--surface2)", color: tipo === t ? "#1a1205" : "var(--text)", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 48 }}><IcoUI n={ico} s={18} />{label}</button>
   );
   return (
     <div style={S.payWrap} onClick={onClose}>
       <div className={isMobile ? "sheet-anim" : ""} style={{ ...S.payCard, maxWidth: 480, ...(isMobile ? { borderRadius: "22px 22px 0 0", maxHeight: "94dvh" } : {}) }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 900, fontSize: 19 }}>💰 Caja</div>
+            <div style={{ fontWeight: 900, fontSize: 19 }}><IcoUI n="dinero" s={16} style={ikUI} />Caja</div>
             <div style={{ color: "var(--muted)", fontSize: 12.5 }}>{puntoName} · no cambia lo facturado</div>
           </div>
-          <button onClick={onClose} style={{ ...S.smallBtn, flexShrink: 0 }} aria-label="Cerrar"><Ic n="close" s={16} /></button>
+          <button onClick={onClose} style={{ ...S.iconBtn }} aria-label="Cerrar"><Ic n="close" s={18} /></button>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 6, marginBottom: 14 }}>
@@ -1988,8 +1917,8 @@ export function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose, pre
         </div>
 
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          {seg("gasto", "💸", "Sacar dinero", "var(--amber)")}
-          {seg("entrada", "➕", "Meter cambio", "var(--green)")}
+          {seg("gasto", "dinero", "Sacar dinero", "var(--amber)")}
+          {seg("entrada", "mas", "Meter cambio", "var(--green)")}
         </div>
 
         {/* Cambio de los socios: al meterlo se apunta quién lo pone; al sacarlo se le puede devolver */}
@@ -2004,7 +1933,7 @@ export function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose, pre
         {isG && aportPendientes.length > 0 && (
           <div style={{ border: "1px solid var(--line)", borderRadius: 14, marginBottom: 12, overflow: "hidden" }}>
             <button onClick={() => setVerDevol(v => !v)} aria-expanded={verDevol} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "11px 12px", background: "var(--surface2)", border: "none", color: "var(--text)", cursor: "pointer", font: "inherit", textAlign: "left" }}>
-              <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block", fontSize: 14.5 }}>↩️ Devolver cambio a un socio</b><span style={{ fontSize: 12.5, color: "var(--muted)" }}>{aportPendientes.length} pendiente{aportPendientes.length === 1 ? "" : "s"} · {money(round2(aportPendientes.reduce((t, a) => t + a.importe, 0)))} · sale como retirada, no como gasto</span></span>
+              <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block", fontSize: 14.5 }}><IcoUI n="atras" s={16} style={ikUI} />Devolver cambio a un socio</b><span style={{ fontSize: 12.5, color: "var(--muted)" }}>{aportPendientes.length} pendiente{aportPendientes.length === 1 ? "" : "s"} · {money(round2(aportPendientes.reduce((t, a) => t + a.importe, 0)))} · sale como retirada, no como gasto</span></span>
               <span style={{ color: "var(--muted)", transform: verDevol ? "rotate(180deg)" : "none", display: "flex" }}><Ic n="down" s={18} /></span>
             </button>
             {verDevol && <div style={{ maxHeight: 220, overflow: "auto" }}>{aportPendientes.map(a => { const on = devolver?.id === a.id; return (
@@ -2025,7 +1954,7 @@ export function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose, pre
         {isG && previstos.length > 0 && (
           <div style={{ border: "1px solid var(--line)", borderRadius: 14, marginBottom: 12, overflow: "hidden" }}>
             <button onClick={() => setVerPrevistos(v => !v)} aria-expanded={verPrevistos} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "11px 12px", background: "var(--surface2)", border: "none", color: "var(--text)", cursor: "pointer", font: "inherit", textAlign: "left" }}>
-              <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block", fontSize: 14.5 }}>📋 Pagos previstos (CRM)</b><span style={{ fontSize: 12.5, color: "var(--muted)" }}>{pendientes.length ? `${pendientes.length} por pagar · ${money(round2(pendientes.reduce((t, p) => t + (p.previsto || 0), 0)))}` : "Todo pagado ✓"} · toca uno para pagarlo</span></span>
+              <span style={{ flex: 1, minWidth: 0 }}><b style={{ display: "block", fontSize: 14.5 }}><IcoUI n="lista" s={16} style={ikUI} />Pagos previstos (CRM)</b><span style={{ fontSize: 12.5, color: "var(--muted)" }}>{pendientes.length ? `${pendientes.length} por pagar · ${money(round2(pendientes.reduce((t, p) => t + (p.previsto || 0), 0)))}` : "Todo pagado ✓"} · toca uno para pagarlo</span></span>
               <span style={{ color: "var(--muted)", transform: verPrevistos ? "rotate(180deg)" : "none", display: "flex" }}><Ic n="down" s={18} /></span>
             </button>
             {verPrevistos && <div style={{ maxHeight: 260, overflow: "auto" }}>{previstos.map(p => { const pagado = p.estado !== "pendiente"; const on = liq?.id === p.id; return (
@@ -2064,17 +1993,17 @@ export function CajaModal({ puntoName, movs, fondo, onSave, onVoid, onClose, pre
         </div>}
         <input value={concepto} maxLength={120} onChange={e => setConcepto(e.target.value)} placeholder={isG ? "Detalle (opcional): proveedor, persona…" : "Concepto (opcional)"} aria-label="Concepto" style={{ ...S.input, marginBottom: 12 }} />
         {isG && imp > 0 && falta && <div style={{ fontSize: 12.5, color: "var(--amber)", fontWeight: 700, marginBottom: 8 }}>Elige en qué se gasta para que salga bien clasificado en el cierre.</div>}
-        <button onClick={save} disabled={!(imp > 0) || falta} style={{ ...S.btnPrimary, width: "100%", padding: "16px", fontSize: 16, background: imp > 0 && !falta ? col : "var(--line)", color: imp > 0 && !falta ? "#1a1205" : "var(--muted)" }}>{imp > 0 ? (isG ? (devolver ? `↩️ Devolver ${money(imp)} a ${devolver.socio.slice(0, 24)}` : liq ? `💸 Pagar ${money(imp)} a ${liq.nombre.slice(0, 24)}` : `💸 Sacar ${money(imp)} de la caja`) : aportSocio ? `➕ Meter ${money(imp)} de ${aportSocio.slice(0, 20)}` : `➕ Meter ${money(imp)} de cambio`) : "Escribe el importe"}</button>
+        <button onClick={save} disabled={!(imp > 0) || falta} style={{ ...S.btnPrimary, width: "100%", padding: "16px", fontSize: 16, background: imp > 0 && !falta ? col : "var(--line)", color: imp > 0 && !falta ? "#1a1205" : "var(--muted)" }}>{imp > 0 ? (isG ? (devolver ? `Devolver ${money(imp)} a ${devolver.socio.slice(0, 24)}` : liq ? `Pagar ${money(imp)} a ${liq.nombre.slice(0, 24)}` : `Sacar ${money(imp)} de la caja`) : aportSocio ? `Meter ${money(imp)} de ${aportSocio.slice(0, 20)}` : `Meter ${money(imp)} de cambio`) : "Escribe el importe"}</button>
 
         {movs.length > 0 && <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
           <b style={{ fontSize: 14 }}>Movimientos de este turno</b>
           {movs.slice().reverse().map(g => (
             <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
               <span style={{ color: "var(--muted)", flexShrink: 0 }}>{hora(g.ts)}</span>
-              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isEntrada(g) ? "➕" : "💸"} {g.concepto || (isEntrada(g) ? "Cambio" : "Gasto")}{!isEntrada(g) && categoriaDe(g).t !== g.concepto ? <span style={{ color: "var(--muted)" }}> · {categoriaDe(g).t}</span> : null}{g.crmGastoId ? <span style={{ color: "var(--green)" }}> · 📋 previsto</span> : null}{!g.synced && <span style={{ color: "var(--amber)" }}> · ⏳</span>}</span>
+              <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><IcoUI n={isEntrada(g) ? "mas" : "dinero"} s={16} style={ikUI} />{g.concepto || (isEntrada(g) ? "Cambio" : "Gasto")}{!isEntrada(g) && categoriaDe(g).t !== g.concepto ? <span style={{ color: "var(--muted)" }}> · {categoriaDe(g).t}</span> : null}{g.crmGastoId ? <span style={{ color: "var(--green)" }}> · previsto</span> : null}{!g.synced && <span style={{ color: "var(--amber)" }}> · </span>}</span>
               <b style={{ flexShrink: 0, color: isEntrada(g) ? "var(--green)" : "var(--amber)" }}>{isEntrada(g) ? "+" : "-"}{money(g.importe)}</b>
               {confirmId === g.id
-                ? <span style={{ display: "flex", gap: 4, flexShrink: 0 }}><button onClick={() => { setConfirmId(null); onVoid(g); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Anular</button><button onClick={() => setConfirmId(null)} style={S.smallBtn}>✗</button></span>
+                ? <span style={{ display: "flex", gap: 4, flexShrink: 0 }}><button onClick={() => { setConfirmId(null); onVoid(g); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Anular</button><button onClick={() => setConfirmId(null)} style={S.smallBtn}></button></span>
                 : <button onClick={() => setConfirmId(g.id)} style={{ ...S.smallBtn, flexShrink: 0 }}>Anular</button>}
             </div>
           ))}
@@ -2120,10 +2049,10 @@ function PayFlow({ total, lines = [], changeHelp = true, onDone, onCancel, onDis
         {!mode && (<>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <button onClick={() => changeHelp ? setMode("efectivo") : payCashDirect()} style={{ ...S.payBtn, background: "linear-gradient(160deg,#22d3a6,#12a37c)", color: "#04231a" }}>
-              <span style={{ fontSize: 46 }}>💶</span><span style={{ fontSize: 20, fontWeight: 900 }}>EFECTIVO</span>
+              <span style={{ fontSize: 46 }}><IcoUI n="dinero" s={34} w={1.6} /></span><span style={{ fontSize: 20, fontWeight: 900 }}>EFECTIVO</span>
             </button>
             <button onClick={() => onDone({ pago: "tarjeta", entregado: null, cambio: null })} style={{ ...S.payBtn, background: "linear-gradient(160deg,#4d8dff,#2b62d9)", color: "#04122e" }}>
-              <span style={{ fontSize: 46 }}>💳</span><span style={{ fontSize: 20, fontWeight: 900 }}>TARJETA</span>
+              <span style={{ fontSize: 46 }}><IcoUI n="tarjeta" s={34} w={1.6} /></span><span style={{ fontSize: 20, fontWeight: 900 }}>TARJETA</span>
             </button>
           </div>
           <button onClick={onCancel} style={{ ...S.btnGhost, width: "100%", marginTop: 14, padding: "14px" }}>Cancelar</button>
@@ -2161,7 +2090,7 @@ function PayFlow({ total, lines = [], changeHelp = true, onDone, onCancel, onDis
           </div>
 
           <button disabled={!enough} onClick={() => onDone({ pago: "efectivo", entregado: g, cambio: change })} style={{ ...S.btnPrimary, width: "100%", marginTop: 14, padding: "18px", fontSize: 18, opacity: enough ? 1 : .4 }}>
-            ✅ Cobrado · Imprimir
+            Cobrado · Imprimir
           </button>
 
           {/* Recuadro: quitar este paso para las próximas ventas */}
@@ -2298,7 +2227,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
 
   return (
     <div>
-      {closed && <div style={{ background: "var(--red)", color: "#fff", fontWeight: 800, textAlign: "center", padding: "12px", borderRadius: 12, marginBottom: 14 }}>🔒 CAJA CERRADA · no se puede vender en este evento</div>}
+      {closed && <div style={{ background: "var(--red)", color: "#fff", fontWeight: 800, textAlign: "center", padding: "12px", borderRadius: 12, marginBottom: 14 }}><IcoUI n="candado" s={16} style={ikUI} />CAJA CERRADA · no se puede vender en este evento</div>}
       {testMode && !closed && <div className="prueba-frame" aria-hidden="true" />}
       {testMode && !closed && punto.estado !== "cerrada" && (
         isMobile ? (
@@ -2311,7 +2240,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
           </div>
         ) : (
         <div className="prueba-banner" style={S.pruebaBanner}>
-          <span style={{ fontSize: 38, flexShrink: 0 }} aria-hidden="true">🧪</span>
+          <span style={{ fontSize: 38, flexShrink: 0 }} aria-hidden="true"><IcoUI n="matraz" s={28} w={1.6} /></span>
           <span style={{ flex: "1 1 220px", minWidth: 0 }}>
             <span style={{ display: "block", fontWeight: 900, fontSize: 21, letterSpacing: .5 }}>MODO PRUEBA · NO CUENTA</span>
             <span style={{ display: "block", fontSize: 13.5, fontWeight: 700 }}>Toca e imprime lo que quieras: los tickets salen marcados «NO VÁLIDO». Cuando abráis, inicia la venta.</span>
@@ -2322,7 +2251,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
       )}
       {testMode && !closed && punto.estado === "cerrada" && (
         <div className="prueba-banner" style={{ ...S.pruebaBanner, background: "repeating-linear-gradient(135deg,#3a0d0d 0 18px,#2a0a0a 18px 36px)", borderColor: "var(--red)", color: "#fff" }}>
-          <span style={{ fontSize: isMobile ? 30 : 38, flexShrink: 0 }}>🔒</span>
+          <span style={{ fontSize: isMobile ? 30 : 38, flexShrink: 0 }}><IcoUI n="candado" s={28} w={1.6} /></span>
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: "block", fontWeight: 900, fontSize: isMobile ? 17 : 21 }}>VENTA CERRADA{punto.cerradaEn ? ` · Z a las ${new Date(punto.cerradaEn).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}` : ""}</span>
             <span style={{ display: "block", fontSize: isMobile ? 12 : 13.5, fontWeight: 700, opacity: .9 }}>Ya no cuenta nada (los tickets salen «NO VÁLIDO»). Para volver a vender, un administrador puede reabrir la barra en Informes.</span>
@@ -2355,7 +2284,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
 
       {inviting && !grouping && (
         <div className="invite-banner" style={S.inviteBanner}>
-          <span style={{ fontSize: isMobile ? 28 : 34, flexShrink: 0 }}>🎁</span>
+          <span style={{ fontSize: isMobile ? 28 : 34, flexShrink: 0 }}><IcoUI n="regalo" s={25} w={1.6} /></span>
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: "block", fontWeight: 900, fontSize: isMobile ? 16 : 19, letterSpacing: .3 }}>MODO INVITACIÓN ACTIVO</span>
             <span style={{ display: "block", fontSize: isMobile ? 12 : 13.5, fontWeight: 700, opacity: .9 }}>Toca el producto a invitar{qty > 1 ? ` (×${qty})` : ""} · cuenta como invitación, no se cobra · luego se apaga solo</span>
@@ -2398,11 +2327,11 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
                     className={arranging ? "tile arranging" : inviting ? "tile inviting" : "tile"} style={{ ...S.tile, background: p.soldOut ? "var(--surface2)" : `linear-gradient(160deg, ${p.color}, ${shade(p.color, -25)})`, color: p.soldOut ? "var(--muted)" : inkOn(p.color), cursor: p.soldOut ? "not-allowed" : "pointer", outline: grouping && cartQty(p.id) ? "3px solid #fff" : "none", ...(testMode ? { paddingBottom: 30 } : {}), ...arr }}>
                     {arranging && <span style={S.tileGrip}><Ic n="grip" s={16} w={2.6} /></span>}
                     {testMode && !arranging && <span style={S.tilePrueba}><span style={S.tilePruebaTxt}>PRUEBA</span></span>}
-                    {inviting && !arranging && !p.soldOut && <span style={S.tileInvite}>🎁 INVITAR</span>}
+                    {inviting && !arranging && !p.soldOut && <span style={S.tileInvite}><IcoUI n="regalo" s={16} style={ikUI} />INVITAR</span>}
                     {!arranging && p.print === false && <span style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,.45)", borderRadius: 7, padding: "2px 7px", fontWeight: 800, fontSize: 12 }}>SIN TICKET</span>}
                     {badge && !arranging && !inviting ? <span style={{ ...S.tileBadge, background: grouping ? "var(--accent)" : "rgba(0,0,0,.45)" }}>{badge}</span> : null}
                     {p.soldOut && <span style={S.soldOut}>AGOTADO</span>}
-                    <span style={{ fontSize: 44 }}>{p.emoji}</span>
+                    <IconoProducto v={p.emoji} s={40} w={1.6} />
                     <span style={{ fontSize: 19, fontWeight: 800, lineHeight: 1.1, textShadow: p.soldOut || inkOn(p.color) !== "#fff" ? "none" : "0 1px 3px rgba(0,0,0,.3)" }}>{p.name}</span>
                     {p.subtitle ? <span style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.15, opacity: .9, marginTop: -4 }}>{p.subtitle}</span> : null}
                     <span style={{ fontSize: 22, fontWeight: 800 }}>{money(p.price)}</span>
@@ -2415,7 +2344,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
 
           {!grouping && combos.length > 0 && (
             <div style={{ marginTop: 20 }}>
-              <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, fontWeight: 800, marginBottom: 10 }}>🎟️ Bonos / Ofertas</div>
+              <div style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, fontWeight: 800, marginBottom: 10 }}><IcoUI n="ticket" s={16} style={ikUI} />Bonos / Ofertas</div>
               <div style={{ ...S.grid, gridTemplateColumns: isMobile ? "repeat(auto-fill, minmax(150px,1fr))" : "repeat(auto-fill, minmax(180px,1fr))" }}>
                 {combos.map(c => {
                   const units = (c.items || []).reduce((t, it) => t + (it.qty || 1), 0);
@@ -2424,7 +2353,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
                     <button key={c.id} onClick={() => { if (inviting) { onComboInvite && onComboInvite(c); setInviting(false); } else onCombo(c); }} className={inviting ? "tile inviting" : "tile"} style={{ ...S.tile, minHeight: 130, background: "linear-gradient(160deg, #ffb400, #d98e00)", color: "#1a1205", border: "2px solid #ffd479", ...(testMode ? { paddingBottom: 30 } : {}) }}>
                       <span style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,.18)", borderRadius: 8, padding: "2px 8px", fontWeight: 900, fontSize: 12 }}>{units} tickets</span>
                       {testMode && <span style={S.tilePrueba}><span style={S.tilePruebaTxt}>PRUEBA</span></span>}
-                      <span style={{ fontSize: 34 }}>🎟️</span>
+                      <span style={{ fontSize: 34 }}><IcoUI n="ticket" s={25} w={1.6} /></span>
                       <span style={{ fontSize: 18, fontWeight: 900, lineHeight: 1.1, textAlign: "center" }}>{c.name}</span>
                       <span style={{ fontSize: 20, fontWeight: 900 }}>{money(price)}</span>
                     </button>
@@ -2439,11 +2368,11 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
         {/* panel comanda */}
         {grouping && (
           <div style={{ ...S.cart, ...(isMobile ? { width: "100%", maxHeight: "none", position: "static" } : {}) }}>
-            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 12 }}>🧾 Comanda <span style={{ color: "var(--muted)", fontWeight: 600, fontSize: 13 }}>· {cartCount} art.</span></div>
+            <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 12 }}><IcoUI n="recibo" s={16} style={ikUI} />Comanda <span style={{ color: "var(--muted)", fontWeight: 600, fontSize: 13 }}>· {cartCount} art.</span></div>
             <div style={{ flex: 1, overflow: "auto", marginBottom: 12 }}>
               {cart.length === 0 ? <div style={{ color: "var(--muted)", fontSize: 13, textAlign: "center", padding: "30px 0" }}>Toca productos para añadirlos</div> : cart.map(c => (
                 <div key={c.product.id} style={S.cartRow}>
-                  <span style={{ fontSize: 20 }}>{c.product.emoji}</span>
+                  <IconoProducto v={c.product.emoji} s={20} />
                   <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.product.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{money(c.product.price)} · {money(c.product.price * c.qty)}</div></div>
                   <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <button onClick={() => changeQty(c.product.id, -1)} style={S.stepBtn}>−</button>
@@ -2494,7 +2423,7 @@ function POS({ punto, totals, rankCounts, onReorder, onSetSortMode, onSell, onIn
             <div style={{ maxHeight: 200, overflow: "auto", marginBottom: 14 }}>
               {cart.map(c => <div key={c.product.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "5px 0", borderBottom: "1px solid var(--line)" }}><span>{c.qty}× {c.product.name}</span><span>{money(c.product.price * c.qty)}</span></div>)}
             </div>
-            <button onClick={confirmCharge} style={{ ...S.btnPrimary, padding: 16, fontSize: 16 }}>🖨️ Imprimir {cartCount} tickets</button>
+            <button onClick={confirmCharge} style={{ ...S.btnPrimary, padding: 16, fontSize: 16 }}><IcoUI n="imprimir" s={16} style={ikUI} />Imprimir {cartCount} tickets</button>
             <button onClick={() => setCharging(null)} style={{ ...S.btnGhost, marginTop: 8, width: "100%" }}>Volver a la comanda</button>
           </div>
         </div>
@@ -2558,7 +2487,7 @@ function TemplateDesigner({ ev, dispatch, flash }) {
           ) : (
             <>
               <label style={{ ...S.btnGhost, display: "inline-block", textAlign: "center", cursor: "pointer", width: "100%" }}>
-                📷 Subir imagen de logo
+                Subir imagen de logo
                 <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => {
                   const f = e.target.files?.[0]; if (!f) return;
                   if (f.size > 1500000) { flash("Imagen muy grande (máx 1,5 MB)", "warn"); return; }
@@ -2620,7 +2549,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, onBorrar, onRes
   const isAdmin = role === "admin";
   const [confirmReset, setConfirmReset] = useState(0); // 0 no, 1 primer aviso, 2 aviso final
   const [borrando, setBorrando] = useState(null);       // evento que se va a borrar (pide escribir BORRAR)
-  const [draft, setDraft] = useState({ name: "", subtitle: "", price: "", emoji: "🎟️", color: PALETTE[0] });
+  const [draft, setDraft] = useState({ name: "", subtitle: "", price: "", emoji: "i:entrada", color: PALETTE[0] });
   const [newEvent, setNewEvent] = useState(null);
   const neOpen = !!newEvent;
   useEffect(() => { if (neOpen) setTimeout(() => document.getElementById("nuevo-evento")?.scrollIntoView({ behavior: "smooth", block: "center" }), 60); }, [neOpen]);
@@ -2673,7 +2602,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, onBorrar, onRes
     if (!draft.name.trim() || !draft.price) { flash("Pon nombre y precio", "warn"); return; }
     const nextOrden = punto.products.reduce((m, x) => Math.max(m, (x.orden ?? 0) + 1), punto.products.length);
     dispatch({ type: "ADD_PRODUCT", eventId: ev.id, puntoId: punto.id, product: { id: uid(), name: draft.name.toUpperCase(), subtitle: (draft.subtitle || "").trim().toUpperCase(), price: parseFloat(draft.price), emoji: draft.emoji, color: draft.color, soldOut: false, orden: nextOrden } });
-    setDraft({ name: "", subtitle: "", price: "", emoji: "🎟️", color: PALETTE[Math.floor(Math.random() * PALETTE.length)] });
+    setDraft({ name: "", subtitle: "", price: "", emoji: "i:entrada", color: PALETTE[Math.floor(Math.random() * PALETTE.length)] });
     flash("Producto añadido a " + punto.name);
   };
   const addPunto = () => { if (!newPunto.trim()) { flash("Pon nombre al punto", "warn"); return; } const avB = avisoNuevaBarra(acc, ev); if (avB) { flash(avB, "warn"); return; } dispatch({ type: "ADD_PUNTO", eventId: ev.id, punto: { id: uid(), name: newPunto.trim(), archivado: false, products: [] } }); setNewPunto(""); flash("Punto de venta creado"); };
@@ -2723,15 +2652,15 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, onBorrar, onRes
         </div>
 
         <div style={{ ...S.panel, marginTop: 16, ...(ev.qrActivo ? { borderColor: "rgba(34,211,166,.45)" } : {}) }}>
-          <label style={S.toggleRow}><span><b><Ic n="qr" s={15} style={II} />Tickets con QR de un solo uso</b><span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2 }}>Cada ticket sale con un QR firmado. En la barra se escanea con el móvil y solo vale una vez: las copias, los anulados y los falsos salen en rojo.</span></span><button onClick={() => { const on = !ev.qrActivo; dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: on ? { qrActivo: true, style: { ...(ev.style || {}), qrDesde: Date.now() } } : { qrActivo: false } }); flash(on ? "🔐 Tickets con QR activados" : "Tickets con QR desactivados", on ? "ok" : "warn"); }} style={{ ...S.switch, background: ev.qrActivo ? "var(--green)" : "var(--line)", flexShrink: 0 }}><span style={{ ...S.knob, transform: ev.qrActivo ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
+          <label style={S.toggleRow}><span><b><Ic n="qr" s={15} style={II} />Tickets con QR de un solo uso</b><span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2 }}>Cada ticket sale con un QR firmado. En la barra se escanea con el móvil y solo vale una vez: las copias, los anulados y los falsos salen en rojo.</span></span><button onClick={() => { const on = !ev.qrActivo; dispatch({ type: "UPDATE_EVENT", id: ev.id, patch: on ? { qrActivo: true, style: { ...(ev.style || {}), qrDesde: Date.now() } } : { qrActivo: false } }); flash(on ? "Tickets con QR activados" : "Tickets con QR desactivados", on ? "ok" : "warn"); }} style={{ ...S.switch, background: ev.qrActivo ? "var(--green)" : "var(--line)", flexShrink: 0 }}><span style={{ ...S.knob, transform: ev.qrActivo ? "translateX(20px)" : "translateX(2px)" }} /></button></label>
           {ev.qrActivo && (<>
-            {!ev.qrClave && <div style={{ fontSize: 12.5, color: "var(--amber)", marginTop: 8 }}>⏳ Preparando la clave del evento… (necesita internet una vez)</div>}
+            {!ev.qrClave && <div style={{ fontSize: 12.5, color: "var(--amber)", marginTop: 8 }}><IcoUI n="reloj" s={16} style={ikUI} />Preparando la clave del evento… (necesita internet una vez)</div>}
             <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "10px 0 8px", lineHeight: 1.45 }}>
               <b style={{ color: "var(--text)" }}>Cómo se usa:</b> en el móvil de cada barra, entra con <b>Validar tickets</b> y elige la barra. Verde = sirve · Rojo = no sirvas.
               Con QR, cada unidad sale en su propio ticket (×3 = 3 tickets). Un ticket vale en <b style={{ color: "var(--text)" }}>cualquier barra</b> hasta que termina el evento.
             </div>
             {ev.endsAt
-              ? <div style={{ fontSize: 12.5, color: "var(--green)", marginBottom: 8 }}>✅ Los QR valen hasta el <b>{fechaHora(ev.endsAt)}</b>. Después salen en rojo: «Evento terminado».</div>
+              ? <div style={{ fontSize: 12.5, color: "var(--green)", marginBottom: 8 }}><IcoUI n="ok" s={16} style={ikUI} />Los QR valen hasta el <b>{fechaHora(ev.endsAt)}</b>. Después salen en rojo: «Evento terminado».</div>
               : <div style={{ fontSize: 12.5, color: "var(--amber)", marginBottom: 8, fontWeight: 700 }}><Ic n="alert" s={15} style={II} />Pon arriba la fecha y hora en que <b>termina</b> el evento: a partir de esa hora los QR dejan de valer. Sin ella no caducan.</div>}
             <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Toca un producto para quitarle o ponerle el QR:</div>
             {ev.puntos.filter(p => !p.archivado).map(p => (
@@ -2742,7 +2671,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, onBorrar, onRes
                   {p.products.map(x => { const on = x.qr !== false && x.print !== false; return (
                     <button key={x.id} disabled={x.print === false} title={x.print === false ? "Este producto no imprime ticket" : ""} onClick={() => dispatch({ type: "UPDATE_PRODUCT", eventId: ev.id, puntoId: p.id, productId: x.id, patch: { qr: x.qr === false } })}
                       style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 11px", borderRadius: 20, fontSize: 12.5, fontWeight: 700, cursor: x.print === false ? "default" : "pointer", border: `1px solid ${on ? "rgba(34,211,166,.55)" : "var(--line)"}`, background: on ? "rgba(34,211,166,.12)" : "transparent", color: on ? "var(--text)" : "var(--muted)", opacity: x.print === false ? .5 : 1 }}>
-                      <span>{x.emoji}</span>{x.name}<span style={{ fontSize: 12, color: on ? "var(--green)" : "var(--muted)" }}>{x.print === false ? "sin ticket" : on ? "QR" : "sin QR"}</span>
+                      <IconoProducto v={x.emoji} s={18} />{x.name}<span style={{ fontSize: 12, color: on ? "var(--green)" : "var(--muted)" }}>{x.print === false ? "sin ticket" : on ? "QR" : "sin QR"}</span>
                     </button>); })}
                 </div>
               </div>
@@ -2836,7 +2765,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, onBorrar, onRes
                     <>
                       <input autoFocus style={{ ...S.input, flex: 1 }} value={renamePunto.value} onChange={e => setRenamePunto({ id: p.id, value: e.target.value })} onKeyDown={e => { if (e.key === "Enter") saveRename(); if (e.key === "Escape") setRenamePunto(null); }} />
                       <button onClick={saveRename} style={{ ...S.smallBtn, color: "var(--green)", borderColor: "var(--green)" }}>Guardar</button>
-                      <button onClick={() => setRenamePunto(null)} style={S.smallBtn}>✗</button>
+                      <button onClick={() => setRenamePunto(null)} style={S.smallBtn}></button>
                     </>
                   ) : (
                     <>
@@ -2851,7 +2780,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, onBorrar, onRes
                         confirmDel === p.id ? (
                           <span style={{ display: "flex", gap: 6 }}>
                             <button onClick={() => { dispatch({ type: "DELETE_PUNTO", eventId: ev.id, puntoId: p.id }); setConfirmDel(null); flash("Punto borrado"); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Borrar</button>
-                            <button onClick={() => setConfirmDel(null)} style={S.smallBtn}>✗</button>
+                            <button onClick={() => setConfirmDel(null)} style={S.smallBtn}></button>
                           </span>
                         ) : <button onClick={() => setConfirmDel(p.id)} style={S.del} aria-label={`Archivar ${p.name}`}>✕</button>
                       ) : null}
@@ -2871,7 +2800,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, onBorrar, onRes
           <Field label="Subtítulo (opcional)"><input style={S.input} placeholder="Ej. INCLUYE 1 COPA" maxLength={60} value={draft.subtitle} onChange={e => setDraft({ ...draft, subtitle: e.target.value })} /></Field>
           <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
             <div style={{ width: 130, flexShrink: 0 }}><Field label="Precio (€)"><input style={S.input} type="number" inputMode="decimal" placeholder="0,00" value={draft.price} onChange={e => setDraft({ ...draft, price: e.target.value })} /></Field></div>
-            <Field label="Icono"><EmojiPicker value={draft.emoji} onChange={v => setDraft({ ...draft, emoji: v })} size={46} /></Field>
+            <Field label="Icono"><SelectorIcono value={draft.emoji} color={draft.color} onChange={v => setDraft({ ...draft, emoji: v })} size={48} /></Field>
           </div>
           <Field label="Color"><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{PALETTE.map(c => <button key={c} aria-label={`Color ${c}`} aria-pressed={draft.color === c} onClick={() => setDraft({ ...draft, color: c })} style={{ width: 28, height: 28, borderRadius: 8, background: c, border: draft.color === c ? "3px solid #fff" : "3px solid transparent", cursor: "pointer" }} />)}</div></Field>
           <button onClick={addProduct} style={{ ...S.btnPrimary, marginTop: 12 }}>+ Añadir a {punto.name}</button>
@@ -2892,7 +2821,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, onBorrar, onRes
           <SortableList items={punto.products} onReorder={reorder} renderRow={(p, i, handle, dragging) => (
             <div style={{ ...S.prodRow, gap: isMobile ? 8 : 12, padding: isMobile ? "8px 8px 8px 6px" : 10, opacity: p.soldOut ? .55 : 1, ...(dragging ? S.prodRowDrag : {}) }}>
               {handle}
-              <div style={{ width: 36, height: 36, borderRadius: 9, background: p.color, display: "grid", placeItems: "center", fontSize: 20, flexShrink: 0 }}>{p.emoji}</div>
+              <div style={{ width: 36, height: 36, borderRadius: 9, background: p.color, display: "grid", placeItems: "center", color: "#fff", flexShrink: 0 }}><IconoProducto v={p.emoji} s={20} /></div>
               <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{p.print === false ? <b style={{ color: "var(--amber)" }}>Sin ticket · </b> : null}{(() => { const c = comisionActual(ev, p.id); return c && c.proveedor ? <b style={{ color: "#60a5fa" }}>{c.proveedor} {c.pct}% · </b> : null; })()}{p.subtitle ? <span style={{ color: "var(--text)", opacity: .75 }}>{p.subtitle} · </span> : null}{money(p.price)}{sortMode === "ventas" ? <> · <b style={{ color: "var(--accent)" }}>#{salesRank.indexOf(p.id) + 1}</b> · {sold[p.id] || 0} vendidos</> : (sold[p.id] ? ` · ${sold[p.id]} vendidos` : "")}</div></div>
               {!isMobile && <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <button onClick={() => moveProd(p.id, -1)} disabled={i === 0} style={{ ...S.arrowBtn, opacity: i === 0 ? .3 : 1 }} title="Subir" aria-label="Subir"><Ic n="up" s={13} w={2.4} /></button>
@@ -2908,7 +2837,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, onBorrar, onRes
           )} />
         </div>
 
-        <h3 style={{ ...S.h3, marginTop: 22 }}>🎟️ Bonos / Ofertas especiales</h3>
+        <h3 style={{ ...S.h3, marginTop: 22 }}><IcoUI n="ticket" s={16} style={ikUI} />Bonos / Ofertas especiales</h3>
         <div style={S.panel}>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>Un bono imprime varios tickets de un clic (ej. BONOCOPAS = 4 copas). Se cobra al precio que pongas (o la suma si lo dejas vacío).</div>
           {combos.length === 0 && <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 10 }}>Sin bonos en “{punto.name}”.</div>}
@@ -2917,7 +2846,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, onBorrar, onRes
               const units = (c.items || []).reduce((t, it) => t + (it.qty || 1), 0);
               return (
                 <div key={c.id} style={S.prodRow}>
-                  <div style={{ width: 36, height: 36, borderRadius: 9, background: "linear-gradient(160deg,#ffb400,#d98e00)", display: "grid", placeItems: "center", fontSize: 18 }}>🎟️</div>
+                  <div style={{ width: 36, height: 36, borderRadius: 9, background: "linear-gradient(160deg,#ffb400,#d98e00)", display: "grid", placeItems: "center", fontSize: 18 }}><IcoUI n="ticket" s={13} w={1.6} /></div>
                   <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div><div style={{ fontSize: 12, color: "var(--muted)" }}>{units} tickets{(c.price !== "" && c.price != null) ? ` · ${money(Number(c.price))}` : ""}</div></div>
                   <button onClick={() => setEditCombo({ ...c, price: c.price ?? "", items: (c.items || []).map(i => ({ ...i })) })} style={{ ...S.smallBtn, padding: "6px 8px" }} title="Editar bono" aria-label={`Editar ${c.name}`}><Ic n="edit" s={14} /></button>
                   <button onClick={() => delCombo(c.id)} style={S.del} aria-label={`Borrar ${c.name}`}>✕</button>
@@ -2939,7 +2868,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, onBorrar, onRes
           <Field label="Subtítulo (opcional, más pequeño) · ej. INCLUYE 1 COPA"><input style={S.input} placeholder="Sin subtítulo" maxLength={60} value={editProd.subtitle || ""} onChange={e => setEditProd({ ...editProd, subtitle: e.target.value })} /></Field>
           <div style={{ display: "flex", gap: 8 }}>
             <Field label="Precio €"><input type="number" style={S.input} value={editProd.price} onChange={e => setEditProd({ ...editProd, price: e.target.value })} /></Field>
-            <Field label="Icono"><EmojiPicker value={editProd.emoji} onChange={v => setEditProd({ ...editProd, emoji: v })} size={46} /></Field>
+            <Field label="Icono"><SelectorIcono value={editProd.emoji} color={editProd.color} onChange={v => setEditProd({ ...editProd, emoji: v })} size={48} /></Field>
           </div>
           <div style={{ fontSize: 12, color: "var(--muted)", margin: "8px 0 6px" }}>Color</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{PALETTE.map(c => <button key={c} onClick={() => setEditProd({ ...editProd, color: c })} style={{ width: 28, height: 28, borderRadius: 7, background: c, border: editProd.color === c ? "3px solid #fff" : "3px solid transparent", cursor: "pointer" }} />)}</div>
@@ -2962,7 +2891,7 @@ function EventConfig({ state, ev, punto, evSales, role, onReset, onBorrar, onRes
       <div style={isMobile ? S.sheetWrap : S.overlay} onClick={() => setEditCombo(null)}>
         <div className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, width: 380, maxWidth: "92vw", textAlign: "left" }} onClick={e => e.stopPropagation()}>
           {isMobile && <div style={S.grab} />}
-          <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 14 }}>🎟️ Bono / Oferta</div>
+          <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 14 }}><IcoUI n="ticket" s={16} style={ikUI} />Bono / Oferta</div>
           <Field label="Nombre del bono (ej. BONOCOPAS)"><input style={S.input} value={editCombo.name} onChange={e => setEditCombo({ ...editCombo, name: e.target.value })} /></Field>
           <Field label="Precio del bono € (vacío = suma de los productos)"><input type="number" style={S.input} placeholder="Suma automática" value={editCombo.price} onChange={e => setEditCombo({ ...editCombo, price: e.target.value })} /></Field>
           <div style={{ fontSize: 12, color: "var(--muted)", margin: "6px 0 8px" }}>Tickets que imprime este bono</div>
@@ -3071,7 +3000,7 @@ function Papelera({ onRestaurar, onEliminar }) {
     </div>
   );
 }
-const fechaCorta = (d) => { try { return new Date(d + "T12:00").toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" }); } catch { return d; } };
+const fechaCorta = (d) => { try { const x = new Date(d + "T12:00"); if (!d || isNaN(x)) return d || "Sin fecha"; return x.toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" }); } catch { return d; } };
 
 /* ============================================================
    REPORTS
@@ -3183,7 +3112,7 @@ function Historico({ state, onOpenEvent, flash }) {
           </div>
           <div style={S.panel}>
             <div style={{ fontWeight: 800, marginBottom: 10 }}>Productos</div>
-            {r.top.slice(0, 10).map((p, i) => <div key={p.name} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 14 }}><span>{i === 0 ? "🥇 " : i === 1 ? "🥈 " : i === 2 ? "🥉 " : ""}{p.name} <span style={{ color: "var(--muted)" }}>· {p.uds}</span></span><b>{money(p.total)}</b></div>)}
+            {r.top.slice(0, 10).map((p, i) => <div key={p.name} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 14 }}><span>{i < 3 ? <b style={{ color: "var(--muted)", marginRight: 6, fontVariantNumeric: "tabular-nums" }}>{i + 1}.</b> : null}{p.name} <span style={{ color: "var(--muted)" }}>· {p.uds}</span></span><b>{money(p.total)}</b></div>)}
             {r.inv.n > 0 && <><div style={{ fontWeight: 800, margin: "16px 0 8px" }}><Ic n="gift" s={15} style={II} />Invitaciones</div>{r.inv.list.map(g => <div key={g.name} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}><span>{g.uds} × {g.name}</span><span>{money(g.valor)}</span></div>)}</>}
             {r.liq.list.length > 0 && <><div style={{ fontWeight: 800, margin: "16px 0 8px" }}><Ic n="users" s={15} style={II} />Proveedores</div>{r.liq.list.map(g => <div key={g.proveedor} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}><span>{g.proveedor}</span><span>pagar <b style={{ color: "var(--amber)" }}>{money(g.pagar)}</b></span></div>)}</>}
           </div>
@@ -3225,15 +3154,15 @@ function Historico({ state, onOpenEvent, flash }) {
         {lista.map(r => (
           <button key={r.ev.id} onClick={() => setSel(r.ev.id)} style={{ ...S.panel, textAlign: "left", color: "var(--text)", cursor: "pointer", padding: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
-              <div style={{ minWidth: 0 }}><div style={{ fontWeight: 800, fontSize: 16 }}>{r.ev.name}</div><div style={{ fontSize: 12.5, color: "var(--muted)" }}>{r.ev.date ? dateFmt(r.ev.date) : "Sin fecha"}{r.ev.venue ? ` · ${r.ev.venue}` : ""} · {(() => { const nb = r.barras.length || r.ev.puntos.length; return `${nb} ${nb === 1 ? "barra" : "barras"}`; })()} · {r.ev.closed ? "Cerrado ✅" : "Abierto"}</div></div>
+              <div style={{ minWidth: 0 }}><div style={{ fontWeight: 800, fontSize: 16 }}>{r.ev.name}</div><div style={{ fontSize: 12.5, color: "var(--muted)" }}>{r.ev.date ? dateFmt(r.ev.date) : "Sin fecha"}{r.ev.venue ? ` · ${r.ev.venue}` : ""} · {(() => { const nb = r.barras.length || r.ev.puntos.length; return `${nb} ${nb === 1 ? "barra" : "barras"}`; })()} · {r.ev.closed ? "Cerrado " : "Abierto"}</div></div>
               <div style={{ textAlign: "right" }}><div style={{ fontSize: 22, fontWeight: 800, color: "var(--green)" }}>{money(r.revenue)}</div><Delta d={r.delta} /></div>
             </div>
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12.5, color: "var(--muted)", marginTop: 10 }}>
               <span><b style={{ color: "var(--text)" }}>{r.tickets}</b> tickets · medio {money(r.medio)}</span>
-              {r.top[0] && <span>🥇 {r.top[0].name} ({r.top[0].uds})</span>}
+              {r.top[0] && <span><IcoUI n="trofeo" s={16} style={ikUI} />{r.top[0].name} ({r.top[0].uds})</span>}
               {r.inv.n > 0 && <span><Ic n="gift" s={15} style={II} />{r.inv.n} invit. ({money(r.inv.valor)})</span>}
               {r.liq.list.length > 0 && <span><Ic n="users" s={15} style={II} />pagar {money(r.liq.pagar)}</span>}
-              {r.pico != null && <span>⏰ pico {String(r.pico).padStart(2, "0")}:00</span>}
+              {r.pico != null && <span><IcoUI n="reloj" s={16} style={ikUI} />pico {String(r.pico).padStart(2, "0")}:00</span>}
             </div>
           </button>
         ))}
@@ -3254,10 +3183,10 @@ export function VincularGasto({ g, lista, onClose, onElegir }) {
       <div role="dialog" aria-modal="true" aria-label="Vincular gasto" style={{ ...S.payCard, maxWidth: 480, maxHeight: "90dvh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 900, fontSize: 18 }}>🔗 Vincular gasto</div>
+            <div style={{ fontWeight: 900, fontSize: 18 }}><IcoUI n="enlace" s={16} style={ikUI} />Vincular gasto</div>
             <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}><b style={{ color: "var(--text)" }}>{g.concepto || "Gasto"}</b> · {money(g.importe)} · {new Date(g.ts).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</div>
           </div>
-          <button onClick={onClose} style={{ ...S.smallBtn, flexShrink: 0 }} aria-label="Cerrar"><Ic n="close" s={16} /></button>
+          <button onClick={onClose} style={{ ...S.iconBtn }} aria-label="Cerrar"><Ic n="close" s={18} /></button>
         </div>
         <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>Elige a qué gasto previsto del CRM corresponde. Allí quedará <b style={{ color: "var(--text)" }}>pagado con {money(g.importe)}</b> y dejará de sumarse aparte como gasto de caja.</div>
         {lista.length > 6 && <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar: camarero, Javi, DJ…" aria-label="Buscar gasto del CRM" style={{ ...S.input, marginBottom: 8 }} />}
@@ -3335,10 +3264,10 @@ function Reports({ ev, evSales, evGastos = [], cierres = [], onRevertirZ, onVinc
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
     const d = new Date(); a.download = `ticketera-emergencia-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}-${String(d.getHours()).padStart(2,"0")}${String(d.getMinutes()).padStart(2,"0")}.json`;
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    flash(`💾 Copia de emergencia descargada (${db.pendingCount()} pendientes)`);
+    flash(`Copia de emergencia descargada (${db.pendingCount()} pendientes)`);
   };
   const importEmergency = async (file) => {
-    try { const n = db.importPending(await file.text()); flash(n ? `✅ ${n} operaciones importadas` : "Nada nuevo que importar"); onImported && onImported(); }
+    try { const n = db.importPending(await file.text()); flash(n ? `${n} operaciones importadas` : "Nada nuevo que importar"); onImported && onImported(); }
     catch { flash("Archivo no válido", "warn"); }
   };
   const [confirmVoid, setConfirmVoid] = useState(null);
@@ -3489,7 +3418,7 @@ function Reports({ ev, evSales, evGastos = [], cierres = [], onRevertirZ, onVinc
                       </div>
                       <div style={{ color: "var(--muted)", marginTop: 2 }}>
                         {b.datos?.total ? `${b.datos.total.tickets} tickets · ${money(b.datos.total.facturacion)}` : ""}
-                        {b.datos?.total && (b.datos.total.efectivo || b.datos.total.tarjeta) ? ` · 💶 ${money(b.datos.total.efectivo)} · 💳 ${money(b.datos.total.tarjeta)}` : ""}
+                        {b.datos?.total && (b.datos.total.efectivo || b.datos.total.tarjeta) ? ` · ${money(b.datos.total.efectivo)} · ${money(b.datos.total.tarjeta)}` : ""}
                       </div>
                       {Array.isArray(b.datos?.puntos) && <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 2 }}>{b.datos.puntos.map(p => `${p.nombre}: ${money(p.facturacion)}`).join(" · ")}</div>}
                     </div>
@@ -3512,7 +3441,7 @@ function Reports({ ev, evSales, evGastos = [], cierres = [], onRevertirZ, onVinc
               <div style={{ fontSize: 12, color: "var(--muted)" }}>{b.count} tickets · {b.voids} anul.</div>
               {gTurnoDe(b.punto.id) > 0 && <div style={{ fontSize: 12, color: "var(--amber)", marginTop: 4, fontWeight: 700 }}><Ic n="cash" s={15} style={II} />Gastos del turno: -{money(gTurnoDe(b.punto.id))}</div>}
               {eTurnoDe(b.punto.id) > 0 && <div style={{ fontSize: 12, color: "var(--green)", marginTop: 4, fontWeight: 700 }}><Ic n="plus" s={15} style={II} />Cambio añadido: +{money(eTurnoDe(b.punto.id))}</div>}
-              {(ev.advanced || ev.pedirFondo !== false) && b.punto.estado === "abierta" && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}><Ic n="cash" s={15} style={II} />Fondo: <b style={{ color: b.punto.fondo != null ? "var(--green)" : "var(--amber)" }}>{b.punto.fondo != null ? money(b.punto.fondo) : "sin declarar"}</b>{db.pendingPunto(b.punto.id) && <span style={{ color: "var(--amber)" }}> · ⏳ subiendo…</span>}</div>}
+              {(ev.advanced || ev.pedirFondo !== false) && b.punto.estado === "abierta" && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}><Ic n="cash" s={15} style={II} />Fondo: <b style={{ color: b.punto.fondo != null ? "var(--green)" : "var(--amber)" }}>{b.punto.fondo != null ? money(b.punto.fondo) : "sin declarar"}</b>{db.pendingPunto(b.punto.id) && <span style={{ color: "var(--amber)" }}> · subiendo…</span>}</div>}
               {(role === "admin" || role === "supervisor") && (b.punto.estado === "abierta" || evSales.some(x => x.puntoId === b.punto.id && !x.closureId)) && <button onClick={() => {
                 const abiertas = evSales.filter(s => s.puntoId === b.punto.id && !s.voided && !s.closureId && !isInvite(s));
                 const efe = round2(abiertas.filter(s => s.pago === "efectivo").reduce((t, s) => t + s.price, 0));
@@ -3523,7 +3452,7 @@ function Reports({ ev, evSales, evGastos = [], cierres = [], onRevertirZ, onVinc
                 setCountZ({ punto: b.punto, advanced: !!ev.advanced, fondo, efectivo: base, gastos: gas, entradas: ent, esperado: round2(fondo + base + ent - gas), socios: efectivoSocios(abiertas), valor: "" });
               }} style={{ ...S.smallBtn, marginTop: 8, width: "100%", color: "var(--accent)", borderColor: "var(--accent)" }}>Cierre Z</button>}
               {role === "admin" && onPasarPrueba && b.punto.estado !== "prueba" && !(b.punto.estado === "abierta" && evSales.some(x => x.puntoId === b.punto.id && !x.closureId && !x.voided)) && (confirmPrueba === b.punto.id
-                ? <div style={{ display: "flex", gap: 6, marginTop: 8 }}><button onClick={() => { onPasarPrueba(b.punto); setConfirmPrueba(null); }} style={{ ...S.smallBtn, flex: 1, color: "var(--amber)", borderColor: "var(--amber)" }}>✓ Sí, a prueba</button><button onClick={() => setConfirmPrueba(null)} style={S.smallBtn}>✗</button></div>
+                ? <div style={{ display: "flex", gap: 6, marginTop: 8 }}><button onClick={() => { onPasarPrueba(b.punto); setConfirmPrueba(null); }} style={{ ...S.smallBtn, flex: 1, color: "var(--amber)", borderColor: "var(--amber)" }}>✓ Sí, a prueba</button><button onClick={() => setConfirmPrueba(null)} style={S.smallBtn}></button></div>
                 : <button onClick={() => setConfirmPrueba(b.punto.id)} style={{ ...S.smallBtn, marginTop: 8, width: "100%" }}>{b.punto.estado === "cerrada" ? "↺ Reabrir barra (vuelve a prueba)" : "Volver a modo prueba"}</button>)}
             </div>
           ))}
@@ -3556,15 +3485,15 @@ function Reports({ ev, evSales, evGastos = [], cierres = [], onRevertirZ, onVinc
             return (
               <div key={g.id} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5, opacity: g.voided ? .45 : 1 }}>
                 <span style={{ color: "var(--muted)", flexShrink: 0 }}>{new Date(g.ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</span>
-                <span style={{ flex: 1, minWidth: 0 }}><b>{g.concepto || (isEntrada(g) ? "Cambio añadido" : "Gasto")}</b> <span style={{ color: "var(--muted)" }}>{!isEntrada(g) && categoriaDe(g).t !== g.concepto ? `· ${categoriaDe(g).t} ` : ""}· 📍 {pn}{g.por && g.por !== pn ? ` · ${g.por}` : ""}{g.closureId ? " · cerrado en Z" : ""}{!g.synced ? " · ⏳" : ""}</span></span>
+                <span style={{ flex: 1, minWidth: 0 }}><b>{g.concepto || (isEntrada(g) ? "Cambio añadido" : "Gasto")}</b> <span style={{ color: "var(--muted)" }}>{!isEntrada(g) && categoriaDe(g).t !== g.concepto ? `· ${categoriaDe(g).t} ` : ""}· {pn}{g.por && g.por !== pn ? ` · ${g.por}` : ""}{g.closureId ? " · cerrado en Z" : ""}{!g.synced ? " · " : ""}</span></span>
                 <b style={{ flexShrink: 0, textDecoration: g.voided ? "line-through" : "none", color: g.voided ? "var(--muted)" : isEntrada(g) ? "var(--green)" : "var(--amber)" }}>{isEntrada(g) ? "+" : "-"}{money(g.importe)}</b>
                 {/* Vínculo con un gasto previsto del CRM (también después del evento) */}
                 {!g.voided && !isEntrada(g) && previstos && (g.crmGastoId
-                  ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0, fontSize: 12.5, color: "var(--green)", fontWeight: 700 }}>🔗 {nombrePrevisto(g.crmGastoId)}{puedeVincular && <button onClick={() => onVincular(g, null)} style={{ ...S.smallBtn, color: "var(--muted)" }} title="Quitar el vínculo con el CRM">Desvincular</button>}</span>
-                  : puedeVincular && <button onClick={() => setVinculando(g)} style={{ ...S.smallBtn, flexShrink: 0, color: "var(--accent)", borderColor: "var(--accent)" }}>🔗 Vincular gasto</button>)}
+                  ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0, fontSize: 12.5, color: "var(--green)", fontWeight: 700 }}><IcoUI n="enlace" s={16} style={ikUI} />{nombrePrevisto(g.crmGastoId)}{puedeVincular && <button onClick={() => onVincular(g, null)} style={{ ...S.smallBtn, color: "var(--muted)" }} title="Quitar el vínculo con el CRM">Desvincular</button>}</span>
+                  : puedeVincular && <button onClick={() => setVinculando(g)} style={{ ...S.smallBtn, flexShrink: 0, color: "var(--accent)", borderColor: "var(--accent)" }}><IcoUI n="enlace" s={16} style={ikUI} />Vincular gasto</button>)}
                 {g.voided ? <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0 }}>Anulado</span>
                   : (role === "admin" || role === "supervisor") && !g.closureId && onVoidGasto ? (confirmGasto === g.id
-                    ? <span style={{ display: "flex", gap: 6, flexShrink: 0 }}><button onClick={() => { onVoidGasto(g); setConfirmGasto(null); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Sí</button><button onClick={() => setConfirmGasto(null)} style={S.smallBtn}>✗</button></span>
+                    ? <span style={{ display: "flex", gap: 6, flexShrink: 0 }}><button onClick={() => { onVoidGasto(g); setConfirmGasto(null); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Sí</button><button onClick={() => setConfirmGasto(null)} style={S.smallBtn}></button></span>
                     : <button onClick={() => setConfirmGasto(g.id)} style={{ ...S.smallBtn, flexShrink: 0 }}>Anular</button>) : null}
               </div>
             );
@@ -3642,7 +3571,7 @@ function Reports({ ev, evSales, evGastos = [], cierres = [], onRevertirZ, onVinc
             {b.punto.products.length === 0 && <div style={{ color: "var(--muted)", fontSize: 13 }}>Sin productos.</div>}
             {b.punto.products.map(p => { const q = b.perProduct[p.id] || 0; return (
               <div key={p.id} style={{ marginBottom: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, marginBottom: 5 }}><span>{p.emoji} {p.name}</span><span style={{ color: "var(--muted)" }}><b style={{ color: "var(--text)" }}>{q}</b> uds · {money(q * p.price)}</span></div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, marginBottom: 5 }}><span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><IconoProducto v={p.emoji} s={16} />{p.name}</span><span style={{ color: "var(--muted)" }}><b style={{ color: "var(--text)" }}>{q}</b> uds · {money(q * p.price)}</span></div>
                 <div style={{ height: 9, background: "var(--line)", borderRadius: 6, overflow: "hidden" }}><div style={{ height: "100%", width: `${(q / max) * 100}%`, background: p.color, borderRadius: 6, transition: "width .5s" }} /></div>
               </div>); })}
           </div>
@@ -3668,7 +3597,7 @@ function Reports({ ev, evSales, evGastos = [], cierres = [], onRevertirZ, onVinc
             <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "7px 0", borderBottom: "1px solid var(--line)" }}>
               <span>Nº {String(s.num).padStart(4, "0")} · {s.name} · {money(s.price)}</span>
               {confirmVoid === s.id ? (
-                <span style={{ display: "flex", gap: 6 }}><button onClick={() => { onVoid(s); setConfirmVoid(null); flash("Ticket anulado", "warn"); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Sí</button><button onClick={() => setConfirmVoid(null)} style={S.smallBtn}>✗</button></span>
+                <span style={{ display: "flex", gap: 6 }}><button onClick={() => { onVoid(s); setConfirmVoid(null); flash("Ticket anulado", "warn"); }} style={{ ...S.smallBtn, color: "var(--red)", borderColor: "var(--red)" }}>✓ Sí</button><button onClick={() => setConfirmVoid(null)} style={S.smallBtn}></button></span>
               ) : <button onClick={() => setConfirmVoid(s.id)} style={S.smallBtn}>Anular</button>}
             </div>
           ))}
@@ -3697,7 +3626,7 @@ function Reports({ ev, evSales, evGastos = [], cierres = [], onRevertirZ, onVinc
             </div>
             {(countZ.socios || []).length > 0 && (
               <div style={{ background: "rgba(255,180,0,.1)", border: "1px solid rgba(255,180,0,.4)", borderRadius: 12, padding: "10px 12px", marginBottom: 12, fontSize: 13.5 }}>
-                <b style={{ color: "var(--amber)" }}>💶 Efectivo que tienen los socios</b>
+                <b style={{ color: "var(--amber)" }}><IcoUI n="dinero" s={16} style={ikUI} />Efectivo que tienen los socios</b>
                 {countZ.socios.map(x => <div key={x.nombre} style={{ display: "flex", justifyContent: "space-between", marginTop: 3 }}><span>{x.nombre}</span><b>{money(x.importe)}</b></div>)}
                 <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Está incluido en «Debe haber»: pídeselo antes de contar.</div>
               </div>
@@ -3746,7 +3675,7 @@ function AccesoSeguro({ ev, dispatch, flash }) {
         const malo = !e.protegido;
         return (
           <div key={rol} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", border: `1px solid ${malo ? "var(--amber)" : "var(--line)"}`, borderRadius: 12, marginBottom: 8 }}>
-            <span style={{ fontSize: 20 }} aria-hidden>{malo ? "⚠️" : "🔐"}</span>
+            <IcoUI n={malo ? "aviso" : "candado"} s={20} />
             <span style={{ flex: 1, minWidth: 0 }}>
               <b style={{ display: "block" }}>{t}</b>
               <span style={{ fontSize: 12.5, color: malo ? "var(--amber)" : "var(--muted)" }}>{desc}{malo ? (e.fabrica ? " · cámbialo antes del evento" : " · se puede leer: guárdalo de nuevo para protegerlo") : ` · ${d}`}</span>
@@ -3795,7 +3724,7 @@ function EditorAcceso({ ev, rol, onClose, onGuardado, flash }) {
     <div style={isMobile ? S.sheetWrap : S.overlay} onClick={busy ? undefined : onClose}>
       <div role="dialog" aria-label={`Acceso de ${rol}`} className={isMobile ? "sheet-anim" : ""} style={isMobile ? S.sheet : { ...S.pinCard, width: 400, textAlign: "left" }} onClick={e => e.stopPropagation()}>
         {isMobile && <div style={S.grab} />}
-        <div style={{ fontWeight: 900, fontSize: 18 }}>🔐 Acceso de {rol === "admin" ? "administrador" : "supervisor"}</div>
+        <div style={{ fontWeight: 900, fontSize: 18 }}><IcoUI n="candado" s={16} style={ikUI} />Acceso de {rol === "admin" ? "administrador" : "supervisor"}</div>
         <div style={{ fontSize: 13, color: "var(--muted)", margin: "4px 0 14px" }}>Se guarda cifrado: nadie puede leerlo, ni desde la base de datos. Funciona también sin internet.</div>
         <div role="radiogroup" aria-label="Tipo de acceso" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 12 }}>
           {[["pin", "PIN numérico", "Rápido en la barra"], ["clave", "Contraseña", "Letras y números"]].map(([k, t, d]) => (
@@ -3807,7 +3736,7 @@ function EditorAcceso({ ev, rol, onClose, onGuardado, flash }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0 10px" }}>
           <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 4 }}>{[1, 2, 3].map(i => <span key={i} style={{ height: 5, borderRadius: 5, background: f >= i ? colores[f] : "var(--line)" }} />)}</div>
           <span style={{ fontSize: 12, fontWeight: 700, color: prob ? "var(--amber)" : "var(--muted)", minWidth: 80, textAlign: "right" }}>{!v1 ? "" : prob ? "No válido" : ["", "Aceptable", "Bueno", "Muy bueno"][f]}</span>
-          <button type="button" onClick={() => setVer(!ver)} style={{ ...S.smallBtn, padding: "4px 10px" }} aria-label={ver ? "Ocultar" : "Mostrar"}>{ver ? "🙈" : "👁"}</button>
+          <button type="button" onClick={() => setVer(!ver)} style={{ ...S.smallBtn, padding: "4px 10px" }} aria-label={ver ? "Ocultar" : "Mostrar"}><IcoUI n={ver ? "ojoNo" : "ojo"} s={18} /></button>
         </div>
         <div style={{ fontSize: 12.5, color: err || prob ? "var(--red)" : "var(--muted)", minHeight: 18, fontWeight: err || prob ? 700 : 400 }}>{err || prob || (tipo === "pin" ? "Consejo: 6 números o más. Nada de fechas ni series." : "Consejo: una frase corta con algún número, fácil de recordar.")}</div>
         <div style={{ fontSize: 12, color: "var(--muted)", margin: "10px 0 12px", background: "var(--surface2, rgba(127,127,127,.08))", borderRadius: 10, padding: "8px 10px" }}>Antes de cambiarlo, actualiza la app en todos los equipos del evento (Menú → Buscar actualización). Un equipo con una versión antigua no podrá entrar como {rol === "admin" ? "administrador" : "supervisor"} hasta actualizarse.</div>
@@ -3854,7 +3783,7 @@ function PinModal({ secreto, onOk, onClose, label }) {
     <div style={isMobile ? S.sheetWrap : S.overlay} onClick={onClose}>
       <div role="dialog" aria-label={label || "Acceso restringido"} className={isMobile ? "sheet-anim" : ""} style={isMobile ? { ...S.sheet, animation: err ? "shake .3s" : undefined } : { ...S.pinCard, animation: err ? "shake .3s" : "none" }} onClick={e => e.stopPropagation()}>
         {isMobile && <div style={S.grab} />}
-        <div style={{ textAlign: "center", fontWeight: 800, fontSize: 18, marginBottom: 4 }}>🔒 Acceso restringido</div>
+        <div style={{ textAlign: "center", fontWeight: 800, fontSize: 18, marginBottom: 4 }}><IcoUI n="candado" s={16} style={ikUI} />Acceso restringido</div>
         <div aria-live="polite" style={{ textAlign: "center", color: locked || err ? "var(--red)" : "var(--muted)", fontSize: 13, marginBottom: 16, fontWeight: locked || err ? 700 : 400 }}>{aviso}</div>
         {esClave ? (
           <form onSubmit={e => { e.preventDefault(); probar(pin); }}>
@@ -3862,7 +3791,7 @@ function PinModal({ secreto, onOk, onClose, label }) {
               <input autoFocus type={ver ? "text" : "password"} autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} disabled={locked} aria-label="Contraseña"
                 value={pin} maxLength={64} onChange={e => { setPin(e.target.value); setErr(false); }} placeholder="Contraseña"
                 style={{ ...S.input, fontSize: 18, padding: "14px 52px 14px 14px", textAlign: "center", fontWeight: 700 }} />
-              <button type="button" onClick={() => setVer(!ver)} aria-label={ver ? "Ocultar contraseña" : "Ver contraseña"} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", ...S.smallBtn, padding: "6px 10px" }}>{ver ? "🙈" : "👁"}</button>
+              <button type="button" onClick={() => setVer(!ver)} aria-label={ver ? "Ocultar contraseña" : "Ver contraseña"} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", ...S.smallBtn, padding: "6px 10px" }}><IcoUI n={ver ? "ojoNo" : "ojo"} s={18} /></button>
             </div>
             <button type="submit" disabled={locked || !pin || mirando} style={{ ...S.btnPrimary, marginTop: 12, opacity: locked || !pin || mirando ? .5 : 1 }}>{mirando ? "Comprobando…" : "Entrar"}</button>
           </form>
@@ -3980,12 +3909,12 @@ const S = {
   stDot: { width: 8, height: 8, borderRadius: "50%", flexShrink: 0, display: "inline-block" },
   mEvent: { fontSize: 15.5, fontWeight: 800, letterSpacing: "-.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.2 },
   mSub: { display: "flex", alignItems: "center", gap: 5, color: "var(--accent)", fontSize: 12, fontWeight: 700, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden" },
-  mSelect: { background: "var(--surface2)", fontWeight: 800, padding: "9px 12px" },
+  mSelect: { background: "var(--surface2)", fontWeight: 600, padding: "9px 32px 9px 12px" },
   miniLabel: { fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1.2, fontWeight: 700, marginBottom: 2 },
   topTitle: { fontFamily: "Inter,sans-serif", fontVariationSettings: "'opsz' 32", fontWeight: 800, fontSize: 21, letterSpacing: "-.03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   topSub: { display: "flex", alignItems: "center", gap: 10, color: "var(--muted)", fontSize: 12.5, marginTop: 4, flexWrap: "wrap" },
   barTag: { display: "inline-flex", alignItems: "center", gap: 5, color: "var(--accent)", background: "rgba(255,90,60,.1)", borderRadius: 20, padding: "3px 9px 3px 7px", fontWeight: 700, fontSize: 12 },
-  topBtn: { display: "inline-flex", alignItems: "center", gap: 8, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 11, padding: "10px 16px", fontWeight: 700, fontSize: 14 },
+  topBtn: { display: "inline-flex", alignItems: "center", gap: 8, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "0 16px", minHeight: 44, boxSizing: "border-box", fontWeight: 600, fontSize: 14 },
   bTabIco: { display: "grid", placeItems: "center", width: 46, height: 28, borderRadius: 14, transition: "background .15s" },
   bTabIcoActive: { background: "rgba(255,90,60,.14)", color: "var(--accent)" },
   gateIco: { width: 52, height: 52, borderRadius: 16, display: "grid", placeItems: "center", background: "var(--bg)", border: "1px solid var(--line)", color: "var(--text)" },
@@ -3993,7 +3922,7 @@ const S = {
   sideMobile: { width: "100%", boxSizing: "border-box", background: "var(--surface)", borderBottom: "1px solid var(--line)", padding: 12, display: "flex", flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   mTop: { display: "flex", alignItems: "center", gap: 11, padding: "calc(10px + env(safe-area-inset-top)) 12px 10px 14px", borderBottom: "1px solid var(--line)", background: "rgba(20,22,29,.92)", backdropFilter: "saturate(1.4) blur(12px)", WebkitBackdropFilter: "saturate(1.4) blur(12px)", position: "sticky", top: 0, zIndex: 20 },
   mTitle: { flex: 1, minWidth: 0 },
-  iconBtn: { width: 42, height: 42, flexShrink: 0, borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 18, display: "grid", placeItems: "center", padding: 0 },
+  iconBtn: { width: 44, height: 44, flexShrink: 0, borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)", color: "var(--text)", fontSize: 18, display: "grid", placeItems: "center", padding: 0 },
   bottomNav: { display: "flex", borderTop: "1px solid var(--line)", background: "var(--surface)", paddingBottom: "env(safe-area-inset-bottom)", flexShrink: 0 },
   bTab: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "8px 2px 8px", background: "transparent", border: "none", color: "var(--muted)", fontSize: 12, fontWeight: 700 },
   bTabActive: { color: "var(--accent)", fontWeight: 800 },
@@ -4003,8 +3932,8 @@ const S = {
   logo: { fontFamily: "Inter,sans-serif", fontVariationSettings: "'opsz' 32", fontWeight: 700, fontSize: 20, letterSpacing: "-.02em" },
   logoImg: { height: 26, width: "auto", display: "block" },
   display: { fontFamily: "Inter,sans-serif", fontVariationSettings: "'opsz' 32", fontWeight: 700, fontSize: 22, letterSpacing: "-.03em" },
-  select: { width: "100%", background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", fontWeight: 600, outline: "none" },
-  navBtn: { display: "flex", alignItems: "center", gap: 12, background: "transparent", color: "#c9cdd8", border: "none", padding: "11px 12px", borderRadius: 11, fontWeight: 650, fontSize: 14.5, textAlign: "left", width: "100%" },
+  select: { width: "100%", background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 32px 10px 12px", fontWeight: 600, outline: "none", minHeight: 44, boxSizing: "border-box", fontSize: 16, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  navBtn: { display: "flex", alignItems: "center", gap: 12, background: "transparent", color: "#c9cdd8", border: "none", padding: "0 12px", minHeight: 44, boxSizing: "border-box", borderRadius: 10, fontWeight: 500, fontSize: 15, textAlign: "left", width: "100%" },
   navActive: { background: "rgba(255,90,60,.1)", color: "#fff", boxShadow: "inset 3px 0 0 var(--accent)", fontWeight: 750 },
   main: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" },
   top: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, padding: "calc(16px + env(safe-area-inset-top)) 24px 16px", borderBottom: "1px solid var(--line)", background: "var(--surface)" },
@@ -4018,28 +3947,28 @@ const S = {
   qtyActive: { background: "var(--accent)", color: "#fff", borderColor: "var(--accent)" },
   voidBtn: { background: "transparent", color: "var(--amber)", border: "1px solid var(--amber)", borderRadius: 12, padding: "10px 16px", fontWeight: 700 },
   groupBtn: { background: "var(--accent)", color: "#fff", border: "none", borderRadius: 12, padding: "10px 18px", fontWeight: 800 },
-  cart: { width: 320, flexShrink: 0, background: "var(--surface)", border: "1px solid var(--accent)", borderRadius: 16, padding: 16, display: "flex", flexDirection: "column", maxHeight: "calc(100vh - 220px)", position: "sticky", top: 0 },
+  cart: { width: 320, flexShrink: 0, background: "var(--surface)", border: "1px solid var(--accent)", borderRadius: 16, padding: 16, display: "flex", flexDirection: "column", maxHeight: "calc(100dvh - 220px)", position: "sticky", top: 0 },
   cartRow: { display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--line)" },
   stepBtn: { width: 30, height: 30, borderRadius: 8, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", fontSize: 18, fontWeight: 800, lineHeight: 1 },
   consultBtn: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 12, padding: "12px 18px", fontWeight: 700 },
-  printerStatusSm: { display: "flex", alignItems: "center", gap: 7, background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 20, padding: "8px 12px", color: "var(--text)", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" },
+  printerStatusSm: { display: "flex", alignItems: "center", gap: 7, background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 20, padding: "0 14px", minHeight: 44, boxSizing: "border-box", color: "var(--text)", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" },
   roleBadge: { fontSize: 12, fontWeight: 800, letterSpacing: .6, textTransform: "uppercase", borderRadius: 20, padding: "4px 9px" },
   cashierTop: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(14px + env(safe-area-inset-top)) 24px 14px", borderBottom: "1px solid var(--line)", background: "var(--surface)", flexWrap: "wrap", gap: 12 },
   gateWrap: { minHeight: "100%", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", padding: "calc(18px + env(safe-area-inset-top)) 18px calc(18px + env(safe-area-inset-bottom))", overflow: "auto", background: "radial-gradient(900px 480px at 50% -12%, rgba(255,90,60,.10), transparent 70%), var(--bg)" },
   gateCard: { width: 440, maxWidth: "100%", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 22, padding: 28, boxShadow: "0 30px 80px rgba(0,0,0,.55)" },
   gateRole: { display: "flex", flexDirection: "column", alignItems: "center", gap: 5, padding: "20px 8px 18px", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 16, color: "var(--text)", transition: "border-color .15s, transform .08s" },
   liveDot: { width: 8, height: 8, borderRadius: "50%", background: "var(--green)", display: "inline-block" },
-  h3: { fontSize: 14, textTransform: "uppercase", letterSpacing: 1, color: "var(--muted)", marginBottom: 12, fontWeight: 800 },
+  h3: { fontSize: 14, textTransform: "uppercase", letterSpacing: 1, color: "var(--accent)", marginBottom: 12, fontWeight: 700 },
   panel: { background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 18 },
   tplCard: { textAlign: "left", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: 14, color: "var(--text)" },
   tplActive: { borderColor: "var(--accent)", boxShadow: "0 0 0 2px var(--accent) inset" },
-  chip: { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 30, padding: "10px 22px", fontWeight: 700 },
+  chip: { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 30, padding: "0 22px", minHeight: 44, boxSizing: "border-box", fontWeight: 600 },
   chipActive: { background: "var(--accent)", color: "#fff", borderColor: "var(--accent)" },
   toggleRow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line)" },
   switch: { width: 44, height: 26, borderRadius: 20, border: "none", position: "relative", padding: 0 },
   knob: { position: "absolute", top: 2, left: 0, width: 22, height: 22, borderRadius: "50%", background: "#fff", transition: "transform .2s", boxShadow: "0 1px 3px rgba(0,0,0,.4)" },
-  input: { width: "100%", background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "11px 13px", fontSize: 15, outline: "none" },
-  btnPrimary: { background: "var(--accent)", color: "#fff", border: "none", borderRadius: 12, padding: "12px 20px", fontWeight: 800, fontSize: 15, width: "100%" },
+  input: { width: "100%", background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "11px 13px", minHeight: 44, boxSizing: "border-box", fontSize: 16, outline: "none" },
+  btnPrimary: { background: "var(--accent)", color: "#fff", border: "none", borderRadius: 12, padding: "12px 20px", minHeight: 48, fontWeight: 700, fontSize: 15, width: "100%" },
   btnGhost: { background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 12, padding: "12px 20px", fontWeight: 700 },
   smallBtn: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 44, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 10px", fontSize: 12, fontWeight: 700 },
   paperWrap: { background: "#e9e9e9", padding: 20, borderRadius: 14, display: "flex", justifyContent: "center", boxShadow: "inset 0 0 30px rgba(0,0,0,.2)" },
@@ -4066,7 +3995,7 @@ const S = {
   arrangeBar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12, padding: "10px 10px 10px 14px", borderRadius: 14, background: "rgba(255,90,60,.12)", border: "1px solid rgba(255,90,60,.45)", color: "var(--accent)", fontSize: 13.5 },
   doneBtn: { background: "var(--accent)", color: "#fff", border: "none", borderRadius: 11, padding: "10px 18px", fontWeight: 800, fontSize: 14, flexShrink: 0 },
   pinAviso: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 12px", marginBottom: 14, borderRadius: 12, background: "var(--amber)", color: "#1a1205", fontSize: 13.5 },
-  actBtn: { display: "inline-flex", alignItems: "center", gap: 7, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 12, padding: "10px 14px", fontWeight: 800, fontSize: 14, whiteSpace: "nowrap" },
+  actBtn: { display: "inline-flex", alignItems: "center", gap: 7, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 10, padding: "0 14px", minHeight: 44, boxSizing: "border-box", fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" },
   actOn: { background: "#a855f7", color: "#fff", borderColor: "#e9d5ff" },
   actBadge: { background: "var(--line)", color: "var(--text)", borderRadius: 20, padding: "1px 8px", fontSize: 12, fontWeight: 900 },
   actBar: { position: "sticky", bottom: -12, zIndex: 15, display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 4, margin: "14px -12px -12px", padding: "6px 8px calc(6px + env(safe-area-inset-bottom))", background: "rgba(20,22,29,.96)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderTop: "1px solid var(--line)" },
@@ -4074,7 +4003,7 @@ const S = {
   actBarDot: { position: "absolute", top: 6, right: "calc(50% - 18px)", width: 8, height: 8, borderRadius: "50%", background: "var(--amber)" },
   modoRow: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 12px", marginBottom: 14, borderRadius: 14, background: "var(--surface)", border: "1px solid var(--line)" },
   miniSeg: { display: "inline-flex", gap: 3, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 11, padding: 3 },
-  miniSegBtn: { display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: "var(--muted)", borderRadius: 8, padding: "7px 11px", fontWeight: 700, fontSize: 12.5 },
+  miniSegBtn: { display: "inline-flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: "var(--muted)", borderRadius: 8, padding: "0 12px", minHeight: 44, boxSizing: "border-box", fontWeight: 600, fontSize: 13 },
   miniSegOn: { background: "var(--surface2)", color: "var(--text)", boxShadow: "inset 0 0 0 1px var(--line)" },
   tileGrip: { position: "absolute", top: 8, left: 8, width: 28, height: 28, borderRadius: 8, background: "rgba(0,0,0,.35)", display: "grid", placeItems: "center", color: "#fff" },
   segWrap: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 12, padding: 4 },

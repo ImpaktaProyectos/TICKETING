@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { cargarInformeQR, duplicadosSinConexion } from "./qrdb";
+import { Icono as IcoUI, enTexto as ikUI } from "../iconos";
 
 /* ============================================================================
    INFORME DE TICKETS CON QR
@@ -68,7 +69,7 @@ export default function InformeQR({ ev, evSales }) {
   return (
     <div style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, marginBottom: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-        <div style={{ fontWeight: 800, flex: 1 }}>🔐 Tickets con QR</div>
+        <div style={{ fontWeight: 800, flex: 1 }}><IcoUI n="candado" s={16} style={ikUI} />Tickets con QR</div>
         <button onClick={cargar} style={{ background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 8, padding: "6px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>↻ Actualizar</button>
       </div>
       <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>Lo vendido con QR frente a lo que ya se ha servido en barra. Cada ticket solo se canjea una vez.</div>
@@ -97,7 +98,7 @@ export default function InformeQR({ ev, evSales }) {
                 const v = vend[p.id] || 0, c = r.porVenta[p.id] || 0;
                 return (
                   <tr key={p.id} style={{ borderTop: "1px solid var(--line)", textAlign: "right" }}>
-                    <td style={{ textAlign: "left", padding: "8px 4px", fontWeight: 700, whiteSpace: "nowrap" }}>📍 {p.name}</td>
+                    <td style={{ textAlign: "left", padding: "8px 4px", fontWeight: 700, whiteSpace: "nowrap" }}><IcoUI n="ubicacion" s={16} style={ikUI} />{p.name}</td>
                     <td style={{ padding: "8px 4px" }}>{v}</td>
                     <td style={{ padding: "8px 4px", color: "var(--green)", fontWeight: 700 }}>{c}</td>
                     <td style={{ padding: "8px 4px", color: v - c > 0 ? "var(--amber)" : "var(--muted)" }}>{Math.max(0, v - c)}</td>
@@ -122,7 +123,7 @@ export default function InformeQR({ ev, evSales }) {
               </span>
             ))}
           </div>
-          {(r.dupOff > 0 || dupLocal > 0) && <div style={{ fontSize: 12.5, color: "var(--amber)", marginBottom: 8 }}>⚠️ {(() => { const n = Math.max(r.dupOff, dupLocal); return n === 1 ? "1 copia se sirvió" : `${n} copias se sirvieron`; })()} mientras un móvil estaba sin conexión (se detectó al volver la red).</div>}
+          {(r.dupOff > 0 || dupLocal > 0) && <div style={{ fontSize: 12.5, color: "var(--amber)", marginBottom: 8 }}><IcoUI n="aviso" s={16} style={ikUI} />{(() => { const n = Math.max(r.dupOff, dupLocal); return n === 1 ? "1 copia se sirvió" : `${n} copias se sirvieron`; })()} mientras un móvil estaba sin conexión (se detectó al volver la red).</div>}
           {(verTodo ? datos.rechazos : datos.rechazos.slice(0, 8)).map((x, i) => (
             <div key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "7px 0", borderTop: "1px solid var(--line)", fontSize: 12.5 }}>
               <span style={{ color: (MOTIVOS[x.motivo] || {}).c || "var(--muted)", fontWeight: 800, minWidth: 0, flex: 1 }}>{(MOTIVOS[x.motivo] || { t: x.motivo }).t}{x.detalle?.nombre ? ` · ${x.detalle.nombre}` : ""}{x.sin_conexion ? " · sin conexión" : ""}</span>

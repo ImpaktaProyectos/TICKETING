@@ -11,6 +11,7 @@ import * as db from "./db";
 import { copiaDeEvento, ordenarEventos, estadoFecha } from "./eventos";
 import { useAcceso, bloqueada, avisoNuevoEvento } from "./cuenta";
 import { MODALIDADES, esMultipuesto } from "./multipuesto/modelo";
+import { Icono as IcoUI, enTexto as ikUI } from "./iconos";
 
 const aIso = (v) => { if (!v) return ""; const d = new Date(v); return isNaN(d) ? "" : d.toISOString(); };
 const fecha = (d) => { try { return new Date(d + "T12:00").toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" }); } catch { return d; } };
@@ -65,7 +66,7 @@ export function NuevoEvento({ events, ev, flash, onCreado, onCerrar }) {
     <div style={K.wrap} onClick={() => !busy && onCerrar()}>
       <div role="dialog" aria-modal="true" aria-label="Nuevo evento" style={K.card} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ flex: 1, fontWeight: 900, fontSize: 20 }}>➕ Nuevo evento</div>
+          <div style={{ flex: 1, fontWeight: 900, fontSize: 20 }}><IcoUI n="mas" s={16} style={ikUI} />Nuevo evento</div>
           <button onClick={onCerrar} disabled={busy} aria-label="Cerrar" style={{ width: 42, height: 42, borderRadius: 12, border: "1px solid var(--line)", background: "var(--surface2)", color: "var(--text)", fontSize: 18, cursor: "pointer" }}>✕</button>
         </div>
         <label style={K.label} htmlFor="ne-nombre">Nombre</label>
@@ -97,8 +98,8 @@ export function NuevoEvento({ events, ev, flash, onCreado, onCerrar }) {
           {!sinOnline && <label style={K.check(x.online)}><input type="checkbox" checked={x.online} onChange={e => set("online", e.target.checked)} style={{ marginTop: 3 }} /><span><b>Tarifas de entradas online</b><span style={{ display: "block", fontSize: 12.5, color: "var(--muted)" }}>Ficha y tramos de precio, en borrador (si el evento tenía venta online)</span></span></label>}
           <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 4 }}>No se copian ventas, cierres, ingresos ni gastos: cada fiesta empieza con sus cuentas a cero.</div>
         </div>}
-        {avisoLimite && <div style={{ marginTop: 14, padding: "11px 12px", borderRadius: 12, border: "1px solid var(--amber)", color: "var(--amber)", fontSize: 13.5, fontWeight: 700 }}>🔒 {avisoLimite}</div>}
-        <button onClick={crear} disabled={!listo || busy || !!avisoLimite} style={{ ...K.btn, width: "100%", marginTop: 16, background: "var(--accent)", color: "#fff", opacity: listo && !busy && !avisoLimite ? 1 : .45 }}>{avisoLimite ? "🔒 Límite del plan alcanzado" : busy ? "Creando…" : listo ? `Crear ${x.nombre.trim().toUpperCase().slice(0, 30)}` : "Pon el nombre y cuándo empieza"}</button>
+        {avisoLimite && <div style={{ marginTop: 14, padding: "11px 12px", borderRadius: 12, border: "1px solid var(--amber)", color: "var(--amber)", fontSize: 13.5, fontWeight: 700 }}><IcoUI n="candado" s={16} style={ikUI} />{avisoLimite}</div>}
+        <button onClick={crear} disabled={!listo || busy || !!avisoLimite} style={{ ...K.btn, width: "100%", marginTop: 16, background: "var(--accent)", color: "#fff", opacity: listo && !busy && !avisoLimite ? 1 : .45 }}>{avisoLimite ? "Límite del plan alcanzado" : busy ? "Creando…" : listo ? `Crear ${x.nombre.trim().toUpperCase().slice(0, 30)}` : "Pon el nombre y cuándo empieza"}</button>
       </div>
     </div>
   </Capa>);

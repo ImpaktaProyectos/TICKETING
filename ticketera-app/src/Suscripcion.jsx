@@ -5,6 +5,7 @@
 // La ticketera (venta de entradas online) es siempre gratuita.
 import React, { useEffect, useState } from "react";
 import { cargarCuenta, cargarOfertas, irAStripe, resumenPlan } from "./cuenta";
+import { Icono as IcoUI, enTexto as ikUI } from "./iconos";
 
 const euros = (v) => Number(v).toLocaleString("es-ES", { style: "currency", currency: "EUR", minimumFractionDigits: Number.isInteger(Number(v)) ? 0 : 2 });
 const fechaLarga = (d) => d.toLocaleDateString("es-ES", { day: "numeric", month: "long" });
@@ -81,7 +82,7 @@ export function Suscripcion({ flash, onTicketera, compacto = false, oferta = nul
       <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 8, textAlign: "center" }}>Pago seguro con Stripe. Puedes cancelar en cualquier momento desde Ajustes › Tu cuenta.</div>
       {onTicketera && <div style={{ borderTop: "1px solid var(--line)", marginTop: 14, paddingTop: 12 }}>
         <div style={{ fontSize: 13.5, color: "var(--muted)", lineHeight: 1.45 }}>La <b style={{ color: "var(--text)" }}>venta de entradas online</b> es siempre gratuita, sin suscripción.</div>
-        <button onClick={onTicketera} style={{ width: "100%", minHeight: 48, marginTop: 8, borderRadius: 14, border: "1px solid var(--line)", background: "var(--surface2)", color: "var(--text)", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>🎟️ Ir a la ticketera (gratis)</button>
+        <button onClick={onTicketera} style={{ width: "100%", minHeight: 48, marginTop: 8, borderRadius: 14, border: "1px solid var(--line)", background: "var(--surface2)", color: "var(--text)", fontWeight: 800, fontSize: 15, cursor: "pointer" }}><IcoUI n="ticket" s={16} style={ikUI} />Ir a la ticketera (gratis)</button>
       </div>}
     </section>
   );

@@ -3,6 +3,7 @@ import { useSonido, useCamaraQR } from "./lector";
 import { leerToken, verificarToken } from "./token";
 import * as Q from "./qrdb";
 import { scopedKey } from "../db";
+import { Icono as IcoUI, enTexto as ikUI } from "../iconos";
 
 /* ============================================================================
    VALIDADOR DE TICKETS CON QR (un móvil por barra)
@@ -221,7 +222,7 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
         <video ref={video} muted playsInline style={V.video} />
         {!empezado && (
           <div style={V.centro}>
-            <div style={{ fontSize: 46, marginBottom: 10 }}>📷</div>
+            <div style={{ fontSize: 46, marginBottom: 10 }}><IcoUI n="camara" s={34} w={1.6} /></div>
             <div style={{ fontWeight: 800, fontSize: 20, marginBottom: 6 }}>Escanea el QR de cada ticket</div>
             <div style={{ fontSize: 14, color: "rgba(255,255,255,.7)", maxWidth: 320, margin: "0 auto 20px", lineHeight: 1.4 }}>Verde: sirve. Rojo: no sirvas (copia, anulado o falso). Cada ticket vale una sola vez, en cualquier barra, hasta que termina el evento.</div>
             <button onClick={arrancar} style={V.btnGrande}>Empezar a validar</button>
@@ -229,7 +230,7 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
         )}
         {empezado && camErr && (
           <div style={V.centro}>
-            <div style={{ fontSize: 42, marginBottom: 8 }}>🚫</div>
+            <div style={{ fontSize: 42, marginBottom: 8 }}><IcoUI n="prohibido" s={31} w={1.6} /></div>
             <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 6 }}>{camErr === "permiso" ? "Falta el permiso de la cámara" : camErr === "nocam" ? "No se encuentra la cámara" : camErr === "nosoporta" ? "Este navegador no deja usar la cámara" : "No se pudo abrir la cámara"}</div>
             <div style={{ fontSize: 13.5, color: "rgba(255,255,255,.72)", maxWidth: 340, margin: "0 auto 18px", lineHeight: 1.45 }}>
               {camErr === "permiso" ? "Toca el candado de la barra de direcciones y permite la cámara para esta web. En iPhone: Ajustes › Safari › Cámara › Permitir." : "Ábrelo en Chrome (Android) o Safari (iPhone). Mientras tanto puedes validar escribiendo el folio."}
@@ -283,12 +284,12 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
       <div style={V.pie}>
         <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
           <button onClick={() => { snd.activar(); setFolioAbierto(true); }} style={V.btn}>⌨️ Escribir folio</button>
-          {linterna !== null && <button onClick={toggleLinterna} style={{ ...V.btn, ...(linterna ? { background: "#ffd54a", color: "#1a1300", borderColor: "#ffd54a" } : {}) }}>🔦 Linterna</button>}
+          {linterna !== null && <button onClick={toggleLinterna} style={{ ...V.btn, ...(linterna ? { background: "#ffd54a", color: "#1a1300", borderColor: "#ffd54a" } : {}) }}><IcoUI n="linterna" s={16} style={ikUI} />Linterna</button>}
         </div>
         <div style={{ display: "flex", gap: 8, fontSize: 12.5, color: "rgba(255,255,255,.7)", marginBottom: 6 }}>
-          <span>✅ <b style={{ color: "#fff" }}>{okHoy}</b> servidos aquí</span>
+          <span><IcoUI n="ok" s={16} style={ikUI} /><b style={{ color: "#fff" }}>{okHoy}</b> servidos aquí</span>
           <span>·</span>
-          <span>⛔ <b style={{ color: "#fff" }}>{malHoy}</b> rechazados</span>
+          <span><IcoUI n="prohibido" s={16} style={ikUI} /><b style={{ color: "#fff" }}>{malHoy}</b> rechazados</span>
           {motor && <span style={{ marginLeft: "auto", opacity: .6 }}>lector {motor}</span>}
         </div>
         <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>

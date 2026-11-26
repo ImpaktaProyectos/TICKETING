@@ -5,6 +5,7 @@
 // aquí solo se apunta a qué reservado va cada una.
 import { secretoDe, comprobar as comprobarPin, leerBloqueo, acierto, fallo } from "./pin";
 import { Capa } from "./Capa";
+import { IconoProducto, SelectorIcono } from "./iconosProducto";
 import { Icono, enTexto as IK } from "./iconos";
 import { enlacePedirBebidas, waNumero } from "./mensajesReservados";
 import React, { useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
@@ -154,7 +155,7 @@ export function calcPedido(r, cfg) {
 export function itemPedido(r, cfg) {
   const c = calcPedido(r, cfg);
   if (!c.hay || c.total == null) return null;
-  return { id: c.tarifa?.id || "pedido", tipo: "tarifa", pedido: true, nombre: c.nombreVenta, precio: c.total, botellas: c.n, incluye: c.desc || c.tarifa?.incluye || "", emoji: c.tarifa?.emoji || "🛋️", color: c.tarifa?.color };
+  return { id: c.tarifa?.id || "pedido", tipo: "tarifa", pedido: true, nombre: c.nombreVenta, precio: c.total, botellas: c.n, incluye: c.desc || c.tarifa?.incluye || "", emoji: c.tarifa?.emoji || "i:reservado", color: c.tarifa?.color };
 }
 export const BEBIDAS = ["Absolut", "Smirnoff", "Grey Goose", "Beefeater", "Puerto de Indias", "Bombay Sapphire", "Tanqueray", "Hendrick's", "Seagram's", "Barceló", "Brugal", "Bacardí", "Havana Club", "Ballantine's", "J&B", "Johnnie Walker", "Jack Daniel's", "Jägermeister", "Moët", "Champán"];
 export const MEZCLAS = ["Coca-Cola", "Coca-Cola Zero", "Fanta Naranja", "Fanta Limón", "Sprite", "Seven Up", "Tónica", "Red Bull", "Zumo de piña", "Zumo de naranja", "Agua con gas", "Sin mezcla"];
@@ -236,8 +237,8 @@ export function LineaReservados({ ev, punto, res, testMode, isMobile, onElegir, 
             return (
               <button key={it.id} onClick={() => onElegir(it)} className="tile" style={{ position: "relative", minHeight: 140, border: "none", borderRadius: 18, padding: "32px 10px 14px", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, cursor: "pointer", background: `linear-gradient(160deg, ${c}, ${c}cc)`, boxShadow: `0 8px 22px ${c}33` }}>
                 <span style={{ position: "absolute", top: 9, left: 9, background: "rgba(0,0,0,.24)", borderRadius: 8, padding: "2px 8px", fontWeight: 900, fontSize: 11.5 }}>{it.tipo === "tarifa" ? "RESERVADO" : `${it.botellas || 0} bot.`}</span>
-                {testMode && <span style={{ position: "absolute", top: 9, right: 9, background: "#ffb400", color: "#1a1205", borderRadius: 6, padding: "1px 6px", fontWeight: 900, fontSize: 10.5 }}>PRUEBA</span>}
-                <span style={{ fontSize: 30, lineHeight: 1 }}>{it.emoji || (it.tipo === "tarifa" ? "🛋️" : "🍾")}</span>
+                {testMode && <span style={{ position: "absolute", top: 9, right: 9, background: "#ffb400", color: "#1a1205", borderRadius: 6, padding: "1px 6px", fontWeight: 900, fontSize: 11.5 }}>PRUEBA</span>}
+                <IconoProducto v={it.emoji || (it.tipo === "tarifa" ? "i:reservado" : "i:botella")} s={30} />
                 <span style={{ fontSize: 16.5, fontWeight: 900, lineHeight: 1.1, textAlign: "center", textShadow: "0 1px 2px rgba(0,0,0,.25)" }}>{it.nombre}</span>
                 <span style={{ fontSize: 19, fontWeight: 900, textShadow: "0 1px 2px rgba(0,0,0,.25)" }}>{money(it.precio)}</span>
               </button>
@@ -577,7 +578,7 @@ function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puede
           {reservados.map(z => { const libre = z.estado === "libre" || z.id === r.id; const on = z.id === destino; const e = ESTADOS[z.id === r.id ? "libre" : z.estado] || ESTADOS.libre; const puede = libre && (mover || z.id === r.id); return (
             <button key={z.id} disabled={!puede} onClick={() => setDestino(z.id)} aria-pressed={on} style={{ flexShrink: 0, minWidth: 64, textAlign: "center", borderRadius: 12, padding: "8px 10px", cursor: puede ? "pointer" : "default", border: `2px solid ${on ? "var(--accent)" : "var(--line)"}`, background: on ? "rgba(255,90,60,.14)" : "transparent", color: "var(--text)", opacity: puede ? 1 : .35 }}>
               <div style={{ fontWeight: 900, fontSize: 17 }}>{z.nombre}</div>
-              <div style={{ fontSize: 10.5, fontWeight: 800, color: on ? "var(--accent)" : z.id === r.id || z.estado === "libre" ? e.c : (ESTADOS[z.estado] || e).c }}>{z.id === r.id && !nueva ? "Actual" : z.estado === "libre" ? (z.tamano === "grande" ? "Libre · G" : "Libre") : (ESTADOS[z.estado] || e).t}</div>
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: on ? "var(--accent)" : z.id === r.id || z.estado === "libre" ? e.c : (ESTADOS[z.estado] || e).c }}>{z.id === r.id && !nueva ? "Actual" : z.estado === "libre" ? (z.tamano === "grande" ? "Libre · G" : "Libre") : (ESTADOS[z.estado] || e).t}</div>
             </button>); })}
         </div>
         {conVentas && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Ya tiene ventas esta noche: no se puede mover a otro reservado.</div>}
@@ -596,7 +597,7 @@ function FichaReservado({ ev, cfg, r, reservados, conVentas, stats, nueva, puede
       <div style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 14, padding: 12, marginBottom: 12 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
           <div style={{ fontWeight: 800 }}><Icono n="botella" s={15} style={IK} />Botellas <span style={{ color: "var(--muted)", fontWeight: 700 }}>· {x.pedido.botellas.length}</span></div>
-          <select value={x.tarifaId || ""} onChange={e => set("tarifaId", e.target.value)} aria-label="Tarifa" style={{ ...R.input, width: "auto", maxWidth: "58%", padding: "8px 10px", fontSize: 14 }}>
+          <select value={x.tarifaId || ""} onChange={e => set("tarifaId", e.target.value)} aria-label="Tarifa" style={{ ...R.input, width: "auto", maxWidth: "58%", padding: "8px 10px", fontSize: 16 }}>
             <option value="">Sin tarifa</option>
             {cfg.tarifas.map(z => <option key={z.id} value={z.id}>{z.nombre} · {money(z.precio)}{z.botellas ? ` · ${z.botellas} bot.` : ""}</option>)}
           </select>
@@ -705,7 +706,7 @@ function ConfigReservados({ ev, cfg, res, isMobile, flash, onGuardarCfg }) {
       </div>
       {k === "tarifas" && <Field label="Qué incluye" style={{ marginBottom: 6 }}><input value={t.incluye || ""} maxLength={140} onChange={e => upd(k, t.id, { incluye: e.target.value })} placeholder="2 botellas + refrescos + hielo" style={R.input} /></Field>}
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
-        <input value={t.emoji || ""} maxLength={4} onChange={e => upd(k, t.id, { emoji: e.target.value })} aria-label="Icono" style={{ ...R.input, width: 56, textAlign: "center", fontSize: 20, padding: "6px" }} />
+        <SelectorIcono value={t.emoji || (k === "tarifas" ? "i:reservado" : "i:botella")} color={t.color} onChange={v => upd(k, t.id, { emoji: v })} size={44} />
         <div style={{ display: "flex", gap: 4 }}>{COLORES.map(c => <button key={c} onClick={() => upd(k, t.id, { color: c })} aria-label={"Color " + c} style={{ width: 24, height: 24, borderRadius: 24, background: c, border: (t.color || "") === c ? "3px solid #fff" : "2px solid transparent", cursor: "pointer" }} />)}</div>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 8, marginLeft: "auto", fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>
           <input type="checkbox" checked={t.mostrar !== false} onChange={e => upd(k, t.id, { mostrar: e.target.checked })} style={{ width: 18, height: 18 }} />Mostrar en el TPV
@@ -746,13 +747,13 @@ function ConfigReservados({ ev, cfg, res, isMobile, flash, onGuardarCfg }) {
       {bloque("3 · Tarifas de reservado", "El precio de cada reservado (grande o pequeño, con una o dos botellas…). Al cobrar en taquilla se descuenta la señal.",
         <>
           {d.tarifas.map(t => filaTarifa(t, "tarifas"))}
-          <button onClick={() => set("tarifas", [...d.tarifas, { id: uid(), nombre: "", tamano: "grande", botellas: 2, precio: "", incluye: "", mostrar: true, emoji: "🛋️", color: "#a855f7" }])} style={R.ghost}>+ Añadir tarifa</button>
+          <button onClick={() => set("tarifas", [...d.tarifas, { id: uid(), nombre: "", tamano: "grande", botellas: 2, precio: "", incluye: "", mostrar: true, emoji: "i:reservado", color: "#a855f7" }])} style={R.ghost}>+ Añadir tarifa</button>
         </>)}
 
       {bloque("4 · Extras para reservados", "Lo que piden durante la noche: botella extra, botella premium, bengalas… Cada uno cuenta las botellas que digas.",
         <>
           {d.extras.map(t => filaTarifa(t, "extras"))}
-          <button onClick={() => set("extras", [...d.extras, { id: uid(), nombre: "", botellas: 1, precio: "", mostrar: true, emoji: "🍾", color: "#ffb400" }])} style={R.ghost}>+ Añadir extra</button>
+          <button onClick={() => set("extras", [...d.extras, { id: uid(), nombre: "", botellas: 1, precio: "", mostrar: true, emoji: "i:botella", color: "#ffb400" }])} style={R.ghost}>+ Añadir extra</button>
         </>)}
 
       {bloque("5 · Promotores", "Quienes cobran las señales antes del evento. Se eligen en la ficha de cada reservado.",
@@ -851,7 +852,7 @@ export function VentaSocio({ ev, res, sales, fijo, defCaja, onVender, onClose })
       {paso(2, "Qué se vende")}
       {lista.length === 0 ? <div style={{ color: "var(--muted)", fontSize: 13 }}>No hay tarifas ni extras configurados, ni reserva apuntada en este reservado.</div> :
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {lista.map(it => <button key={it.id} onClick={() => { setItemId(it.id); setErr(""); }} style={chip(itemId === it.id)}>{it.id === "__reserva" ? `⭐ Su reserva · ${it.nombre}` : `${it.emoji || (it.tipo === "tarifa" ? "🛋️" : "🍾")} ${it.nombre}`} · {money(it.precio)}</button>)}
+          {lista.map(it => <button key={it.id} onClick={() => { setItemId(it.id); setErr(""); }} style={chip(itemId === it.id)}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><IconoProducto v={it.id === "__reserva" ? "i:estrella" : (it.emoji || (it.tipo === "tarifa" ? "i:reservado" : "i:botella"))} s={16} />{it.id === "__reserva" ? `Su reserva · ${it.nombre}` : it.nombre} · {money(it.precio)}</span></button>)}
         </div>}
       {cobro && cobro.senal > 0 && <div style={{ fontSize: 13, marginTop: 8, color: "var(--green)", fontWeight: 700 }}>Se descuenta la señal: {money(cobro.total)} − {money(cobro.senal)} = {money(cobro.aCobrar)}</div>}
       {cobro?.yaCobrada && <div style={{ fontSize: 13, marginTop: 8, color: "var(--amber)", fontWeight: 700 }}><Icono n="aviso" s={14} style={IK} />Este reservado ya tiene una tarifa cobrada.</div>}

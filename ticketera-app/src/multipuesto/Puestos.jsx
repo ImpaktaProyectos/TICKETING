@@ -11,6 +11,7 @@ import QrCodigo from "../qr/QrCodigo";
 import { useAcceso, puede, hoyLocal } from "../cuenta";
 import { Escaparate } from "../Escaparate";
 import { consumicionesDelEvento, textoComision, validarPuesto } from "./modelo";
+import { Icono as IcoUI, enTexto as ikUI } from "../iconos";
 
 const COLORES = ["#ff5a3c", "#a855f7", "#3b82f6", "#22d3a6", "#ffb400", "#ec4899", "#14b8a6", "#f97316"];
 const K = {
@@ -75,8 +76,8 @@ export function Puestos({ ev, flash }) {
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
             <button disabled={busy} onClick={() => setEditar(p)} style={{ ...K.btn, flex: "1 1 100px", borderColor: "var(--accent)", color: "var(--accent)" }}>Editar</button>
-            {p.activo && <button disabled={busy} onClick={() => vincular(p, 15)} style={{ ...K.btn, flex: "1 1 160px", minHeight: 50, borderColor: "var(--green)", color: "var(--green)" }}>📲 Activar móvil con QR</button>}
-            {p.activo && <button disabled={busy} onClick={() => vincular(p, 1440)} style={{ ...K.btn, flex: "1 1 160px", minHeight: 50 }}>✉️ Enviar enlace de activación</button>}
+            {p.activo && <button disabled={busy} onClick={() => vincular(p, 15)} style={{ ...K.btn, flex: "1 1 160px", minHeight: 50, borderColor: "var(--green)", color: "var(--green)" }}><IcoUI n="movil" s={16} style={ikUI} />Activar móvil con QR</button>}
+            {p.activo && <button disabled={busy} onClick={() => vincular(p, 1440)} style={{ ...K.btn, flex: "1 1 160px", minHeight: 50 }}><IcoUI n="correo" s={16} style={ikUI} />Enviar enlace de activación</button>}
             {p.tiene_pin && <button disabled={busy} onClick={() => borrarPin(p)} style={{ ...K.btn, flex: "1 1 130px" }}>Borrar PIN</button>}
             {p.sesiones > 0 && <button disabled={busy} onClick={() => window.confirm(`¿Desvincular ${p.sesiones === 1 ? "el móvil" : `los ${p.sesiones} móviles`} de ${p.nombre}? Para volver a usarlos hará falta activarlos otra vez.`) && hacer(() => rpc("puesto_cerrar_sesiones", { p_puesto: p.id }), "✓ Móviles desvinculados")} style={{ ...K.btn, flex: "1 1 130px" }}>Desvincular móviles</button>}
           </div>

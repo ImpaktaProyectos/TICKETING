@@ -8,6 +8,7 @@ import { Capa } from "./Capa";
 import { supabase } from "./supabase";
 import { ESTADO_CUENTA, eurosTxt } from "./cuenta";
 import { Planes } from "./AdminPlanes";
+import { Icono as IcoUI, enTexto as ikUI } from "./iconos";
 
 const fecha = (iso, conHora) => iso ? new Date(iso).toLocaleString("es-ES", conHora ? { day: "numeric", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" } : { day: "numeric", month: "short", year: "numeric" }) : "—";
 const hace = (iso) => { if (!iso) return "nunca"; const d = Math.floor((Date.now() - new Date(iso)) / 86400000); return d <= 0 ? "hoy" : d === 1 ? "ayer" : `hace ${d} días`; };
@@ -120,7 +121,7 @@ function Cuentas({ avisar }) {
       <button key={c.owner_id} onClick={() => setFicha(c)} style={{ ...K.card, display: "flex", alignItems: "center", gap: 10, textAlign: "left", cursor: "pointer", color: "var(--text)", width: "100%" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.email}</div>
-          <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>Alta {fecha(c.alta)} · entró {hace(c.ultimo_acceso)} · {c.eventos} {c.eventos === 1 ? "evento" : "eventos"}{c.errores_7d ? ` · ⚠️ ${c.errores_7d} errores` : ""}</div>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>Alta {fecha(c.alta)} · entró {hace(c.ultimo_acceso)} · {c.eventos} {c.eventos === 1 ? "evento" : "eventos"}{c.errores_7d ? ` · ${c.errores_7d} errores` : ""}</div>
         </div>
         <div style={{ display: "grid", gap: 4, justifyItems: "end", flexShrink: 0 }}>
           <Badge e={estadoDe(c)} />
@@ -183,14 +184,14 @@ function Ficha({ c, avisar, onCerrar }) {
             {planes.length > 0 && <select value={planRegalo} onChange={e => setPlanRegalo(e.target.value)} style={K.input} aria-label="Plan que se regala">
               {planes.map(p => <option key={p.id} value={p.id}>{p.nombre}{p.precio_mes != null ? ` · ${eurosTxt(p.precio_mes)}/mes` : ""}</option>)}</select>}
             <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} style={K.input} aria-label="Regalada hasta" />
-            {accion(`🎁 Regalar ${planRegalo ? nombrePlan(planRegalo) : "suscripción"}`, hasta ? `Hasta el ${fecha(hasta + "T23:59")}` : "Sin fecha de fin", () => hacer(`¿Regalar ${planRegalo ? nombrePlan(planRegalo) : "la suscripción"} a ${c.email}${hasta ? ` hasta el ${fecha(hasta + "T23:59")}` : " sin fecha de fin"}?${c.suscripcion_pago_id && ["activa", "prueba", "impagada"].includes(c.estado) ? "\n\nOJO: tiene una suscripción de pago en Stripe. Cancélala también para que no se le cobre." : ""}`,
+            {accion(`Regalar ${planRegalo ? nombrePlan(planRegalo) : "suscripción"}`, hasta ? `Hasta el ${fecha(hasta + "T23:59")}` : "Sin fecha de fin", () => hacer(`¿Regalar ${planRegalo ? nombrePlan(planRegalo) : "la suscripción"} a ${c.email}${hasta ? ` hasta el ${fecha(hasta + "T23:59")}` : " sin fecha de fin"}?${c.suscripcion_pago_id && ["activa", "prueba", "impagada"].includes(c.estado) ? "\n\nOJO: tiene una suscripción de pago en Stripe. Cancélala también para que no se le cobre." : ""}`,
               () => rpc("admin_cuenta_cambiar", { p_owner: c.owner_id, p_accion: "cortesia", p_hasta: hasta ? new Date(hasta + "T23:59:59").toISOString() : null, p_plan: planRegalo || null }), "✓ Plan regalado"), "#c084fc")}
           </div>
-          {accion("⭐ Hacer Fundador", "Sin cuota ni bloqueos, para siempre", () => hacer(`¿Hacer Fundador a ${c.email}?`, () => rpc("admin_cuenta_cambiar", { p_owner: c.owner_id, p_accion: "fundador" }), "✓ Ahora es Fundador"))}
+          {accion("Hacer Fundador", "Sin cuota ni bloqueos, para siempre", () => hacer(`¿Hacer Fundador a ${c.email}?`, () => rpc("admin_cuenta_cambiar", { p_owner: c.owner_id, p_accion: "fundador" }), "✓ Ahora es Fundador"))}
           {c.suscripcion_pago_id && ["activa", "prueba", "impagada"].includes(c.estado) && !c.cancela_al_final && accion("Dar de baja al final del periodo", "Stripe deja de cobrar; sigue con acceso hasta el fin del mes pagado", () => hacer(`¿Dar de baja a ${c.email} al final de su periodo?`, () => servidor({ accion: "baja_stripe", cuenta: c.owner_id, cuando: "final" }), "✓ Baja programada en Stripe"), "var(--amber)")}
           {c.suscripcion_pago_id && ["activa", "prueba", "impagada"].includes(c.estado) && accion("Dar de baja ahora", "Se cancela en Stripe y pierde el acceso ya", () => hacer(`¿Dar de baja a ${c.email} AHORA? Pierde el acceso al momento.`, () => servidor({ accion: "baja_stripe", cuenta: c.owner_id, cuando: "ya" }), "✓ Suscripción cancelada"), "var(--red)")}
           {(c.plan_id === "fundador" || ["activa", "cortesia", "prueba"].includes(c.estado)) && !c.suscripcion_pago_id && accion("Quitar el acceso", "Pasa a sin suscripción (solo ticketera)", () => hacer(`¿Quitar el acceso a ${c.email}? Solo podrá usar la ticketera.`, () => rpc("admin_cuenta_cambiar", { p_owner: c.owner_id, p_accion: "quitar" }), "✓ Acceso quitado"), "var(--red)")}
-          {accion(bloqueada ? "🔓 Desbloquear la cuenta" : "🚫 Bloquear la cuenta", bloqueada ? "Podrá volver a entrar" : "No podrá entrar en TIXFAST (sus datos se conservan)", () => hacer(bloqueada ? `¿Desbloquear a ${c.email}?` : `¿Bloquear a ${c.email}? No podrá entrar hasta que la desbloquees.`, () => servidor({ accion: "bloquear", cuenta: c.owner_id, bloquear: !bloqueada }), bloqueada ? "✓ Cuenta desbloqueada" : "✓ Cuenta bloqueada"), bloqueada ? null : "var(--red)")}
+          {accion(bloqueada ? "Desbloquear la cuenta" : "Bloquear la cuenta", bloqueada ? "Podrá volver a entrar" : "No podrá entrar en TIXFAST (sus datos se conservan)", () => hacer(bloqueada ? `¿Desbloquear a ${c.email}?` : `¿Bloquear a ${c.email}? No podrá entrar hasta que la desbloquees.`, () => servidor({ accion: "bloquear", cuenta: c.owner_id, bloquear: !bloqueada }), bloqueada ? "✓ Cuenta desbloqueada" : "✓ Cuenta bloqueada"), bloqueada ? null : "var(--red)")}
         </div>
 
         <div style={{ fontWeight: 900, marginTop: 16, marginBottom: 6 }}>Eventos</div>
@@ -229,7 +230,7 @@ function Errores({ avisar }) {
       <div style={{ fontSize: 13, color: "var(--muted)" }}>{lista.length} errores recientes, agrupados ({grupos.length} distintos)</div>
       <button onClick={limpiar} style={K.btn}>Limpiar antiguos</button>
     </div>
-    {!grupos.length && <div style={{ ...K.card, color: "var(--muted)" }}>Sin errores. 🎉</div>}
+    {!grupos.length && <div style={{ ...K.card, color: "var(--muted)" }}>Sin errores. </div>}
     {grupos.map((g, i) => <button key={i} onClick={() => setAbierto(abierto === i ? null : i)} style={{ ...K.card, textAlign: "left", cursor: "pointer", color: "var(--text)", width: "100%" }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}><span style={K.badge(g.n > 5 ? "var(--red)" : "var(--amber)")}>×{g.n}</span><span style={{ fontSize: 12.5, color: "var(--muted)" }}>{g.origen} · último {fecha(g.fecha, true)} · {g.cuentas.size} {g.cuentas.size === 1 ? "cuenta" : "cuentas"}</span></div>
       <div style={{ marginTop: 6, fontWeight: 700, fontSize: 14, overflowWrap: "anywhere" }}>{g.mensaje}</div>
@@ -298,9 +299,9 @@ function Crecimiento({ avisar }) {
     </div>
 
     <section style={K.card}>
-      <div style={{ fontWeight: 900, fontSize: 16 }}>🚨 En riesgo ({d.riesgo.length})</div>
+      <div style={{ fontWeight: 900, fontSize: 16 }}><IcoUI n="aviso" s={16} style={ikUI} />En riesgo ({d.riesgo.length})</div>
       <div style={{ fontSize: 13, color: "var(--muted)", margin: "2px 0 10px" }}>Clientes que se pueden perder. A los de impago y cancelación ya les escriben los correos automáticos; aquí puedes actuar a mano.</div>
-      {!d.riesgo.length && <div style={{ color: "var(--muted)", fontSize: 14 }}>Nadie en riesgo ahora mismo. 🎉</div>}
+      {!d.riesgo.length && <div style={{ color: "var(--muted)", fontSize: 14 }}>Nadie en riesgo ahora mismo. </div>}
       <div style={{ display: "grid", gap: 8 }}>
         {d.riesgo.map(r => { const [t, c] = RIESGO_TXT[r.motivo] || ["", "var(--muted)"]; const id = r.owner_id; return (
           <div key={id + r.motivo} style={{ border: "1px solid var(--line)", borderRadius: 14, padding: 12 }}>
@@ -310,9 +311,9 @@ function Crecimiento({ avisar }) {
               {r.motivo === "prueba_acaba" && `La prueba acaba el ${fecha(r.prueba_hasta)}`}{r.motivo === "inactivo" && `Último acceso: ${hace(r.ultimo_acceso)}`}
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-              {["impago", "cancela"].includes(r.motivo) && <button disabled={!!busy} onClick={() => accion(id + "c", () => servidor({ accion: "enviar_correo", cuenta: id, tipo: r.motivo }), "✓ Correo enviado")} style={{ ...K.btn, minHeight: 40 }}>✉️ Enviar correo</button>}
-              {r.con_stripe && r.motivo !== "impago" && <button disabled={!!busy} onClick={() => window.confirm(`¿Aplicar ${ret.descuento} % durante ${ret.meses} meses a ${r.email}?`) && accion(id + "d", () => servidor({ accion: "descuento", cuenta: id, pct: ret.descuento, meses: ret.meses }), "✓ Descuento aplicado")} style={{ ...K.btn, minHeight: 40 }}>🎁 {ret.descuento} % {ret.meses} m</button>}
-              {r.estado === "prueba" && r.con_stripe && <button disabled={!!busy} onClick={() => accion(id + "p", () => servidor({ accion: "ampliar_prueba", cuenta: id, dias: 7 }), "✓ Prueba ampliada 7 días")} style={{ ...K.btn, minHeight: 40 }}>⏱️ +7 días de prueba</button>}
+              {["impago", "cancela"].includes(r.motivo) && <button disabled={!!busy} onClick={() => accion(id + "c", () => servidor({ accion: "enviar_correo", cuenta: id, tipo: r.motivo }), "✓ Correo enviado")} style={{ ...K.btn, minHeight: 40 }}><IcoUI n="correo" s={16} style={ikUI} />Enviar correo</button>}
+              {r.con_stripe && r.motivo !== "impago" && <button disabled={!!busy} onClick={() => window.confirm(`¿Aplicar ${ret.descuento} % durante ${ret.meses} meses a ${r.email}?`) && accion(id + "d", () => servidor({ accion: "descuento", cuenta: id, pct: ret.descuento, meses: ret.meses }), "✓ Descuento aplicado")} style={{ ...K.btn, minHeight: 40 }}><IcoUI n="regalo" s={16} style={ikUI} />{ret.descuento} % {ret.meses} m</button>}
+              {r.estado === "prueba" && r.con_stripe && <button disabled={!!busy} onClick={() => accion(id + "p", () => servidor({ accion: "ampliar_prueba", cuenta: id, dias: 7 }), "✓ Prueba ampliada 7 días")} style={{ ...K.btn, minHeight: 40 }}><IcoUI n="reloj" s={16} style={ikUI} />+7 días de prueba</button>}
             </div>
           </div>); })}
       </div>
@@ -330,7 +331,7 @@ function Crecimiento({ avisar }) {
     </section>
 
     {cfg && <section style={K.card}>
-      <div style={{ fontWeight: 900, fontSize: 16 }}>⚙️ Correos automáticos</div>
+      <div style={{ fontWeight: 900, fontSize: 16 }}><IcoUI n="ajustes" s={16} style={ikUI} />Correos automáticos</div>
       <div style={{ fontSize: 13, color: "var(--muted)", margin: "2px 0 10px" }}>Se revisan cada hora. Cada correo se envía una sola vez a cada cuenta. Los comerciales llevan enlace para darse de baja.</div>
       <div style={{ display: "grid", gap: 8 }}>
         {SECUENCIAS.map(([sec, t, sub, tipo]) => { const v = cfg.secuencias?.[sec] || {}; return (
@@ -339,9 +340,9 @@ function Crecimiento({ avisar }) {
               <input type="checkbox" checked={!!v.activo} onChange={e => setSec(sec, "activo", e.target.checked)} style={{ width: 22, height: 22, accentColor: "var(--accent)" }} />
               <span style={{ flex: 1 }}><b>{t}</b><span style={{ display: "block", fontSize: 12.5, color: "var(--muted)" }}>{sub}</span></span>
             </label>
-            {tipo === "dias" && <input value={(v.dias || []).join(", ")} onChange={e => setSec(sec, "dias", numeros(e.target.value))} style={{ ...K.input, minHeight: 40, fontSize: 15 }} aria-label={`Días de ${t}`} />}
-            {tipo === "dias_antes" && <input value={v.dias_antes ?? 2} inputMode="numeric" onChange={e => setSec(sec, "dias_antes", Math.min(6, numeros(e.target.value)[0] ?? 1))} style={{ ...K.input, minHeight: 40, fontSize: 15 }} aria-label="Días antes" />}
-            {tipo === "dias_num" && <input value={v.dias ?? 14} inputMode="numeric" onChange={e => setSec(sec, "dias", Math.max(7, numeros(e.target.value)[0] ?? 14))} style={{ ...K.input, minHeight: 40, fontSize: 15 }} aria-label="Días sin entrar" />}
+            {tipo === "dias" && <input value={(v.dias || []).join(", ")} onChange={e => setSec(sec, "dias", numeros(e.target.value))} style={{ ...K.input, minHeight: 40, fontSize: 16 }} aria-label={`Días de ${t}`} />}
+            {tipo === "dias_antes" && <input value={v.dias_antes ?? 2} inputMode="numeric" onChange={e => setSec(sec, "dias_antes", Math.min(6, numeros(e.target.value)[0] ?? 1))} style={{ ...K.input, minHeight: 40, fontSize: 16 }} aria-label="Días antes" />}
+            {tipo === "dias_num" && <input value={v.dias ?? 14} inputMode="numeric" onChange={e => setSec(sec, "dias", Math.max(7, numeros(e.target.value)[0] ?? 14))} style={{ ...K.input, minHeight: 40, fontSize: 16 }} aria-label="Días sin entrar" />}
           </div>); })}
       </div>
       <div style={{ fontWeight: 900, marginTop: 14 }}>Ofertas</div>
@@ -357,7 +358,7 @@ function Crecimiento({ avisar }) {
     </section>}
 
     <section style={K.card}>
-      <div style={{ fontWeight: 900, fontSize: 16 }}>📣 Campaña de correo</div>
+      <div style={{ fontWeight: 900, fontSize: 16 }}><IcoUI n="megafono" s={16} style={ikUI} />Campaña de correo</div>
       <div style={{ fontSize: 13, color: "var(--muted)", margin: "2px 0 10px" }}>Para novedades u ofertas puntuales. Solo llega a quien no se ha dado de baja de los correos comerciales.</div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{SEGMENTOS.map(([k2, t]) => <button key={k2} onClick={() => setCamp(c => ({ ...c, segmento: k2 }))} style={K.chip(camp.segmento === k2)}>{t}</button>)}</div>
       <input value={camp.asunto} onChange={e => setCamp(c => ({ ...c, asunto: e.target.value.slice(0, 120) }))} placeholder="Asunto" style={{ ...K.input, marginTop: 10 }} aria-label="Asunto" />
@@ -370,7 +371,7 @@ function Crecimiento({ avisar }) {
     </section>
 
     <section style={K.card}>
-      <div style={{ fontWeight: 900, fontSize: 16 }}>✉️ Últimos correos</div>
+      <div style={{ fontWeight: 900, fontSize: 16 }}><IcoUI n="correo" s={16} style={ikUI} />Últimos correos</div>
       {!d.correos.length && <div style={{ color: "var(--muted)", fontSize: 14, marginTop: 6 }}>Aún no se ha enviado ninguno.</div>}
       <div style={{ display: "grid", gap: 4, marginTop: 8 }}>{d.correos.slice(0, 40).map((x, i) => <div key={i} style={{ fontSize: 13, padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
         <span style={K.badge(x.estado === "enviado" ? "var(--green)" : x.estado === "error" ? "var(--red)" : "var(--muted)")}>{x.estado}</span> <b>{x.asunto}</b>

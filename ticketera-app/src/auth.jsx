@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 import { setUserScope, pendingCount, limpiarCopiaLocal } from "./db";
+import { IconoProducto } from "./iconosProducto";
+import { Icono as IcoUI, enTexto as ikUI } from "./iconos";
 
 /* ============================================================
    SESIÓN
@@ -284,14 +286,14 @@ const FAQ = [
 
 /* ---------------- Ilustraciones (maquetas, no capturas) ---------------- */
 const TILES = [
-  ["🍺", "CERVEZA", "3,00 €", "#f59e0b", "#b45309"],
-  ["🍸", "COPA", "6,00 €", "#8b5cf6", "#5b21b6"],
-  ["💧", "AGUA", "2,00 €", "#0ea5e9", "#0369a1"],
-  ["🥤", "REFRESCO", "3,00 €", "#ef4444", "#b91c1c"],
-  ["🍔", "HAMBURGUESA", "8,00 €", "#16a34a", "#166534"],
-  ["🌭", "PERRITO", "5,00 €", "#f97316", "#c2410c"],
-  ["🥃", "CHUPITO", "2,50 €", "#ec4899", "#be185d"],
-  ["🎟️", "BONOCOPAS", "20,00 €", "#fcd34d", "#f59e0b", true],
+  ["i:cerveza", "CERVEZA", "3,00 €", "#f59e0b", "#b45309"],
+  ["i:coctel", "COPA", "6,00 €", "#8b5cf6", "#5b21b6"],
+  ["i:agua", "AGUA", "2,00 €", "#0ea5e9", "#0369a1"],
+  ["i:refresco", "REFRESCO", "3,00 €", "#ef4444", "#b91c1c"],
+  ["i:hamburguesa", "HAMBURGUESA", "8,00 €", "#16a34a", "#166534"],
+  ["i:perrito", "PERRITO", "5,00 €", "#f97316", "#c2410c"],
+  ["i:chupito", "CHUPITO", "2,50 €", "#ec4899", "#be185d"],
+  ["i:entrada", "BONOCOPAS", "20,00 €", "#fcd34d", "#f59e0b", true],
 ];
 const tileBg = (a, b) => ({ background: `linear-gradient(160deg, ${a}, ${b})` });
 
@@ -324,7 +326,7 @@ function Showcase() {
               {TILES.map(([e, n, p, a, b, bono]) => (
                 <div className={"tf-dtile" + (bono ? " bono" : "")} style={tileBg(a, b)} key={n}>
                   {bono && <em>4 tickets</em>}
-                  <span className="e">{e}</span><span className="n">{n}</span><span className="p">{p}</span>
+                  <span className="e"><IconoProducto v={e} s={28} /></span><span className="n">{n}</span><span className="p">{p}</span>
                 </div>
               ))}
             </div>
@@ -371,11 +373,11 @@ function PhoneMock() {
     <div className="tf-phone" role="img" aria-label="Ejemplo ilustrativo de TIXFAST en el móvil">
       <div className="tf-phone-scr">
         <div className="tf-island" />
-        <div className="tf-pbar"><div><b>FIESTA DE VERANO</b><small>Barra: <em>Barra principal</em></small></div><span className="tf-pmenu">☰</span></div>
-        <div className="tf-padv"><span>💶</span><div><b>Venta avanzada</b><small>Cobro con cálculo del cambio</small></div><i /></div>
+        <div className="tf-pbar"><div><b>FIESTA DE VERANO</b><small>Barra: <em>Barra principal</em></small></div><span className="tf-pmenu"></span></div>
+        <div className="tf-padv"><span><IcoUI n="dinero" s={16} style={ikUI} /></span><div><b>Venta avanzada</b><small>Cobro con cálculo del cambio</small></div><i /></div>
         <div className="tf-ptiles">
           {TILES.slice(0, 6).map(([e, n, p, a, b]) => (
-            <div className="tf-ptile" style={tileBg(a, b)} key={n}><span className="e">{e}</span><span className="n">{n}</span><span className="p">{p}</span></div>
+            <div className="tf-ptile" style={tileBg(a, b)} key={n}><span className="e"><IconoProducto v={e} s={28} /></span><span className="n">{n}</span><span className="p">{p}</span></div>
           ))}
         </div>
       </div>
@@ -389,7 +391,7 @@ const FEATURES = [
     d: "Botones grandes con el color y el emoji de cada producto, cantidades rápidas y comandas de varios productos.",
     viz: (
       <div className="v-tiles">
-        {TILES.slice(0, 3).map(([e, n, , a, b], i) => <div key={n} className={"v-tile" + (i === 1 ? " tap" : "")} style={tileBg(a, b)}><span>{e}</span>{n}</div>)}
+        {TILES.slice(0, 3).map(([e, n, , a, b], i) => <div key={n} className={"v-tile" + (i === 1 ? " tap" : "")} style={tileBg(a, b)}><span><IconoProducto v={e} s={22} /></span>{n}</div>)}
       </div>
     ),
   },
@@ -621,7 +623,7 @@ const LANDING_CSS = `
 .tf-dbar b{display:block;font-size:14px;font-weight:800;letter-spacing:-.01em}
 .tf-dbar small{font-size:11px;color:#838AA0}
 .tf-dpills{display:flex;gap:8px}
-.tf-dpills span{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:700;border:1px solid #2A2E3A;border-radius:8px;padding:6px 10px;background:#1C1F29}
+.tf-dpills span{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;border:1px solid #2A2E3A;border-radius:8px;padding:6px 10px;background:#1C1F29}
 .tf-dpills i{width:7px;height:7px;border-radius:50%;background:var(--green)}
 .tf-dbody{display:grid;grid-template-columns:minmax(0,1fr) 220px;gap:14px;padding:14px}
 .tf-chips{display:flex;gap:6px;margin-bottom:10px}
@@ -635,7 +637,7 @@ const LANDING_CSS = `
 .tf-dtile.bono{color:#3A2A00;outline:2px solid rgba(255,255,255,.55);outline-offset:-2px}
 .tf-dtile em{position:absolute;top:6px;left:6px;font-style:normal;font-size:8.5px;font-weight:800;background:rgba(0,0,0,.18);border-radius:6px;padding:2px 6px}
 .tf-dcart{background:#14161D;border:1px solid #2A2E3A;border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:12px}
-.tf-dcart small{font-size:10px;color:#838AA0;letter-spacing:.08em;font-weight:600}
+.tf-dcart small{font-size:11px;color:#838AA0;letter-spacing:.08em;font-weight:600}
 .tf-lines{display:flex;flex-direction:column;gap:6px;font-size:12px}
 .tf-lines div{display:flex;justify-content:space-between;color:#C9CDD8}
 .tf-dtotal{border-top:1px solid #2A2E3A;padding-top:10px}
@@ -691,7 +693,7 @@ const LANDING_CSS = `
 .tf-feat p{color:#727981;line-height:1.55;font-size:14.5px}
 
 .v-tiles{display:flex;gap:10px}
-.v-tile{width:84px;height:92px;border-radius:14px;color:#fff;font-size:10px;font-weight:800;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;box-shadow:0 10px 20px -8px rgba(0,0,0,.3)}
+.v-tile{width:84px;height:92px;border-radius:14px;color:#fff;font-size:11px;font-weight:800;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;box-shadow:0 10px 20px -8px rgba(0,0,0,.3)}
 .v-tile span{font-size:26px}
 .v-tile.tap{transform:scale(.94);position:relative}
 .v-tile.tap:after{content:'';position:absolute;inset:-7px;border-radius:19px;border:2px solid var(--coral);animation:tfTap 1.8s ease-out infinite}
@@ -741,14 +743,14 @@ const LANDING_CSS = `
 .tf-island{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:92px;height:27px;border-radius:20px;background:#000}
 .tf-pbar{display:flex;justify-content:space-between;align-items:center;padding:6px 4px 12px;border-bottom:1px solid #2A2E3A;margin:0 -12px 12px;padding-left:16px;padding-right:16px}
 .tf-pbar b{display:block;font-size:12.5px;font-weight:800}
-.tf-pbar small{font-size:10px;color:#838AA0}
+.tf-pbar small{font-size:11px;color:#838AA0}
 .tf-pbar em{font-style:normal;color:var(--coral);font-weight:700}
 .tf-pmenu{width:30px;height:30px;border-radius:9px;border:1px solid #2A2E3A;display:grid;place-items:center;font-size:13px;background:#1C1F29}
 .tf-padv{display:flex;align-items:center;gap:9px;border:1px solid #2A2E3A;background:#14161D;border-radius:12px;padding:9px 11px;margin-bottom:10px}
 .tf-padv>span{font-size:18px}
 .tf-padv div{flex:1;min-width:0}
 .tf-padv b{display:block;font-size:11px}
-.tf-padv small{font-size:9px;color:#838AA0}
+.tf-padv small{font-size:11px;color:#838AA0}
 .tf-padv i{width:30px;height:18px;border-radius:9px;background:#2A2E3A;position:relative}
 .tf-padv i:after{content:'';position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#fff}
 .tf-ptiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}

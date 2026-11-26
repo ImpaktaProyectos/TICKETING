@@ -179,7 +179,7 @@ function Resumen({ d, isMobile, busy, flash, run, onVer, onRecordar, onRecurrent
   };
   return (<>
     <section style={{ ...C.panel, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
-      <select value={anio} onChange={e => setAnio(+e.target.value)} aria-label="Año" style={{ ...C.miniSelect, fontSize: 14, padding: "9px 28px 9px 12px" }}>{anios.map(a => <option key={a} value={a}>{a}</option>)}</select>
+      <select value={anio} onChange={e => setAnio(+e.target.value)} aria-label="Año" style={{ ...C.miniSelect, fontSize: 16, padding: "9px 28px 9px 12px" }}>{anios.map(a => <option key={a} value={a}>{a}</option>)}</select>
       <div style={{ overflowX: "auto", maxWidth: "100%" }}><Seg size="sm" valor={tri} onChange={setTri} opciones={[{ k: 1, t: "1T" }, { k: 2, t: "2T" }, { k: 3, t: "3T" }, { k: 4, t: "4T" }, { k: 0, t: "Año" }]} /></div>
       <div style={{ flex: 1 }} />
       <button onClick={exportar} disabled={busy || zip} style={{ ...C.btnGhost, opacity: zip ? .6 : 1 }}><Icon n="download" s={17} />{zip ? "Preparando…" : isMobile ? "ZIP gestoría" : `Descargar ${tri ? `${tri}T` : "año"} para la gestoría`}</button>

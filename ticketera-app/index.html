@@ -2,7 +2,7 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>TIXFAST · TPV para eventos</title>
     <meta name="description" content="Vende en un toque. Controla cada euro. TPV táctil para las barras de tus eventos: tickets térmicos al instante, todas tus barras en directo y venta sin conexión." />
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -20,6 +20,17 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet" />
+    <style>
+      /* Reglas comunes a toda la app */
+      /* Se puede ampliar con dos dedos (accesibilidad), pero el doble toque no hace zoom: las teclas del TPV se pulsan rápido */
+      html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
+      /* Importes y contadores con cifras del mismo ancho: no «bailan» al cambiar */
+      body { font-variant-numeric: tabular-nums; }
+      /* Si el móvil pide reducir el movimiento, nada se repite ni se anima */
+      @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+      /* Foco visible al usar el teclado */
+      :focus-visible { outline: 2px solid #ff5a3c; outline-offset: 2px; }
+    </style>
   </head>
   <body style="margin:0;background:#0B0C10">
     <div id="root"></div>

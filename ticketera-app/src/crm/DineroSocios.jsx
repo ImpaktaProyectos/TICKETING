@@ -47,7 +47,7 @@ export function DineroSocios({ ev, socios = [], flash, onTotales }) {
       <div style={{ overflowX: "auto", maxWidth: "100%", marginBottom: 10 }}><Seg size="sm" valor={ambito} onChange={setAmbito} opciones={[{ k: "pendiente", t: "Pendiente" }, { k: "evento", t: "Este evento" }, { k: "todo", t: "Historial" }]} /></div>
       {error && <div style={{ ...C.empty, color: "var(--amber)" }}>No se ha podido cargar. <button onClick={cargar} style={{ ...C.btnSm, marginLeft: 6 }}>Reintentar</button></div>}
       {!deudas && !error && <div style={{ color: "var(--muted)", fontSize: 13.5, padding: 8 }}>Cargando…</div>}
-      {deudas && !grupos.length && <div style={C.empty}>{ambito === "pendiente" ? "Ningún socio debe nada. 👌" : "Sin movimientos de socios."}</div>}
+      {deudas && !grupos.length && <div style={C.empty}>{ambito === "pendiente" ? "Ningún socio debe nada. " : "Sin movimientos de socios."}</div>}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))", gap: 10 }}>
         {grupos.map(g => { const pend = g.items.filter(it => it.pendiente > 0); return (
           <div key={g.socio} style={{ ...C.card, padding: 14 }}>

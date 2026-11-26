@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 import { supabase } from "./supabase";
 import QrCodigo from "./qr/QrCodigo";
 import { BEBIDAS, MEZCLAS } from "./reservados";
+import { Icono as IcoUI, enTexto as ikUI } from "./iconos";
 
 const ESTADO_PEDIDO = { pendiente: ["Pagando", "#c084fc"], pagado: ["Pagada", "var(--green)"], caducado: ["No pagó", "var(--muted)"], cancelado: ["Cancelada", "var(--muted)"], conflicto: ["Revisar: pagó tarde", "var(--red)"] };
 const K = {
@@ -44,7 +45,7 @@ export function ReservaOnlineConfig({ ev, cfg, flash, tieneplano }) {
     const { error } = await supabase.from("ticket_reservas_web").upsert(datos, { onConflict: "evento_id" });
     setBusy(false);
     if (error) { flash("No se ha podido guardar", "warn"); return; }
-    flash(datos.activo ? "🌐 Reserva online guardada" : "Reserva online guardada (desactivada)"); cargar();
+    flash(datos.activo ? "Reserva online guardada" : "Reserva online guardada (desactivada)"); cargar();
   };
   const crear = async () => {
     setBusy(true);
@@ -60,13 +61,13 @@ export function ReservaOnlineConfig({ ev, cfg, flash, tieneplano }) {
     } catch { flash("No se ha podido abrir el alta del monedero", "warn"); }
     setBusy(false);
   };
-  const copiar = async () => { try { await navigator.clipboard.writeText(enlace); flash("🔗 Enlace copiado"); } catch { flash("Mantén pulsado el enlace para copiarlo", "warn"); } };
+  const copiar = async () => { try { await navigator.clipboard.writeText(enlace); flash("Enlace copiado"); } catch { flash("Mantén pulsado el enlace para copiarlo", "warn"); } };
   const tarifasOnline = cfg.tarifas.filter(t => t.online !== false && String(t.precio ?? "") !== "");
 
   if (w === undefined) return <div style={K.panel}>Cargando la reserva online…</div>;
   if (w === false) return <div style={{ ...K.panel, color: "var(--muted)" }}>La reserva online aún no está disponible en la base de datos.</div>;
   return (<div style={K.panel}>
-    <div style={{ fontSize: 15.5, fontWeight: 800 }}>8 · Reserva online 🌐</div>
+    <div style={{ fontSize: 15.5, fontWeight: 800 }}>8 · Reserva online </div>
     <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2 }}>Un enlace para tus clientes: ven el plano en directo, eligen mesa, pack, botellas y mezclas, y pagan el adelanto. La mesa se bloquea mientras pagan y, si no terminan, se libera sola.</div>
     {!w ? <button type="button" disabled={busy} onClick={crear} style={{ ...K.btn, marginTop: 12, background: "var(--accent)", border: "none", color: "#fff" }}>Crear el enlace de reservas</button> : <>
       <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 14, padding: 12, borderRadius: 14, border: `1px solid ${d.activo ? "var(--green)" : "var(--line)"}`, cursor: "pointer" }}>
@@ -102,7 +103,7 @@ export function ReservaOnlineConfig({ ev, cfg, flash, tieneplano }) {
         <div style={{ flex: "1 1 200px", minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, overflowWrap: "anywhere", color: "var(--accent)" }}>{enlace}</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-            <button type="button" onClick={copiar} style={K.btn}>🔗 Copiar</button>
+            <button type="button" onClick={copiar} style={K.btn}><IcoUI n="enlace" s={16} style={ikUI} />Copiar</button>
             <a href={`https://wa.me/?text=${encodeURIComponent(`Reserva tu mesa VIP para ${ev.name}: ${enlace}`)}`} target="_blank" rel="noopener noreferrer" style={{ ...K.btn, display: "inline-flex", alignItems: "center", textDecoration: "none" }}>WhatsApp</a>
             <a href={enlace} target="_blank" rel="noopener noreferrer" style={{ ...K.btn, display: "inline-flex", alignItems: "center", textDecoration: "none" }}>Ver la página ↗</a>
           </div>

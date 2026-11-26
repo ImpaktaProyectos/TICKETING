@@ -75,7 +75,7 @@ function BarrasV({ datos, alto = 150, formato = n0, etiquetaCada = 1, resumen })
           </div>))}
       </div>
       <div style={{ display: "flex", gap: datos.length > 30 ? 1 : 3, marginTop: 5 }}>
-        {datos.map((x, i) => <div key={x.k} style={{ flex: 1, minWidth: 0, fontSize: 10.5, color: "var(--muted)", textAlign: "center", whiteSpace: "nowrap", overflow: "visible" }}>{i % etiquetaCada === 0 ? x.corta ?? x.label : ""}</div>)}
+        {datos.map((x, i) => <div key={x.k} style={{ flex: 1, minWidth: 0, fontSize: 11, color: "var(--muted)", textAlign: "center", whiteSpace: "nowrap", overflow: "visible" }}>{i % etiquetaCada === 0 ? x.corta ?? x.label : ""}</div>)}
       </div>
     </div>
   );

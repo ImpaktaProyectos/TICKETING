@@ -165,7 +165,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
   const subEv = tab === "facturacion" ? "" : [fechaEv, ev.venue].filter(Boolean).join(" · ");
   // Opción A: barra lateral clara agrupada (ordenador) / barra inferior con «Más» (móvil). Solo cambia el marco.
   const wrap = { position: "absolute", inset: 0, overflow: "hidden", display: "flex", flexDirection: isMobile ? "column" : "row", ...TEMAS[tema], background: "var(--bg)", color: "var(--text)" };
-  const navBtn = (on) => ({ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 10px", borderRadius: 10, border: "none", cursor: "pointer", textAlign: "left", font: "inherit", fontSize: 14.5, fontWeight: on ? 800 : 650, background: on ? "color-mix(in srgb, var(--accent) 13%, transparent)" : "transparent", color: on ? "var(--accent)" : "var(--text)" });
+  const navBtn = (on) => ({ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "0 10px", minHeight: 44, boxSizing: "border-box", borderRadius: 10, border: "none", cursor: "pointer", textAlign: "left", font: "inherit", fontSize: 14.5, fontWeight: on ? 800 : 650, background: on ? "color-mix(in srgb, var(--accent) 13%, transparent)" : "transparent", color: on ? "var(--accent)" : "var(--text)" });
   const enMas = NAV_MAS.some(n => n[0] === tab) || tab === "ajustes";
   return (
     <div className="crm-raiz" style={wrap}>
@@ -177,11 +177,11 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
           </div>
           <label style={{ display: "block", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 12, padding: "9px 10px 10px" }}>
             <span style={{ display: "block", fontSize: 11, fontWeight: 800, color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase", padding: "0 2px" }}>Evento</span>
-            <select value={ev.id} onChange={e => onSelectEvent(e.target.value)} aria-label="Evento" style={{ width: "100%", background: "transparent", border: "none", color: "var(--text)", fontWeight: 900, fontSize: 14.5, padding: "2px 0", outline: "none", cursor: "pointer" }}>
+            <select value={ev.id} onChange={e => onSelectEvent(e.target.value)} aria-label="Evento" style={{ width: "100%", background: "transparent", border: "none", color: "var(--text)", fontWeight: 600, fontSize: 16, padding: "0 24px 0 0", minHeight: 44, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", outline: "none", cursor: "pointer" }}>
               {ordenarEventos(events).map(e => <option key={e.id} value={e.id}>{e.name} · {estadoFecha(e).t.toLowerCase()}</option>)}
             </select>
             {subEv && <span style={{ display: "block", fontSize: 12, color: "var(--muted)", padding: "0 2px", textTransform: "capitalize" }}>{subEv}</span>}
-            {(() => { const x = estadoFecha(ev); return <span style={{ display: "inline-block", marginTop: 6, fontSize: 10.5, fontWeight: 900, letterSpacing: .5, color: x.c, border: `1px solid ${x.c}`, borderRadius: 999, padding: "1px 8px" }}>{x.t}</span>; })()}
+            {(() => { const x = estadoFecha(ev); return <span style={{ display: "inline-block", marginTop: 6, fontSize: 11, fontWeight: 900, letterSpacing: .5, color: x.c, border: `1px solid ${x.c}`, borderRadius: 999, padding: "1px 8px" }}>{x.t}</span>; })()}
           </label>
           {onEventoCreado && <button onClick={() => setNuevoEv(true)} style={{ ...navBtn(false), border: "1px dashed var(--line)", justifyContent: "center", marginTop: -8 }}><Icon n="plus" s={16} c="currentColor" w={2.4} />Nuevo evento</button>}
           <nav aria-label="Secciones del CRM" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -222,7 +222,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
         <div style={{ maxWidth: 1180, margin: "0 auto" }}>
           {!isMobile && (
             <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 13, color: "var(--muted)", fontWeight: 700, textTransform: "capitalize" }}>{tab === "facturacion" ? "Facturas de tu empresa · aparte de los eventos" : <>{ev.name}{subEv ? ` · ${subEv}` : ""} {(() => { const x = estadoFecha(ev); return <span style={{ fontSize: 10.5, fontWeight: 900, letterSpacing: .5, color: x.c, border: `1px solid ${x.c}`, borderRadius: 999, padding: "1px 8px", textTransform: "none", marginLeft: 4 }}>{x.t}</span>; })()}</>}</div>
+              <div style={{ fontSize: 13, color: "var(--muted)", fontWeight: 700, textTransform: "capitalize" }}>{tab === "facturacion" ? "Facturas de tu empresa · aparte de los eventos" : <>{ev.name}{subEv ? ` · ${subEv}` : ""} {(() => { const x = estadoFecha(ev); return <span style={{ fontSize: 11, fontWeight: 900, letterSpacing: .5, color: x.c, border: `1px solid ${x.c}`, borderRadius: 999, padding: "1px 8px", textTransform: "none", marginLeft: 4 }}>{x.t}</span>; })()}</>}</div>
               <h1 style={{ margin: "4px 0 0", fontSize: 28, fontWeight: 900, letterSpacing: -0.5 }}>{titulo}</h1>
             </div>
           )}
@@ -244,7 +244,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
             <Gastos ev={ev} events={events} gastos={gastosEv} G={G} F={F} onAjustes={() => abrirAjustes("fiscal")} socios={socios} socioById={socioById} ingresosTotal={T.total} isMobile={isMobile} busy={busy}
               onSave={(x) => run(async () => { const g = await crm.saveGasto({ ...x, eventoId: ev.id }); for (const e of x.__extras || []) await crm.saveGasto({ eventoId: ev.id, tipo: "normal", padreId: g.id, categoria: "Artistas", concepto: e.concepto, previsto: e.previsto, estado: "previsto" }); if (x.__foto) { const { subirFotoGasto } = await import("../fotosGasto"); await crm.setGastoArchivo(g.id, await subirFotoGasto(ev.id, g.id, x.__foto)); } }, x.id ? "Gasto actualizado" : "Gasto añadido")}
               onPagado={(g, v, importe) => run(() => crm.setGastoPagado(g.id, v, importe), v ? `✓ ${g.proveedor || g.concepto || g.categoria}: pagado${importe != null ? ` ${money(importe)}` : ""}` : `${g.proveedor || g.concepto || g.categoria}: pendiente de pago`)}
-              onFoto={(g, file) => run(async () => { const F = await import("../fotosGasto"); if (!file) { await crm.setGastoArchivo(g.id, null); await F.borrarFotoGasto(g.archivoPath); return; } const path = await F.subirFotoGasto(ev.id, g.id, file); await crm.setGastoArchivo(g.id, path); if (g.archivoPath) await F.borrarFotoGasto(g.archivoPath); }, file ? "📷 Foto guardada" : "Foto quitada")}
+              onFoto={(g, file) => run(async () => { const F = await import("../fotosGasto"); if (!file) { await crm.setGastoArchivo(g.id, null); await F.borrarFotoGasto(g.archivoPath); return; } const path = await F.subirFotoGasto(ev.id, g.id, file); await crm.setGastoArchivo(g.id, path); if (g.archivoPath) await F.borrarFotoGasto(g.archivoPath); }, file ? "Foto guardada" : "Foto quitada")}
               onVerFoto={async (path) => { const w = window.open("", "_blank"); try { const { verFotoGasto } = await import("../fotosGasto"); const u = await verFotoGasto(path); if (w) w.location.href = u; else window.location.assign(u); } catch (e) { w?.close(); flash(e?.mostrar ? e.message : "No se ha podido abrir", "warn"); } }}
               onDelete={(x) => run(() => crm.deleteGasto(x.id), "Gasto borrado")}
               onCopiar={(desde) => run(async () => { const nn = await crm.copiarPresupuesto(desde.id, ev.id); if (!nn) throw new Error("vacío"); }, `Presupuesto de ${desde.name} copiado`)} />

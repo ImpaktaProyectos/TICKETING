@@ -24,7 +24,7 @@ class ErrorBoundary extends React.Component {
           <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width="56" height="56" style={{ display: "block", margin: "0 auto" }} />
           <div style={{ fontWeight: 800, fontSize: 20, marginTop: 8 }}>Algo ha fallado en la pantalla</div>
           <div style={{ color: "#838aa0", fontSize: 14, marginTop: 8 }}>Tus ventas están guardadas en este dispositivo y no se han perdido. Pulsa para recargar y seguir vendiendo.</div>
-          <button style={btn} onClick={() => window.location.reload()}>🔄 Recargar y seguir</button>
+          <button style={btn} onClick={() => window.location.reload()}><IcoUI n="recargar" s={16} style={ikUI} />Recargar y seguir</button>
         </div>
       </div>
     );
