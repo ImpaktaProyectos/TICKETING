@@ -69,7 +69,10 @@ alter table public.ticket_web_intentos enable row level security;   -- sin polí
 
 create or replace function public.web_intento(p_tipo text, p_max int, p_minutos int)
 returns boolean language plpgsql security definer set search_path to '' as $$
-declare v_ip text := split_part(coalesce(current_setting('request.headers', true)::jsonb ->> 'x-forwarded-for', ''), ',', 1); v_n int;
+declare v_n int;
+  -- IP de Cloudflare (el navegador no puede inventarla); si no viene, la primera de x-forwarded-for
+  v_ip text := btrim(coalesce(nullif(current_setting('request.headers', true)::jsonb ->> 'cf-connecting-ip', ''),
+                              split_part(coalesce(current_setting('request.headers', true)::jsonb ->> 'x-forwarded-for', ''), ',', 1)));
 begin
   if v_ip = '' then return true; end if;
   delete from public.ticket_web_intentos where creado_en < now() - interval '1 day';

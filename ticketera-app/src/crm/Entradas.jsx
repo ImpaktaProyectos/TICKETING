@@ -963,7 +963,7 @@ function CobroTarjeta({ flash, prueba }) {
   const [m, setM] = useState(undefined);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    supabase.functions.invoke("pagos", { body: { accion: "monedero" } }).then(({ data }) => setM(data || null)).catch(() => setM(null));
+    supabase.functions.invoke("pagos", { body: { accion: "monedero", tipo: "organizador" } }).then(({ data }) => setM(data || null)).catch(() => setM(null));
   }, []);
   const alta = async () => {
     setBusy(true);

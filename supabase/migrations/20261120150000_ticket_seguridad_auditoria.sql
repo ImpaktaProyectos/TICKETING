@@ -224,7 +224,7 @@ end $$;
 
 -- Al modificar: solo anular (sin vuelta atrás) y el cierre Z
 create or replace function ticket_interno.ventas_antes_modificar() returns trigger language plpgsql set search_path = '' as $$
-declare libres text[] := array['anulada', 'anulada_en', 'anulada_por', 'closure_id', 'producto_id'];
+declare libres text[] := array['anulada', 'anulada_en', 'anulada_por', 'closure_id', 'producto_id', 'actualizado_en'];   -- actualizado_en: lo pone solo la base de datos (20261120090000_ticket_rendimiento)
 begin
   if current_user not in ('authenticated', 'anon') then return new; end if;
   if (to_jsonb(new) - libres) is distinct from (to_jsonb(old) - libres)
