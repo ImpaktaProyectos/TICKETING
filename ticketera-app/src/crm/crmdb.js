@@ -528,14 +528,17 @@ export async function webDuplicar(evento, ficha, tramos, nombre) {
   return { id, slug: nueva.slug };
 }
 export async function webVentas(eventoId) {
-  const [p, e] = await Promise.all([
-    supabase.from("ticket_web_pedidos").select("id, codigo, email, nombre, datos, total, estado, prueba, creado_en").eq("evento_id", eventoId).order("creado_en", { ascending: false }).limit(5000),
+  const pedidos = (cols) => supabase.from("ticket_web_pedidos").select(cols).eq("evento_id", eventoId).order("creado_en", { ascending: false }).limit(5000);
+  const [p0, e] = await Promise.all([
+    pedidos("id, codigo, email, nombre, datos, total, estado, prueba, creado_en, descuento_codigo, descuento_importe"),
     supabase.from("ticket_web_entradas").select("id, pedido_id, numero, asistente, dni, tramo_nombre, precio, estado, prueba, creado_en").eq("evento_id", eventoId).order("numero").limit(20000),
   ]);
   const [c, r] = await Promise.all([
     supabase.from("ticket_canjes").select("venta_uuid, idx, canjeado_en, dispositivo, sin_conexion, punto_id").eq("evento_id", eventoId).eq("origen", "web").limit(20000),
     supabase.from("ticket_canje_rechazos").select("venta_uuid, motivo, detalle, dispositivo, creado_en").eq("evento_id", eventoId).order("creado_en", { ascending: false }).limit(500),
   ]);
+  // Si la base de datos aún no tiene los códigos descuento, se cargan sin esas columnas
+  const p = p0.error && /descuento/.test(p0.error.message || "") ? await pedidos("id, codigo, email, nombre, datos, total, estado, prueba, creado_en") : p0;
   return { pedidos: ok(p), entradas: ok(e), canjes: c.error ? [] : c.data || [], rechazos: r.error ? [] : (r.data || []).filter(x => x.detalle?.web || ["falso", "otro_evento", "ilegible"].includes(x.motivo)) };
 }
 export async function webReemitir(id, asistente) {
@@ -641,4 +644,59 @@ export async function legalLeer() {
 export async function legalGuardar(d) {
   const limpio = (v, n) => String(v || "").trim().slice(0, n) || null;
   ok(await supabase.from("ticket_web_legal").upsert({ razon_social: limpio(d.razon_social, 160), nif: limpio(d.nif, 20)?.toUpperCase() || null, direccion: limpio(d.direccion, 240), email: limpio(d.email, 160)?.toLowerCase() || null, conservar_meses: Math.min(120, Math.max(6, Number(d.conservar_meses) || 24)), actualizado_en: new Date().toISOString() }, { onConflict: "owner_id" }));
+}
+
+/* ===================== Venta online: códigos descuento ===================== */
+// El precio con descuento lo calcula siempre el servidor (web_comprar). Aquí solo se crean y se consultan.
+export async function descuentosListar() {
+  const [d, p] = await Promise.all([
+    supabase.from("ticket_web_descuentos").select("*").order("creado_en", { ascending: false }),
+    supabase.from("ticket_web_pedidos").select("descuento_id, descuento_importe, total, estado, prueba").not("descuento_id", "is", null).neq("estado", "anulado").eq("prueba", false).limit(20000),
+  ]);
+  ok(d); ok(p);
+  const uso = {};
+  (p.data || []).forEach(x => { const u = uso[x.descuento_id] || (uso[x.descuento_id] = { usos: 0, ahorro: 0, ventas: 0 }); u.usos++; u.ahorro += Number(x.descuento_importe) || 0; u.ventas += Number(x.total) || 0; });
+  return (d.data || []).map(x => ({ ...x, ...(uso[x.id] || { usos: 0, ahorro: 0, ventas: 0 }) }));
+}
+export async function descuentoGuardar(x) {
+  const fila = {
+    evento_id: x.evento_id || null, codigo: String(x.codigo || "").trim().toUpperCase(), nombre: (x.nombre || "").trim() || null,
+    tipo: x.tipo === "euros" ? "euros" : "porcentaje", valor: Number(x.valor), tramos: x.tramos?.length ? x.tramos : null,
+    usos_max: x.usos_max ? Number(x.usos_max) : null, usos_por_email: x.usos_por_email ? Number(x.usos_por_email) : null,
+    minimo_entradas: Math.max(1, Number(x.minimo_entradas) || 1), inicio: x.inicio || null, fin: x.fin || null, activo: x.activo !== false,
+  };
+  const r = x.id ? await supabase.from("ticket_web_descuentos").update(fila).eq("id", x.id) : await supabase.from("ticket_web_descuentos").insert(fila);
+  if (r.error && /ticket_web_descuentos_codigo|duplicate/i.test(r.error.message || "")) throw new Error("Ya tienes un código con ese nombre.");
+  ok(r);
+}
+export async function descuentoActivar(id, activo) { ok(await supabase.from("ticket_web_descuentos").update({ activo }).eq("id", id)); }
+export async function descuentoBorrar(id) { ok(await supabase.from("ticket_web_descuentos").delete().eq("id", id)); }
+
+/* ===================== Venta online: invitaciones ===================== */
+const MOTIVO_INV = { sin_venta_online: "Este evento aún no tiene la venta online activada.", no_autorizado: "No puedes invitar en este evento.", email: "Revisa el correo.", nombre: "Escribe el nombre completo.", cantidad: "Entre 1 y 20 entradas.", tramo_no_existe: "Elige un tipo de entrada.", sin_sitio: "No queda aforo en ese tipo de entrada." };
+export async function invitacionesListar(eventoId) {
+  let q = supabase.from("ticket_web_pedidos").select("id, evento_id, codigo, acceso, nombre, email, datos, estado, creado_en, email_envios, email_ultimo, email_error").in("estado", ["invitacion", "anulado"]).order("creado_en", { ascending: false }).limit(2000);
+  if (eventoId) q = q.eq("evento_id", eventoId);
+  const r = ok(await q);
+  const inv = (r || []).filter(p => p.estado === "invitacion" || p.datos?.invitacion);
+  if (!inv.length) return [];
+  const e = ok(await supabase.from("ticket_web_entradas").select("pedido_id, tramo_nombre, estado").in("pedido_id", inv.map(p => p.id)));
+  const por = {}; (e || []).forEach(x => { (por[x.pedido_id] = por[x.pedido_id] || []).push(x); });
+  return inv.map(p => ({ ...p, entradas: por[p.id] || [] }));
+}
+export async function invitar({ eventoId, tramoId, nombre, email, cantidad, aforo, nota }) {
+  const r = ok(await supabase.rpc("web_invitar", { p_evento: eventoId, p_tramo: tramoId, p_nombre: nombre, p_email: email, p_cantidad: cantidad, p_aforo: aforo !== false, p_nota: nota || null }));
+  if (!r?.ok) throw new Error(MOTIVO_INV[r?.motivo] || "No se ha podido crear la invitación.");
+  return r;
+}
+// Envía por correo el enlace a sus entradas (la misma función que usa la compra online)
+export async function invitacionEnviar(acceso) {
+  const { data, error } = await supabase.functions.invoke("web-enviar-entradas", { body: { acceso, origen: window.location.origin } });
+  if (error) return { ok: false, motivo: "error" };
+  return data || { ok: false, motivo: "error" };
+}
+export async function invitacionAnular(pedidoId) {
+  const r = ok(await supabase.rpc("web_anular_invitacion", { p_pedido: pedidoId }));
+  if (!r?.ok) throw new Error("No se ha podido anular.");
+  return r;
 }

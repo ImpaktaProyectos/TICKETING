@@ -10,6 +10,8 @@ import { Landing, PLANTILLAS_WEB } from "../web/Publico.jsx";
 import { Organizaciones } from "./Organizaciones.jsx";
 import { ResumenVentas, Clientes } from "./Clientes.jsx";
 import { DineroEntradas } from "./DineroEntradas.jsx";
+import { Invitaciones } from "./Invitaciones.jsx";
+import { Descuentos } from "./Descuentos.jsx";
 
 const urlVenta = (slug) => `${window.location.origin}/e/${slug}`;
 const ESTADOS = { borrador: { t: "Borrador", c: "var(--muted)" }, publicado: { t: "A la venta", c: "var(--green)" }, cerrado: { t: "Venta cerrada", c: "var(--red)" } };
@@ -141,11 +143,14 @@ export function Entradas(props) {
   const cambiar = (m) => { setModo(m); try { localStorage.setItem("tixfast_entradas_modo", m); } catch {} };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div role="tablist" aria-label="Entradas" style={{ display: "flex", gap: 6, background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 14, padding: 4, alignSelf: "flex-start", maxWidth: "100%" }}>
-        {[["eventos", "Eventos", "ticket"], ["orgs", "Organizaciones", "globe"]].map(([k, t, i]) => (
-          <button key={k} role="tab" aria-selected={modo === k} onClick={() => cambiar(k)} style={{ display: "inline-flex", alignItems: "center", gap: 8, minHeight: 40, padding: "0 16px", borderRadius: 11, border: "none", fontWeight: 900, fontSize: 14.5, cursor: "pointer", background: modo === k ? "var(--accent)" : "transparent", color: modo === k ? "#fff" : "var(--text)" }}><Icon n={i} s={16} />{t}</button>))}
+      <div role="tablist" aria-label="Entradas" className="scroll-x" style={{ display: "flex", gap: 4, background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 14, padding: 4, alignSelf: "flex-start", maxWidth: "100%", overflowX: "auto" }}>
+        {[["eventos", "Eventos", "ticket"], ["invitaciones", "Invitaciones", "mail"], ["descuentos", "Descuentos", "percent"], ["orgs", "Organizaciones", "globe"]].map(([k, t, i]) => (
+          <button key={k} role="tab" aria-selected={modo === k} onClick={() => cambiar(k)} style={{ display: "inline-flex", alignItems: "center", gap: 8, minHeight: 44, padding: "0 14px", borderRadius: 10, border: "none", fontWeight: 600, fontSize: 14.5, cursor: "pointer", flexShrink: 0, background: modo === k ? "var(--accent)" : "transparent", color: modo === k ? "#fff" : "var(--text)" }}><Icon n={i} s={16} />{t}</button>))}
       </div>
-      {modo === "orgs" ? <Organizaciones flash={props.flash} /> : <EntradasEventos {...props} />}
+      {modo === "orgs" ? <Organizaciones flash={props.flash} />
+        : modo === "invitaciones" ? <Invitaciones ev={props.ev} events={props.events} flash={props.flash} />
+        : modo === "descuentos" ? <Descuentos ev={props.ev} events={props.events} flash={props.flash} />
+        : <EntradasEventos {...props} />}
     </div>
   );
 }
@@ -212,7 +217,7 @@ function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, o
             </div>
             <button disabled={busy} onClick={activar} style={{ ...C.btnPrimary, minHeight: 50, padding: "0 26px", fontSize: 16 }}><Icon n="sparkle" s={18} />{busy ? "Activando…" : "Empezar"}</button>
           </section>
-        ) : verClientes ? <Clientes ev={ev} flash={flash} onVolver={() => setVerClientes(false)} />
+        ) : verClientes ? <Clientes ev={ev} flash={flash} onVolver={() => setVerClientes(false)} asistentes={<Ventas ev={ev} flash={flash} isMobile={isMobile} />} />
         : (<>
           <ResumenVentas ev={ev} onAbrir={() => { setVerClientes(true); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
           <Editor key={ev.id} ev={ev} d={d} setD={setD} flash={flash} isMobile={isMobile} onDuplicar={() => setDup(true)} onCambio={refrescarLista} />
@@ -317,10 +322,9 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
   const listo = req.every(r => r.ok);
   const hecho = [req[0].ok && req[1].ok && req[2].ok, req[3].ok, req[4].ok, true, true, f.estado === "publicado"];
 
-  const [vista, setVista] = useState(f.estado === "publicado" ? "ventas" : "config");
   const [paso, setPasoRaw] = useState(() => { if (f.estado !== "borrador") return 5; const i = req.findIndex(r => !r.ok); return i < 0 ? 5 : req[i].paso; });
   const arriba = useRef(null);
-  const setPaso = (i) => { setPasoRaw(i); setVista("config"); setTimeout(() => arriba.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 30); };
+  const setPaso = (i) => { setPasoRaw(i); setTimeout(() => arriba.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 30); };
   const [verPrevia, setVerPrevia] = useState(false);
   const [confirmarCierre, setConfirmarCierre] = useState(false);
   const cambiarEstado = (v) => {
@@ -444,16 +448,30 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
       {tarjeta("trend", "Técnicas de venta", "Como en una tienda online, pero siempre con datos reales: nada se inventa. Solo salen cuando hay datos que enseñar.", <>
         <Field l="Cómo enseñar lo que queda de cada tramo"><Seg full size="sm" valor={avisos.modoQuedan} onChange={(v) => setFicha({ avisos: { ...avisos, modoQuedan: v } })}
           opciones={[{ k: "pocas", t: "Quedan pocas" }, { k: "exacto", t: "Número" }, { k: "porcentaje", t: "% vendido" }]} /></Field>
-        <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "-4px 0 10px" }}>{avisos.modoQuedan === "exacto" ? "«Quedan 487 de 500 a este precio»: baja con cada venta, en directo, mientras la página está abierta." : avisos.modoQuedan === "porcentaje" ? "Solo la barra de % vendido, sin cifras." : "La cifra no se ve hasta que de verdad quedan pocas (según los avisos de arriba)."}</div>
+        <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "-4px 0 10px" }}>{avisos.modoQuedan === "exacto" ? "«Quedan 48 a este precio»: solo la cifra que queda, sin el total. Baja con cada venta, en directo." : avisos.modoQuedan === "porcentaje" ? "Solo la barra de % vendido, sin cifras." : "La cifra no se ve hasta que de verdad quedan pocas (según los avisos de arriba)."}</div>
+        {avisos.modoQuedan === "exacto" && <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1.6fr", gap: "0 12px", paddingLeft: 14, borderLeft: "2px solid var(--line)", marginLeft: 6, marginBottom: 10 }}>
+          <Field l="Enseñar la cifra cuando queden (o menos)"><input inputMode="numeric" style={C.input} placeholder="Siempre" value={avisos.umbralExacto ?? ""} onChange={e => setFicha({ avisos: { ...avisos, umbralExacto: limpioNum(e.target.value) } })} /></Field>
+          <Field l="Texto (usa {n} para la cifra)"><input style={C.input} maxLength={90} placeholder="Quedan {n} a este precio" value={avisos.textoQuedan || ""} onChange={e => setFicha({ avisos: { ...avisos, textoQuedan: e.target.value } })} /></Field>
+        </div>}
+        <div style={{ fontSize: 12.5, color: "var(--muted)", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginBottom: 10, lineHeight: 1.45 }}>
+          Las cifras salen siempre de las ventas reales. Puedes elegir <b style={{ color: "var(--text)" }}>cuándo</b> aparecen y <b style={{ color: "var(--text)" }}>con qué texto</b>, pero no inventarlas: anunciar ventas o existencias falsas es publicidad engañosa y está sancionado. Si quieres que se vea «Quedan 50», crea un tramo de 50 entradas a ese precio: la cifra será real.
+        </div>
         <Sw on={avisos.cuentaTramo} onClick={() => setFicha({ avisos: { ...avisos, cuentaTramo: !avisos.cuentaTramo } })} l="Cuenta atrás de cada precio («Este precio acaba en 15:59:12»)" sub="Usa la fecha de fin de venta del tramo. Al llegar a cero ese precio deja de venderse de verdad." />
         <Sw on={avisos.masVendido} onClick={() => setFicha({ avisos: { ...avisos, masVendido: !avisos.masVendido } })} l="Etiqueta «El más elegido»" sub="En el tramo con más ventas, a partir de 5." />
         <Sw on={avisos.notificaciones} onClick={() => setFicha({ avisos: { ...avisos, notificaciones: !avisos.notificaciones } })} l="Avisos de compras recientes" sub="«Alguien ha comprado 2 entradas · hace 3 min». Compras reales de las últimas 72 h; nunca nombres ni correos." />
         {avisos.notificaciones && <div style={{ paddingLeft: 14, borderLeft: "2px solid var(--line)", marginLeft: 6 }}>
           <Sw on={avisos.notifCiudad} onClick={() => setFicha({ avisos: { ...avisos, notifCiudad: !avisos.notifCiudad } })} l="Decir la ciudad («Alguien de Albacete…»)" sub="Solo si el formulario pide la ciudad." />
         </div>}
-        <Sw on={avisos.vendidas24} onClick={() => setFicha({ avisos: { ...avisos, vendidas24: !avisos.vendidas24 } })} l="«34 entradas vendidas en las últimas 24 h»" sub="Solo si son 5 o más." />
-        <Sw on={avisos.totalVendidas} onClick={() => setFicha({ avisos: { ...avisos, totalVendidas: !avisos.totalVendidas } })} l="«Ya van 350 personas con entrada»" />
-        {avisos.totalVendidas && <div style={{ maxWidth: 260, marginTop: 6 }}><Field l="Enseñarlo a partir de (entradas)"><input inputMode="numeric" style={C.input} value={avisos.minTotal} onChange={e => setFicha({ avisos: { ...avisos, minTotal: limpioNum(e.target.value) } })} /></Field></div>}
+        <Sw on={avisos.vendidas24} onClick={() => setFicha({ avisos: { ...avisos, vendidas24: !avisos.vendidas24 } })} l="«34 entradas vendidas en las últimas 24 h»" sub={`Con la cifra real. Solo si son ${avisos.minH24 || 5} o más.`} />
+        {avisos.vendidas24 && <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1.6fr", gap: "0 12px", paddingLeft: 14, borderLeft: "2px solid var(--line)", marginLeft: 6, marginTop: 6 }}>
+          <Field l="Enseñarlo a partir de (entradas)"><input inputMode="numeric" style={C.input} value={avisos.minH24 ?? 5} onChange={e => setFicha({ avisos: { ...avisos, minH24: limpioNum(e.target.value) } })} /></Field>
+          <Field l="Texto (usa {n} para la cifra)"><input style={C.input} maxLength={90} placeholder="{n} entradas vendidas en las últimas 24 h" value={avisos.textoH24 || ""} onChange={e => setFicha({ avisos: { ...avisos, textoH24: e.target.value } })} /></Field>
+        </div>}
+        <Sw on={avisos.totalVendidas} onClick={() => setFicha({ avisos: { ...avisos, totalVendidas: !avisos.totalVendidas } })} l="«Ya van 350 personas con entrada»" sub="Con la cifra real de entradas vendidas (las invitaciones no cuentan)." />
+        {avisos.totalVendidas && <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1.6fr", gap: "0 12px", paddingLeft: 14, borderLeft: "2px solid var(--line)", marginLeft: 6, marginTop: 6 }}>
+          <Field l="Enseñarlo a partir de (entradas)"><input inputMode="numeric" style={C.input} value={avisos.minTotal} onChange={e => setFicha({ avisos: { ...avisos, minTotal: limpioNum(e.target.value) } })} /></Field>
+          <Field l="Texto (usa {n} para la cifra)"><input style={C.input} maxLength={90} placeholder="Ya van {n} personas con entrada" value={avisos.textoTotal || ""} onChange={e => setFicha({ avisos: { ...avisos, textoTotal: e.target.value } })} /></Field>
+        </div>}
         <Sw on={avisos.cuentaEvento} onClick={() => setFicha({ avisos: { ...avisos, cuentaEvento: !avisos.cuentaEvento } })} l="Cuenta atrás hasta el evento («Faltan 3 días»)" sub="Solo el último mes antes del evento." />
         <Sw on={avisos.confianza} onClick={() => setFicha({ avisos: { ...avisos, confianza: !avisos.confianza } })} l="Sellos de confianza bajo las entradas" sub="Entrada nominativa · QR de un solo uso · Al momento en tu móvil y tu correo." />
       </>)}
@@ -538,18 +556,13 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
         </span>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-        <code style={{ background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 10, padding: "8px 10px", fontSize: 13, overflowWrap: "anywhere", flex: "1 1 220px", minWidth: 0 }}>{url}</code>
+        <code style={{ fontFamily: "inherit", background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 10, padding: "8px 10px", fontSize: 13, overflowWrap: "anywhere", flex: "1 1 220px", minWidth: 0 }}>{url}</code>
         <button onClick={copiar} style={C.btnSm}><Icon n="copy" s={14} />Copiar</button>
         <a href={url} target="_blank" rel="noopener noreferrer" style={{ ...C.btnSm, textDecoration: "none" }}><Icon n="eye" s={14} />{f.estado === "borrador" ? "Vista previa" : "Abrir"}</a>
       </div>
-      {/* Configurar / Ventas */}
-      <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
-        {[["config", "Configurar", "gear"], ["ventas", "Ventas y asistentes", "users"]].map(([k, t, i]) => (
-          <button key={k} onClick={() => setVista(k)} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 44, borderRadius: 12, fontWeight: 900, fontSize: 14.5, cursor: "pointer", border: `1px solid ${vista === k ? "var(--accent)" : "var(--line)"}`, background: vista === k ? "var(--accent)" : "var(--surface2)", color: vista === k ? "#fff" : "var(--text)" }}><Icon n={i} s={16} />{t}</button>))}
-      </div>
     </section>
 
-    {vista === "ventas" ? <Ventas ev={ev} flash={flash} isMobile={isMobile} /> : (<>
+    {(<>
       {/* ===== Pasos ===== */}
       <nav ref={arriba} aria-label="Pasos" style={{ display: "grid", gridTemplateColumns: "repeat(6,minmax(0,1fr))", gap: isMobile ? 3 : 8, scrollMarginTop: 12 }}>
         {PASOS.map((p, i) => { const on = i === paso; const ok = hecho[i] && i !== 3 && i !== 4; return (
@@ -914,6 +927,8 @@ function Ventas({ ev, flash, isMobile }) {
             </span>
             <span style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
               {e.prueba && <Badge c="var(--amber)">Prueba</Badge>}
+              {p.estado === "invitacion" && <Badge c="var(--blue)">Invitación</Badge>}
+              {p.descuento_codigo && <Badge c="var(--accent)">{p.descuento_codigo}</Badge>}
               {e.estado === "anulada" && <Badge c="var(--red)">Anulada</Badge>}
               {canjeDe[e.id] && <Badge c="var(--green)"><Icon n="check" s={11} w={2.6} />Dentro {new Date(canjeDe[e.id].canjeado_en).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</Badge>}
               {e.estado === "valida" && <button onClick={() => setTitular({ e, nombre: e.asistente })} style={C.btnSm}>Titular / reemitir</button>}

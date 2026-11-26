@@ -30,7 +30,7 @@ Deno.serve(async (req) => {
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
     if (compra) return await enviarCompra(admin, compra, body, clave);
-    const { data: p } = await admin.from("ticket_web_pedidos").select("id, evento_id, codigo, nombre, email, prueba, email_envios, email_ultimo").eq("acceso", acceso).maybeSingle();
+    const { data: p } = await admin.from("ticket_web_pedidos").select("id, evento_id, codigo, nombre, email, prueba, estado, email_envios, email_ultimo").eq("acceso", acceso).maybeSingle();
     if (!p) return json({ ok: false, motivo: "no_existe" }, 404);
     if (p.email_envios >= 3) return json({ ok: false, motivo: "limite" });
     if (p.email_ultimo && Date.now() - new Date(p.email_ultimo).getTime() < 120000) return json({ ok: false, motivo: "espera" });
@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
     ${f?.flyer_url ? `<img src="${esc(f.flyer_url)}" alt="" style="display:block;width:100%;max-height:340px;object-fit:cover;background:#0b0c10">` : ""}
     <div style="padding:22px">
       ${p.prueba ? `<div style="background:#ffb400;color:#1a1205;border-radius:10px;padding:8px 12px;font-weight:800;margin-bottom:14px">Entradas de PRUEBA: no son válidas para entrar.</div>` : ""}
-      <div style="font-size:14px;color:#6f747d;font-weight:700">¡Hola, ${esc(p.nombre.split(" ")[0])}! Ya tienes tus entradas para</div>
+      <div style="font-size:14px;color:#6f747d;font-weight:700">¡Hola, ${esc(p.nombre.split(" ")[0])}! ${p.estado === "invitacion" ? "Tienes una invitación para" : "Ya tienes tus entradas para"}</div>
       <div style="font-size:28px;font-weight:900;line-height:1.1;margin:6px 0 8px">${esc(e?.nombre)}</div>
       <div style="font-size:15px;color:#3b4048">${esc(fecha(e?.inicio || e?.fecha))}${e?.recinto ? ` · ${esc(e.recinto)}` : ""}${f?.direccion ? `<br>${esc(f.direccion)}` : ""}</div>
       <div style="margin:18px 0;border-top:1px solid #e6e8eb"></div>
@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         sender: { email: Deno.env.get("CORREO_REMITENTE")!, name: String(e?.nombre || "TIXFAST").slice(0, 60) },
         to: [{ email: p.email, name: p.nombre }],
-        subject: `${p.prueba ? "[PRUEBA] " : ""}Tus entradas · ${e?.nombre || "evento"}`,
+        subject: `${p.prueba ? "[PRUEBA] " : ""}${p.estado === "invitacion" ? "Tu invitación" : "Tus entradas"} · ${e?.nombre || "evento"}`,
         htmlContent: html,
         textContent: `Ya tienes tus entradas para ${e?.nombre}. Míralas y descarga el PDF aquí: ${enlace}`,
       }),

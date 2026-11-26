@@ -113,8 +113,9 @@ const Kpi = ({ t, v, sub, c }) => (
 );
 
 /* ---------- Vista de clientes ---------- */
-export function Clientes({ ev, onVolver, flash }) {
+export function Clientes({ ev, onVolver, flash, asistentes }) {
   const isMobile = useIsMobile();
+  const [vista, setVista] = useState(asistentes ? "asistentes" : "analisis");   // asistentes y puerta | compradores y análisis
   const [ambito, setAmbito] = useState("evento");
   const [pruebas, setPruebas] = useState(false);
   const [d, setD] = useState(null);
@@ -175,6 +176,8 @@ export function Clientes({ ev, onVolver, flash }) {
         <button onClick={() => setPruebas(x => !x)} aria-pressed={pruebas} style={{ ...C.btnSm, ...(pruebas ? { borderColor: "var(--amber)", color: "var(--amber)" } : {}) }}>{pruebas ? "Con pruebas" : "Sin pruebas"}</button>
       </div>
 
+      {asistentes && <Seg full opciones={[{ k: "asistentes", t: "Asistentes y puerta" }, { k: "analisis", t: "Compradores y análisis" }]} valor={vista} onChange={setVista} />}
+      {vista === "asistentes" && asistentes ? asistentes : (<>
       {legal && !legalOk && (
         <div role="alert" style={{ ...C.panel, borderColor: "var(--amber)", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           <Tile n="shield" c="var(--amber)" s={38} />
@@ -290,6 +293,7 @@ export function Clientes({ ev, onVolver, flash }) {
             </ul>
           </section>
         </>)}
+      </>)}
 
       {ficha && <FichaCliente c={ficha} onClose={() => setFicha(null)} flash={flash} onCambio={() => { setFicha(null); cargar(); }} />}
       {verLegal && <DatosLegales inicial={legal} onClose={() => setVerLegal(false)} onGuardado={(x) => { setLegal(x); setVerLegal(false); flash("Datos del responsable guardados"); }} flash={flash} />}

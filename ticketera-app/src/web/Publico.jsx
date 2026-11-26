@@ -9,7 +9,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { avisosDe } from "./avisos";
 import QrCodigo from "../qr/QrCodigo";
-import { textoQR, money, eur, fecha, hora, tema, Mensaje, MIS, cap, reducido, Diapositivas, Galeria, card, btn, Chip, Aviso, Linea, Tramo, CuentaAtras, AvisosCompra, PruebaSocial, CAMPOS, ERRORES, lbl, inpP, Campo, Check, CSS_PUB, InfoPrivacidad, PRIVACIDAD_VERSION } from "./comun";
+import { textoQR, money, eur, fecha, hora, tema, Mensaje, MIS, cap, reducido, Diapositivas, Galeria, card, btn, Chip, Aviso, Linea, Tramo, CuentaAtras, AvisosCompra, PruebaSocial, CAMPOS, ERRORES, lbl, inpP, Campo, Check, CSS_PUB, InfoPrivacidad, PRIVACIDAD_VERSION, precioConDescuento } from "./comun";
 export { textoQR } from "./comun";
 import { useCarrito, BarraCarrito, HojaCarrito, ElegirEntradas, CompraVarios } from "./Carrito";
 import PaginaOrganizacion, { MasFiestas } from "./Microsite";
@@ -362,6 +362,25 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
   const [novedades, setNovedades] = useState(false);   // casilla aparte y desmarcada (consentimiento libre)
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  // Código descuento: se puede traer en el enlace (?codigo=VERANO) o escribirlo aquí
+  const [cod, setCod] = useState(() => { try { return (new URLSearchParams(window.location.search).get("codigo") || "").toUpperCase().slice(0, 30); } catch { return ""; } });
+  const [desc, setDesc] = useState(null);          // { ok, tipo, valor, tramos, minimo, codigo } o { ok:false, motivo }
+  const [verCod, setVerCod] = useState(() => !!cod);
+  const nEntradas = items.reduce((n, t) => n + cant[t.id], 0);
+  const descOk = desc?.ok && nEntradas >= (desc.minimo || 1) ? desc : null;
+  const totalFinal = descOk ? items.reduce((sum, t) => sum + precioConDescuento(t.precio, t.id, descOk) * cant[t.id], 0) : total;
+  const ahorro = Math.max(0, Math.round((total - totalFinal) * 100) / 100);
+  const aplicar = async (codigo = cod) => {
+    const k = String(codigo || "").trim().toUpperCase();
+    if (!k) { setDesc(null); return; }
+    setDesc({ cargando: true });
+    try {
+      const { data, error } = await supabase.rpc("web_descuento_comprobar", { p_slug: ev.slug, p_codigo: k, p_email: emailOk ? c.email.trim() : null });
+      if (error) throw error;
+      setDesc(data || { ok: false, motivo: "descuento_no_valido" });
+    } catch { setDesc({ ok: false, motivo: "red" }); }
+  };
+  useEffect(() => { if (cod) aplicar(cod); }, []);   // código que llega en el enlace
   const set = (k, v) => setC(x => ({ ...x, [k]: v }));
   const pedir = (k) => (form[k] || "no") !== "no";
   const oblig = (k) => form[k] === "obligatorio";
@@ -381,6 +400,7 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
     try {
       const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: aceptaEdad, marketing: novedades, privacidad: PRIVACIDAD_VERSION };
       CAMPOS.forEach(f => { if (pedir(f.k) && c[f.k]) comprador[f.k] = String(c[f.k]).trim(); });
+      if (desc?.ok) comprador.descuento = desc.codigo;
       const { data, error } = await supabase.rpc("web_comprar", {
         p_slug: ev.slug, p_items: items.map(t => ({ tramo: t.id, cantidad: cant[t.id] })), p_comprador: comprador,
         p_asistentes: plazas.map((p, i) => ({ tramo: p.tramo, nombre: as[i].nombre.trim(), dni: pedir("dni_asistente") ? as[i].dni.trim() : "" })),
@@ -399,7 +419,22 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
       <div style={{ ...card, marginTop: 8 }}>
         <h2 style={{ fontSize: 20, margin: "0 0 4px", fontWeight: 900 }}>Tu pedido</h2>
         {items.map(t => <div key={t.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontWeight: 700 }}><span>{cant[t.id]} × {t.nombre}</span><span>{money(t.precio * cant[t.id])}</span></div>)}
-        <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--line)", marginTop: 6, paddingTop: 10, fontWeight: 900, fontSize: 20 }}><span>Total</span><span>{total ? eur(total) : "Gratis"}</span></div>
+        {ahorro > 0 && <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontWeight: 800, color: "var(--c)" }}><span>Código {descOk.codigo}</span><span>−{money(ahorro)}</span></div>}
+        <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--line)", marginTop: 6, paddingTop: 10, fontWeight: 900, fontSize: 20 }}><span>Total</span><span>{totalFinal ? eur(totalFinal) : "Gratis"}</span></div>
+        {total > 0 && (!verCod
+          ? <button type="button" onClick={() => setVerCod(true)} style={{ ...btn("transparent", "var(--c)"), padding: "12px 0 0", fontSize: 15, minHeight: 44 }}>¿Tienes un código descuento?</button>
+          : <div style={{ marginTop: 12 }}>
+              <label style={{ ...lbl, marginBottom: 6 }}><span>Código descuento</span>
+                <span style={{ display: "flex", gap: 8 }}>
+                  <input value={cod} onChange={e => { setCod(e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 30)); setDesc(null); }} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); aplicar(); } }}
+                    autoCapitalize="characters" autoComplete="off" enterKeyHint="done" style={{ ...inpP, flex: 1, minWidth: 0, letterSpacing: ".06em" }} />
+                  <button type="button" onClick={() => aplicar()} disabled={!cod || desc?.cargando} style={{ ...btn("var(--card2)", "var(--text)"), border: "1px solid var(--line)", padding: "0 18px", minHeight: 48, fontSize: 15, flexShrink: 0 }}>{desc?.cargando ? "…" : "Aplicar"}</button>
+                </span>
+              </label>
+              {desc && !desc.cargando && (desc.ok
+                ? <div role="status" style={{ fontSize: 14, fontWeight: 800, color: "var(--c)" }}>{descOk ? `Código aplicado: ${desc.tipo === "porcentaje" ? `${Number(desc.valor)} % menos` : `${money(desc.valor)} menos por entrada`}` : `Este código es para compras de ${desc.minimo} entradas o más.`}{descOk && ahorro <= 0 ? " (no vale para las entradas elegidas)" : ""}</div>
+                : <div role="alert" style={{ fontSize: 14, fontWeight: 800, color: "#ff6b6b" }}>{desc.motivo === "red" ? (navigator.onLine ? "No se ha podido comprobar el código. Vuelve a intentarlo." : "Sin conexión. Vuelve a intentarlo.") : ERRORES[desc.motivo] || "Ese código no vale."}</div>)}
+            </div>)}
       </div>
 
       <div style={{ ...card, marginTop: 12 }}>
@@ -435,7 +470,7 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
 
       {err && <div role="alert" style={{ marginTop: 12, background: "#c62828", color: "#fff", borderRadius: 12, padding: "12px 14px", fontWeight: 800 }}>{err}</div>}
       <button type="submit" disabled={busy} style={{ ...btn(T.d.color, T.tinta), width: "100%", marginTop: 14, padding: "18px", fontSize: 18, opacity: busy ? .6 : 1 }}>
-        {busy ? "Emitiendo tus entradas…" : total && ev.modo !== "pruebas" && !ev.vista_previa ? `Pagar ${eur(total)}` : "Conseguir mis entradas"}
+        {busy ? "Emitiendo tus entradas…" : totalFinal && ev.modo !== "pruebas" && !ev.vista_previa ? `Pagar ${eur(totalFinal)}` : "Conseguir mis entradas"}
       </button>
       {(ev.modo === "pruebas" || ev.vista_previa) && <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13, marginTop: 8 }}>Venta de prueba: no se cobra nada y las entradas no son válidas.</div>}
     </form>

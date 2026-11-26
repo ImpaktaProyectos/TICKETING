@@ -221,7 +221,7 @@ export function Sheet({ title, onClose, children, footer }) {
         ...(isMobile ? { borderRadius: "22px 22px 0 0", maxHeight: "94dvh", alignSelf: "flex-end" } : { borderRadius: 22, maxHeight: "90dvh", alignSelf: "center" }) }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "16px 18px 12px", borderBottom: "1px solid var(--line)" }}>
           <div style={{ fontWeight: 900, fontSize: 18, minWidth: 0 }}>{title}</div>
-          <button onClick={onClose} aria-label="Cerrar" style={{ width: 34, height: 34, borderRadius: 10, border: "1px solid var(--line)", background: "var(--surface2)", color: "var(--text)", display: "grid", placeItems: "center", cursor: "pointer", flexShrink: 0 }}><Icon n="x" s={16} /></button>
+          <button onClick={onClose} aria-label="Cerrar" style={{ width: 44, height: 44, borderRadius: 10, border: "1px solid var(--line)", background: "var(--surface2)", color: "var(--text)", display: "grid", placeItems: "center", cursor: "pointer", flexShrink: 0 }}><Icon n="x" s={16} /></button>
         </div>
         <div data-scroll style={{ overflowY: "auto", overflowX: "hidden", overscrollBehavior: "contain", padding: "16px 18px", flex: 1, minHeight: 0, WebkitOverflowScrolling: "touch" }}>{children}</div>
         {footer && <div style={{ padding: "12px 18px", paddingBottom: "calc(12px + env(safe-area-inset-bottom))", borderTop: "1px solid var(--line)", background: "var(--surface)", borderRadius: isMobile ? 0 : "0 0 22px 22px" }}>{footer}</div>}

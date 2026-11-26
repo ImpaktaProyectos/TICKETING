@@ -4,6 +4,7 @@ import { Icono } from "../iconos";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { base32, hexToBytes, QR_PREFIJO } from "../qr/token";
+import { textoCon } from "./avisos";
 
 export const money = (v) => { const n = Number(v) || 0; return n === 0 ? "Gratis" : n.toLocaleString("es-ES", { style: "currency", currency: "EUR" }); };
 export const eur = (v) => (Number(v) || 0).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
@@ -124,8 +125,8 @@ export function Tramo({ t, sig, avisos, n, T, onN, offset = 0, top = false, onFi
       </div>
       {pocas && <div className="pub-pulso" style={{ alignSelf: "flex-start", background: "var(--c)", color: T.tinta, borderRadius: 30, padding: "5px 12px", fontWeight: 900, fontSize: 13 }}>
         {Number.isFinite(umbralN) && t.quedan <= umbralN ? `¡Últimas ${t.quedan} entradas!` : "¡Quedan pocas!"}</div>}
-      {venta && modo === "exacto" && t.cantidad && t.quedan != null && t.quedan > 0 && (
-        <div style={{ fontSize: 14, fontWeight: 800 }}>Quedan <Cifra v={t.quedan} c="var(--c)" /> de {t.cantidad} a este precio</div>)}
+      {venta && modo === "exacto" && t.cantidad && t.quedan != null && t.quedan > 0 && !(Number.isFinite(parseInt(avisos.umbralExacto, 10)) && t.quedan > parseInt(avisos.umbralExacto, 10)) && (
+        <div style={{ fontSize: 14, fontWeight: 800 }}>{pintarTexto(textoCon(avisos.textoQuedan, t.quedan, null), (n) => <Cifra v={n} c="var(--c)" />) || <>Quedan <Cifra v={t.quedan} c="var(--c)" /> a este precio</>}</div>)}
       {venta && avisos.cuentaTramo !== false && t.venta_fin && <RelojTramo hasta={t.venta_fin} offset={offset} onFin={onFin} />}
       {venta && (avisos.mostrarVendido !== false || modo === "porcentaje") && pctVend != null && pctVend >= (modo === "porcentaje" ? 10 : 30) && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, fontWeight: 800, color: "var(--muted)" }}>
@@ -199,9 +200,12 @@ export function AvisosCompra({ social, servidor, offset = 0, T }) {
 // Franja de datos reales encima de las entradas: vendidas en 24 h, total y cuenta atrás al evento
 export function PruebaSocial({ ev, avisos, offset = 0 }) {
   const so = ev.social || {}; const items = [];
-  if (avisos.vendidas24 && so.h24 >= 5) items.push(["fuego", <><b>{so.h24}</b> entradas vendidas en las últimas 24 h</>]);
+  const min24 = parseInt(avisos.minH24, 10);
+  if (avisos.vendidas24 && so.h24 >= (Number.isFinite(min24) ? Math.max(1, min24) : 5))
+    items.push(["fuego", pintarTexto(textoCon(avisos.textoH24, so.h24, null), (n) => <b>{n}</b>) || <><b>{so.h24}</b> entradas vendidas en las últimas 24 h</>]);
   const min = parseInt(avisos.minTotal, 10);
-  if (avisos.totalVendidas && so.total >= (Number.isFinite(min) ? min : 50)) items.push(["personas", <>Ya van <b>{so.total}</b> personas con entrada</>]);
+  if (avisos.totalVendidas && so.total >= (Number.isFinite(min) ? min : 50))
+    items.push(["personas", pintarTexto(textoCon(avisos.textoTotal, so.total, null), (n) => <b>{n}</b>) || <>Ya van <b>{so.total}</b> personas con entrada</>]);
   const ini = new Date(ev.inicio || (ev.fecha ? ev.fecha + "T22:00" : "")).getTime(), falta = ini - (Date.now() + offset);
   if (avisos.cuentaEvento && falta > 0 && falta < 31 * 864e5) { const d = Math.floor(falta / 864e5), h = Math.floor(falta % 864e5 / 36e5);
     items.push(["reloj", d >= 1 ? <>Faltan <b>{d} {d === 1 ? "día" : "días"}</b>{d < 3 && h ? ` y ${h} h` : ""}</> : <>¡Es <b>hoy</b>! Faltan {h ? `${h} h` : "minutos"}</>]); }
@@ -244,7 +248,7 @@ export const ERRORES = {
   vacio: "Elige al menos una entrada.", cantidad: "Demasiadas entradas en una compra.", asistentes: "Falta el nombre de algún asistente.", nombre_asistente: "Escribe el nombre completo de cada asistente.",
   limite_email: "Has llegado al máximo de entradas por persona para este evento.", tramo_proximo: "Ese tramo aún no está a la venta.", tramo_agotado: "Ese tramo se acaba de agotar.",
   tramo_finalizado: "Ese tramo ya no está a la venta.", max_compra: "Superas el máximo por compra de un tramo.", sin_sitio: "No quedan tantas entradas en ese tramo.",
-  pago_no_disponible: "El pago online aún no está disponible para este evento.", demasiados_intentos: "Demasiados intentos seguidos. Espera unos minutos.", cerrado: "La venta está cerrada.", no_existe: "El evento ya no existe.",
+  pago_no_disponible: "El pago online aún no está disponible para este evento.", descuento_no_valido: "Ese código descuento no existe.", descuento_caducado: "Ese código descuento ha caducado.", descuento_no_empezado: "Ese código descuento aún no se puede usar.", descuento_agotado: "Ese código descuento ya no tiene usos disponibles.", descuento_ya_usado: "Ya has usado este código descuento.", descuento_minimo: "Para usar este código tienes que comprar más entradas.", descuento_no_aplica: "Ese código no vale para las entradas que has elegido.", descuento_vacio: "Escribe el código.", demasiados_intentos: "Demasiados intentos seguidos. Espera unos minutos.", cerrado: "La venta está cerrada.", no_existe: "El evento ya no existe.",
 };
 export const lbl = { display: "flex", flexDirection: "column", gap: 6, marginBottom: 12, fontWeight: 800, fontSize: 14 };
 export const inpP = { width: "100%", boxSizing: "border-box", background: "var(--card2)", color: "var(--text)", border: "1px solid var(--line)", borderRadius: 12, padding: "13px 14px", fontSize: 16, fontFamily: "inherit", outline: "none" };
@@ -317,4 +321,20 @@ export function InfoPrivacidad({ legal, organizador, previa }) {
       {hoja && (previa ? hoja : createPortal(hoja, document.body))}
     </div>
   );
+}
+
+// Precio de una entrada con un código descuento (igual que el servidor: web_precio_con_descuento).
+// Solo sirve para enseñarlo antes de comprar: el precio de verdad lo calcula siempre el servidor.
+export function precioConDescuento(precio, tramoId, d) {
+  const p = Number(precio) || 0;
+  if (!d?.ok || p <= 0) return p;
+  if (Array.isArray(d.tramos) && !d.tramos.includes(tramoId)) return p;
+  const v = Number(d.valor) || 0;
+  return Math.max(0, Math.round((d.tipo === "porcentaje" ? p * (1 - v / 100) : p - v) * 100) / 100);
+}
+
+// Pinta un texto de textoCon: las piezas { n } salen con el estilo de la cifra
+export function pintarTexto(piezas, cifra) {
+  if (!Array.isArray(piezas)) return null;
+  return <>{piezas.map((x, i) => typeof x === "string" ? <React.Fragment key={i}>{x}</React.Fragment> : <React.Fragment key={i}>{cifra(x.n)}</React.Fragment>)}</>;
 }
