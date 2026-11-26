@@ -102,14 +102,15 @@ returns numeric language sql immutable set search_path to '' as $$
 $$;
 
 -- ---------- Compra con código descuento ----------
--- Igual que la versión anterior, más: p_comprador.descuento (código). Si el código no vale, la compra no se hace
--- y se dice por qué (salvo en el carrito de varios eventos, donde se aplica solo en los eventos en los que vale).
+-- Parte de la versión rápida de 20261120100000_ticket_compras_rendimiento (comprueba los datos antes de bloquear
+-- el evento e IP de Cloudflare) y añade p_comprador.descuento. Si el código no vale, la compra no se hace y se
+-- dice por qué (salvo en el carrito de varios eventos, donde se aplica solo en los eventos en los que vale).
 create or replace function public.web_comprar(p_slug text, p_items jsonb, p_comprador jsonb, p_asistentes jsonb)
- returns jsonb
- language plpgsql
- security definer
- set search_path to ''
-as $function$
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
 declare
   f record; e record; t record; it jsonb; a jsonb; es_dueno boolean; v_prueba boolean;
   v_email text; v_nombre text; v_total numeric := 0; v_n int := 0; v_ya int; v_ip text; v_rec int;
@@ -117,14 +118,19 @@ declare
   campo text; nivel text; v_pago boolean := false; v_gastos numeric := 0; v_mkt boolean; v_nac date; v_datos jsonb := '{}'::jsonb; pedidos jsonb := '{}'::jsonb; v_cnt int;
   v_desc jsonb; v_cod text; v_suave boolean; v_pu numeric; v_ahorro numeric := 0; precios jsonb := '{}'::jsonb;
 begin
-  select * into f from public.ticket_web_eventos where slug = lower(p_slug) for update;
+  -- Primero se comprueba todo lo que no necesita bloquear el evento (datos, cantidades, límite por IP).
+  -- Así una avalancha de compras falsas o mal rellenadas no hace cola delante de las de verdad.
+  select * into f from public.ticket_web_eventos where slug = lower(p_slug);
   if f.evento_id is null then return jsonb_build_object('ok', false, 'motivo', 'no_existe'); end if;
   es_dueno := f.owner_id = (select auth.uid());
   if f.estado = 'cerrado' or (f.estado = 'borrador' and not es_dueno) then return jsonb_build_object('ok', false, 'motivo', 'cerrado'); end if;
   select * into e from public.ticket_eventos where id = f.evento_id;
   v_prueba := f.modo = 'pruebas' or f.estado = 'borrador';
 
-  v_ip := split_part(coalesce(current_setting('request.headers', true)::jsonb ->> 'x-forwarded-for', ''), ',', 1);
+  -- IP del comprador: la que pone Cloudflare (cf-connecting-ip, el navegador no puede inventarla);
+  -- si no viene, la primera de x-forwarded-for como hasta ahora
+  v_ip := btrim(coalesce(nullif(current_setting('request.headers', true)::jsonb ->> 'cf-connecting-ip', ''),
+                         split_part(coalesce(current_setting('request.headers', true)::jsonb ->> 'x-forwarded-for', ''), ',', 1)));
   if v_ip <> '' and coalesce(current_setting('tixfast.rrpp_venta', true), '') = '' then
     select count(*) into v_rec from public.ticket_web_pedidos where ip = v_ip and creado_en > now() - interval '10 minutes';
     if v_rec >= 15 then return jsonb_build_object('ok', false, 'motivo', 'demasiados_intentos'); end if;
@@ -154,6 +160,17 @@ begin
   if v_n = 0 then return jsonb_build_object('ok', false, 'motivo', 'vacio'); end if;
   if v_n > 20 then return jsonb_build_object('ok', false, 'motivo', 'cantidad'); end if;
   if jsonb_typeof(p_asistentes) <> 'array' or jsonb_array_length(p_asistentes) <> v_n then return jsonb_build_object('ok', false, 'motivo', 'asistentes'); end if;
+  for a in select * from jsonb_array_elements(p_asistentes) loop
+    if not (pedidos ? coalesce(a ->> 'tramo', '')) then return jsonb_build_object('ok', false, 'motivo', 'asistentes'); end if;
+    if length(btrim(coalesce(a ->> 'nombre', ''))) < 3 then return jsonb_build_object('ok', false, 'motivo', 'nombre_asistente'); end if;
+  end loop;
+
+  -- Ahora sí: se bloquea el evento (numeración de entradas y plazas) y se relee por si ha cambiado
+  select * into f from public.ticket_web_eventos where evento_id = f.evento_id for update;
+  if f.evento_id is null then return jsonb_build_object('ok', false, 'motivo', 'no_existe'); end if;
+  if f.estado = 'cerrado' or (f.estado = 'borrador' and not es_dueno) then return jsonb_build_object('ok', false, 'motivo', 'cerrado'); end if;
+  v_prueba := f.modo = 'pruebas' or f.estado = 'borrador';
+  select * into e from public.ticket_eventos where id = f.evento_id;
 
   select count(*) into v_ya from public.ticket_web_entradas x join public.ticket_web_pedidos p on p.id = x.pedido_id
    where x.evento_id = f.evento_id and lower(p.email) = v_email and x.estado = 'valida' and x.prueba = v_prueba and p.estado <> 'invitacion';
