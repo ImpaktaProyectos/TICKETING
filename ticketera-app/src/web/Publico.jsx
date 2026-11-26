@@ -19,8 +19,17 @@ import { Icono } from "../iconos";
 const PaginaBebidas = React.lazy(() => import("./Bebidas"));
 const PaginaPuesto = React.lazy(() => import("./Puesto"));
 
+import { codigoRP } from "./rrppEnlace";
+import { pagos, gastosDe } from "./pagosApi";
+const PanelRRPP = React.lazy(() => import("./PanelRRPP"));
+const CuentaRRPP = React.lazy(() => import("./CuentaRRPP"));
+
 export default function Publico() {
-  const m = window.location.pathname.match(/^\/(e|o|mis-entradas|compra|r|b|p)\/([^/?#]+)/);
+  const ruta = window.location.pathname;
+  // Portal de RRPP con cuenta: /rp (entrar o crear cuenta) y /rp/unirse/<token> (pedir colaborar con un organizador)
+  const unirse = ruta.match(/^\/rp\/unirse\/([0-9a-f-]{36})\/?$/i);
+  if (unirse || /^\/rp\/?$/.test(ruta)) return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><CuentaRRPP token={unirse ? unirse[1].toLowerCase() : null} /></React.Suspense>;
+  const m = ruta.match(/^\/(e|o|mis-entradas|compra|r|b|p|rp)\/([^/?#]+)/);
   if (!m) return <Mensaje titulo="Página no encontrada" />;
   const v = decodeURIComponent(m[2]);
   if (m[1] === "e") return <PaginaEvento slug={v.toLowerCase()} />;
@@ -29,6 +38,7 @@ export default function Publico() {
   if (m[1] === "r") return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><PaginaReservas token={v} /></React.Suspense>;
   if (m[1] === "p") return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><PaginaPuesto token={v} /></React.Suspense>;
   if (m[1] === "b") return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><PaginaBebidas token={v} /></React.Suspense>;
+  if (m[1] === "rp") return <React.Suspense fallback={<Mensaje titulo="Cargando tu panel…" />}><PanelRRPP acceso={v} /></React.Suspense>;
   return <MisEntradas acceso={v} />;
 }
 
@@ -415,10 +425,14 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
     } catch { setDesc({ ok: false, motivo: "red" }); }
   };
   useEffect(() => { if (cod) aplicar(cod); }, []);   // código que llega en el enlace
+  const [pagando, setPagando] = useState(false);
   const set = (k, v) => setC(x => ({ ...x, [k]: v }));
   const pedir = (k) => (form[k] || "no") !== "no";
   const oblig = (k) => form[k] === "obligatorio";
   const emailOk = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c.email.trim());
+  // Pago con Stripe (por ahora solo en modo pruebas con «pago de prueba» activado)
+  const conPago = !ev.vista_previa && ((total > 0 && ev.modo === "pruebas" && !!ev.pago_pruebas) || (ev.modo !== "pruebas" && !!ev.cobro_real));
+  const gastos = conPago ? gastosDe(totalFinal) : 0;
 
   const enviar = async (e) => {
     e.preventDefault(); setErr("");
@@ -432,7 +446,7 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
     if (!acepta) return setErr(ERRORES.condiciones);
     setBusy(true);
     try {
-      const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: aceptaEdad, marketing: novedades, privacidad: PRIVACIDAD_VERSION };
+      const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: aceptaEdad, marketing: novedades, privacidad: PRIVACIDAD_VERSION, rrpp: codigoRP() };
       CAMPOS.forEach(f => { if (pedir(f.k) && c[f.k]) comprador[f.k] = String(c[f.k]).trim(); });
       if (desc?.ok) comprador.descuento = desc.codigo;
       const { data, error } = await supabase.rpc("web_comprar", {
@@ -442,12 +456,16 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
       if (error) throw error;
       if (!data?.ok) { const k = String(data?.motivo || ""); setErr((k.startsWith("falta_") ? `Falta: ${CAMPOS.find(f => f.k === k.slice(6))?.t || k.slice(6)}.` : ERRORES[k] || "No se ha podido completar la compra.") + (data?.tramo ? ` (${data.tramo})` : "")); setBusy(false); return; }
       try { const l = JSON.parse(localStorage.getItem(MIS) || "[]") || []; l.unshift({ slug: ev.slug, acceso: data.acceso, codigo: data.codigo, t: Date.now() }); localStorage.setItem(MIS, JSON.stringify(l.slice(0, 30))); } catch {}
-      try { onExito && onExito(); } catch {}
-      if (data.pago) {
-        // Entradas reservadas: se pagan con tarjeta en Stripe y se vuelve a «Mis entradas»
-        const { data: c } = await supabase.functions.invoke("pagos", { body: { accion: "checkout", acceso: data.acceso, origen: window.location.origin } });
-        if (c?.url) { window.location.assign(c.url); return; }
+      if (data.pago) {   // reservadas: se paga en Stripe y al volver salen las entradas
+        setPagando(true);
+        const r = await pagos(supabase, "checkout", { acceso: data.acceso });
+        if (r?.url) { try { onExito && onExito(); } catch {} window.location.assign(r.url); return; }
+        if (r?.pagado) { window.location.assign(`/mis-entradas/${data.acceso}?nueva=1`); return; }
+        setPagando(false); setBusy(false);
+        setErr(r?.motivo === "sin_pasarela" ? "El pago con tarjeta aún no está activado en este evento." : "No se ha podido abrir el pago. Inténtalo de nuevo.");
+        return;
       }
+      try { onExito && onExito(); } catch {}
       window.location.assign(`/mis-entradas/${data.acceso}?nueva=1`);
     } catch { setErr(navigator.onLine ? "No se ha podido completar la compra. Inténtalo de nuevo." : "Sin conexión. Conéctate y vuelve a intentarlo."); setBusy(false); }
   };
@@ -458,8 +476,9 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
       <div style={{ ...card, marginTop: 8 }}>
         <h2 style={{ fontSize: 20, margin: "0 0 4px", fontWeight: 900 }}>Tu pedido</h2>
         {items.map(t => <div key={t.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontWeight: 700 }}><span>{cant[t.id]} × {t.nombre}</span><span>{money(t.precio * cant[t.id])}</span></div>)}
+        {gastos > 0 && <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontWeight: 700, color: "var(--muted)" }}><span>Gastos de gestión</span><span>{money(gastos)}</span></div>}
         {ahorro > 0 && <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontWeight: 800, color: "var(--c)" }}><span>Código {descOk.codigo}</span><span>−{money(ahorro)}</span></div>}
-        <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--line)", marginTop: 6, paddingTop: 10, fontWeight: 900, fontSize: 20 }}><span>Total</span><span>{totalFinal ? eur(totalFinal) : "Gratis"}</span></div>
+        <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--line)", marginTop: 6, paddingTop: 10, fontWeight: 900, fontSize: 20 }}><span>Total</span><span>{totalFinal ? eur(totalFinal + gastos) : "Gratis"}</span></div>
         {total > 0 && (!verCod
           ? <button type="button" onClick={() => setVerCod(true)} style={{ ...btn("transparent", "var(--c)"), padding: "12px 0 0", fontSize: 15, minHeight: 44 }}>¿Tienes un código descuento?</button>
           : <div style={{ marginTop: 12 }}>
@@ -509,9 +528,10 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
 
       {err && <div role="alert" style={{ marginTop: 12, background: "#c62828", color: "#fff", borderRadius: 12, padding: "12px 14px", fontWeight: 800 }}>{err}</div>}
       <button type="submit" disabled={busy} style={{ ...btn(T.d.color, T.tinta), width: "100%", marginTop: 14, padding: "18px", fontSize: 18, opacity: busy ? .6 : 1 }}>
-        {busy ? "Emitiendo tus entradas…" : totalFinal && ev.modo !== "pruebas" && !ev.vista_previa ? `Pagar ${eur(totalFinal)}` : "Conseguir mis entradas"}
+        {pagando ? "Abriendo el pago seguro…" : busy ? (conPago ? "Reservando tus entradas…" : "Emitiendo tus entradas…") : conPago || (totalFinal && ev.modo !== "pruebas" && !ev.vista_previa) ? `Pagar ${eur(totalFinal + gastos)}` : "Conseguir mis entradas"}
       </button>
-      {(ev.modo === "pruebas" || ev.vista_previa) && <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13, marginTop: 8 }}>Venta de prueba: no se cobra nada y las entradas no son válidas.</div>}
+      {conPago ? <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13, marginTop: 8, lineHeight: 1.45 }}>Pago de PRUEBA con Stripe: usa la tarjeta 4242 4242 4242 4242, cualquier fecha futura y cualquier CVC. No se cobra nada de verdad y las entradas no valen en la puerta.</div>
+        : (ev.modo === "pruebas" || ev.vista_previa) && <div style={{ textAlign: "center", color: "var(--muted)", fontSize: 13, marginTop: 8 }}>Venta de prueba: no se cobra nada y las entradas no son válidas.</div>}
     </form>
   );
 }
@@ -529,48 +549,38 @@ function MisEntradas({ acceso }) {
       setCorreo(auto && m !== "enviado" ? "" : m);
     } catch { setCorreo(auto ? "" : "error"); }
   };
-  const vueltaPago = new URLSearchParams(window.location.search).has("pago");
-  const [pagando, setPagando] = useState(false);
-  const cargar = () => supabase.rpc("web_pedido", { p_acceso: acceso }).then(({ data, error }) => { setD(error ? "error" : data || null); return error ? null : data; });
+  const cargar = () => supabase.rpc("web_pedido", { p_acceso: acceso }).then(({ data, error }) => setD(error ? "error" : data || null));
+  const estado = d && d !== "error" ? d.pedido?.estado : null;
+  // Recién compradas: se mandan al correo una vez (si el envío está activado), cuando ya están emitidas
   useEffect(() => {
-    if (!/^[0-9a-f-]{36}$/i.test(acceso)) { setD(null); return; }
-    document.title = "Mis entradas";
-    let vivo = true;
-    (async () => {
-      let x = await cargar();
-      // Vuelta de la página de pago: se confirma con Stripe (por si el aviso automático aún no ha llegado)
-      for (let i = 0; vivo && vueltaPago && x?.pedido?.estado === "pendiente" && i < 8; i++) {
-        try { await supabase.functions.invoke("pagos", { body: { accion: "confirmar", acceso } }); } catch {}
-        await new Promise(r => setTimeout(r, 2500));
-        x = await cargar();
-      }
-    })();
-    return () => { vivo = false; };
-  }, [acceso]);
-  // Recién compradas (y ya pagadas): se mandan al correo una vez (si el envío está activado)
-  const listo = d && typeof d === "object" && d.pedido?.estado !== "pendiente";
-  useEffect(() => {
-    if (!nueva || !listo) return;
+    if (!nueva || !estado || estado === "pendiente" || estado === "anulado") return;
     const k = "tixfast_correo_" + acceso;
     try { if (sessionStorage.getItem(k)) return; sessionStorage.setItem(k, "1"); } catch {}
     enviarCorreo(true);
-  }, [acceso, listo]);
-  const irAPagar = async () => {
-    setPagando(true);
-    try {
-      const { data } = await supabase.functions.invoke("pagos", { body: { accion: "checkout", acceso, origen: window.location.origin } });
-      if (data?.url) { window.location.assign(data.url); return; }
-      if (data?.pagado) { await cargar(); }
-      else alert(data?.motivo === "caducado" ? "La reserva de estas entradas ha caducado. Vuelve a elegirlas en la página del evento." : "No se ha podido abrir el pago. Inténtalo de nuevo.");
-    } catch { alert("No se ha podido abrir el pago. Revisa tu conexión."); }
-    setPagando(false);
-  };
+  }, [acceso, estado]);
+  useEffect(() => {
+    if (!/^[0-9a-f-]{36}$/i.test(acceso)) { setD(null); return; }
+    cargar();
+    document.title = "Mis entradas";
+  }, [acceso]);
+  // Vuelve de Stripe: se confirma el pago y salen las entradas
+  useEffect(() => {
+    if (estado !== "pendiente") return;
+    let vivo = true, n = 0;
+    const mirar = async () => {
+      if (!vivo) return;
+      try { const r = await pagos(supabase, "confirmar", { acceso }); if (r?.estado && r.estado !== "pendiente") { await cargar(); return; } } catch {}
+      if (++n < 40) setTimeout(mirar, n < 10 ? 2000 : 5000); else cargar();
+    };
+    mirar();
+    return () => { vivo = false; };
+  }, [estado, acceso]);
   if (d === undefined) return <Mensaje titulo="Cargando tus entradas…" />;
   if (d === "error") return <Mensaje titulo="No se han podido cargar" texto="Revisa tu conexión y vuelve a abrir el enlace." />;
   if (!d) return <Mensaje titulo="Enlace no válido" texto="Revisa que el enlace esté completo." />;
-  if (d.pedido?.estado === "pendiente") return vueltaPago
-    ? <Mensaje titulo="Confirmando el pago…" texto="Tarda unos segundos. Si ya has pagado, tus entradas aparecerán aquí aunque cierres la página." />
-    : <Mensaje titulo="Falta el pago" texto={<>Tus entradas están reservadas unos minutos.<br /><button onClick={irAPagar} disabled={pagando} style={{ ...btn(tema(d.evento.diseno).d.color, tema(d.evento.diseno).tinta), marginTop: 14, padding: "14px 22px", fontSize: 16 }}>{pagando ? "Abriendo el pago…" : "Pagar ahora"}</button></>} />;
+  if (estado === "pendiente") return <Mensaje titulo="Confirmando tu pago…" texto="Un momento: en cuanto Stripe lo confirme salen tus entradas. No cierres esta página." />;
+  if (estado === "anulado" && !(d.entradas || []).length) return <Mensaje titulo="El pago no se completó" texto="No se ha cobrado nada y las entradas se han liberado. Puedes volver a comprarlas.">
+    {d.evento?.slug && <a href={`/e/${d.evento.slug}`} style={{ ...btn("#ff5a3c", "#fff"), marginTop: 16, textDecoration: "none" }}>Volver al evento</a>}</Mensaje>;
   const T = tema(d.evento.diseno), ev = d.evento, p = d.pedido;
   const desde = ev.inicio ? new Date(new Date(ev.inicio).getTime() - (ev.qr_horas_antes ?? 24) * 3600000) : null;
   const descargar = async () => {

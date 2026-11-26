@@ -1,5 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { guardarCodigoRP } from "./web/rrppEnlace.js";
 import App from "./App.jsx";
 import { RequireSession } from "./auth.jsx";
 import { registrarError } from "./errores";
@@ -32,7 +33,8 @@ class ErrorBoundary extends React.Component {
 }
 
 // Páginas públicas de venta (/e/<evento>) y de entradas (/mis-entradas/<acceso>): sin sesión ni TPV
-const PUBLICA = /^\/(e|o|mis-entradas|compra|r|b|p)\//.test(window.location.pathname);
+const PUBLICA = /^\/(e|o|mis-entradas|compra|r|b|p|rp)\/|^\/rp$/.test(window.location.pathname);
+if (PUBLICA) guardarCodigoRP();   // limpia el código de RRPP que guardaba la versión anterior
 const Publico = React.lazy(() => import("./web/Publico.jsx"));
 
 ReactDOM.createRoot(document.getElementById("root")).render(

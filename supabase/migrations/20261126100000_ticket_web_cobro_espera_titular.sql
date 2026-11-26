@@ -45,6 +45,18 @@ begin
   execute d;
 end $$;
 
+-- La página pública necesita saber si el evento cobra con tarjeta (para enseñar los gastos y el botón «Pagar»)
+do $$
+declare d text;
+begin
+  select pg_get_functiondef('public.web_evento_publico(text)'::regprocedure) into d;
+  if position('cobro_real' in d) > 0 then return; end if;
+  d := replace(d, $a$'pago_pruebas', coalesce(f.pago_pruebas, false),$a$,
+                  $b$'pago_pruebas', coalesce(f.pago_pruebas, false), 'cobro_real', f.modo <> 'pruebas' and f.estado <> 'borrador' and public.pago_real_activo(f.owner_id),$b$);
+  if position('cobro_real' in d) = 0 then raise exception 'web_evento_publico: no se ha encontrado dónde añadir cobro_real'; end if;
+  execute d;
+end $$;
+
 -- ---------- 2) Comprobar códigos: como mucho 20 intentos cada 10 minutos por conexión ----------
 create table if not exists public.ticket_web_intentos (
   id bigint generated always as identity primary key,

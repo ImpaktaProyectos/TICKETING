@@ -13,6 +13,7 @@ import { ResumenVentas, Clientes } from "./Clientes.jsx";
 import { DineroEntradas } from "./DineroEntradas.jsx";
 import { Invitaciones } from "./Invitaciones.jsx";
 import { Descuentos } from "./Descuentos.jsx";
+import { MonederoOrganizador } from "./Monedero.jsx";
 
 const urlVenta = (slug) => `${window.location.origin}/e/${slug}`;
 const ESTADOS = { borrador: { t: "Borrador", c: "var(--muted)" }, publicado: { t: "A la venta", c: "var(--green)" }, cerrado: { t: "Venta cerrada", c: "var(--red)" } };
@@ -442,7 +443,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
 
     /* ---------- 5 · Opciones ---------- */
     <div key="opciones" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <CobroTarjeta flash={flash} prueba={f.modo === "pruebas"} />
+      {!(f.pago_pruebas && (f.modo || "pruebas") === "pruebas") && <CobroTarjeta flash={flash} prueba={f.modo === "pruebas"} />}
       {tarjeta("bolt", "Avisos de urgencia", "Siempre con datos reales: solo salen cuando de verdad quedan pocas.", <>
         <Sw primero on={avisos.activo} onClick={() => setFicha({ avisos: { ...avisos, activo: !avisos.activo } })} l="Mostrar «¡Quedan pocas!» y «Últimas entradas»" />
         {avisos.activo && <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0 12px", marginTop: 10 }}>
@@ -523,7 +524,12 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
                 <span style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 15.5 }}><span style={{ width: 20, height: 20, borderRadius: 20, border: `2px solid ${on ? "var(--text)" : "var(--line)"}`, display: "grid", placeItems: "center" }}>{on && <span style={{ width: 10, height: 10, borderRadius: 10, background: "var(--text)" }} />}</span>{t}</span>
                 <span style={{ display: "block", fontSize: 12.5, color: "var(--muted)", marginTop: 6, lineHeight: 1.4 }}>{s}</span>
               </button>); })}
+          {(f.modo || "pruebas") === "pruebas" && <label style={{ gridColumn: "1 / -1", display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 4px 0", cursor: "pointer", fontSize: 13.5 }}>
+            <input type="checkbox" checked={!!f.pago_pruebas} onChange={e => setFicha({ pago_pruebas: e.target.checked })} style={{ width: 20, height: 20, marginTop: 1, accentColor: "var(--accent)" }} />
+            <span><b>Probar el cobro con tarjeta (Stripe, modo pruebas)</b><br /><span style={{ color: "var(--muted)" }}>Los tramos de pago se «pagan» con la tarjeta de prueba 4242 4242 4242 4242 y, al acabar el evento, se reparte solo a tu monedero y al de tus RRPP. No se cobra nada de verdad.</span></span>
+          </label>}
         </div>))}
+      {f.pago_pruebas && (f.modo || "pruebas") === "pruebas" && <MonederoOrganizador flash={flash} />}
       <section style={{ ...C.hero, padding: isMobile ? 16 : 20 }}>
         {f.estado === "borrador" && <>
           <div style={{ fontWeight: 700, fontSize: 18 }}>Poner a la venta</div>
