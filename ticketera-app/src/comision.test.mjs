@@ -1,0 +1,20 @@
+import assert from "node:assert/strict";
+import { comisionDe, gastosComprador, reparto, costeStripe } from "./comision.js";
+let n = 0; const ok = (name, f) => { f(); n++; console.log("✓", name); };
+const T = { pct: 8, min: 0.5, iva: 21 };
+// Mismos casos que la prueba de la base de datos
+ok("20 € → 1,60 € de comisión", () => assert.equal(comisionDe(20, 1, T), 1.6));
+ok("5 € → se aplica el mínimo (0,50 €)", () => assert.equal(comisionDe(5, 1, T), 0.5));
+ok("entrada gratis → sin comisión", () => assert.equal(comisionDe(0, 3, T), 0));
+ok("la comisión nunca supera el precio", () => assert.equal(comisionDe(0.3, 1, T), 0.3));
+ok("2 entradas por 40 € → 3,20 €", () => assert.equal(comisionDe(40, 2, T), 3.2));
+ok("gastos recomendados = comisión", () => assert.equal(gastosComprador(20, 1, { modo: "recomendado", ...T }), 1.6));
+ok("gastos por entrada: 1 € × 2", () => assert.equal(gastosComprador(40, 2, { modo: "por_entrada", por_entrada: 1, ...T }), 2));
+ok("sin gastos", () => assert.equal(gastosComprador(40, 2, { modo: "ninguno", ...T }), 0));
+ok("recomendado: el organizador cobra el 100 %", () => assert.equal(reparto(20, 1, { modo: "recomendado", ...T }).organizador, 20));
+ok("gastos más bajos: el organizador asume la diferencia", () => assert.equal(reparto(20, 1, { modo: "por_entrada", por_entrada: 1, ...T }).organizador, 19.4));
+ok("gastos más altos: el organizador se queda la diferencia", () => assert.equal(reparto(20, 1, { modo: "por_entrada", por_entrada: 3, ...T }).organizador, 21.4));
+ok("reparto de 40 € con 2 € de gastos = 38,80 € (como el servidor)", () => assert.equal(reparto(40, 2, { modo: "por_entrada", por_entrada: 1, ...T }).organizador, 38.8));
+ok("desglose de la factura: 3,20 = 2,64 + 0,56", () => { const r = reparto(40, 2, { modo: "ninguno", ...T }); assert.equal(r.comisionBase, 2.64); assert.equal(r.comisionIva, 0.56); });
+ok("Stripe 1,5 % + 0,25 € de 21,60 € = 0,57 €", () => assert.equal(costeStripe(21.6), 0.57));
+console.log(`\n${n} pruebas OK`);

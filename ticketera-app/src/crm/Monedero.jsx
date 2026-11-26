@@ -1,5 +1,6 @@
 // ===================== Monedero del organizador (Stripe) =====================
-// Al acabar cada evento, lo cobrado por las entradas (menos la comisión de los RRPP con monedero) llega aquí solo.
+// Al acabar cada evento, lo cobrado por las entradas y los gastos de gestión, menos la comisión de TIXFAST y la de los RRPP
+// con monedero, llega aquí solo.
 // Desde aquí se pasa al banco. El alta (DNI/CIF y cuenta bancaria) la hace Stripe; TIXFAST no guarda esos datos.
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
@@ -44,7 +45,7 @@ export function MonederoOrganizador({ flash }) {
         <Tile n="wallet" s={38} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 900, fontSize: 16, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>Tu monedero {m.modo === "pruebas" && <Badge c="var(--amber)">Modo pruebas</Badge>}</div>
-          <div style={{ color: "var(--muted)", fontSize: 13 }}>Al acabar cada evento llega solo lo cobrado por las entradas, menos la comisión de tus RRPP con monedero.</div>
+          <div style={{ color: "var(--muted)", fontSize: 13 }}>Al acabar cada evento llega solo lo cobrado por las entradas y los gastos de gestión, menos la comisión de TIXFAST (te llega su factura en Facturación › Gastos) y la de tus RRPP con monedero.</div>
         </div>
       </div>
       {!c ? <button onClick={alta} disabled={!!busy} style={C.btnPrimary}><Icon n="wallet" s={16} />{busy ? "Abriendo Stripe…" : "Activar mi monedero"}</button>
@@ -65,7 +66,8 @@ export function MonederoOrganizador({ flash }) {
         <div style={{ fontWeight: 800, fontSize: 13, color: "var(--muted)", marginBottom: 4 }}>Repartos de tus eventos</div>
         {m.repartos.map(r => { const [t, col] = ESTADO[r.estado] || [r.estado, "var(--muted)"]; return (
           <div key={r.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "8px 0", borderTop: "1px solid var(--line)", fontSize: 13.5 }}>
-            <div style={{ minWidth: 0 }}><b>{r.evento}</b> · {r.beneficiario === "rrpp" ? `RRPP ${r.detalle?.nombre || ""}` : "para ti"}<div style={{ color: col, fontSize: 12, fontWeight: 800 }}>{t}{r.beneficiario === "rrpp" && r.estado === "sin_monedero" ? " · sin monedero: le pagas tú" : ""}</div></div>
+            <div style={{ minWidth: 0 }}><b>{r.evento}</b> · {r.beneficiario === "rrpp" ? `RRPP ${r.detalle?.nombre || ""}` : "para ti"}<div style={{ color: col, fontSize: 12, fontWeight: 800 }}>{t}{r.beneficiario === "rrpp" && r.estado === "sin_monedero" ? " · sin monedero: le pagas tú" : ""}</div>
+              {r.beneficiario === "organizador" && Number(r.detalle?.comision) > 0 && <div style={{ color: "var(--muted)", fontSize: 12 }}>Entradas {money(r.detalle.cobrado)}{Number(r.detalle.gastos) > 0 ? ` + gastos ${money(r.detalle.gastos)}` : ""} − comisión TIXFAST {money(r.detalle.comision)}{Number(r.detalle.a_rrpp) > 0 ? ` − RRPP ${money(r.detalle.a_rrpp)}` : ""}</div>}</div>
             <b style={{ flexShrink: 0 }}>{money(r.importe)}</b>
           </div>); })}
       </div>}

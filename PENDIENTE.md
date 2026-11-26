@@ -29,6 +29,17 @@ refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las fun
 - [x] Aplicar `20261118090000_ticket_multipuesto.sql` (después de la de planes) y publicar la app (ruta `/p/`) (15/11/2026).
 - [ ] Prueba real: evento Multipuesto, 2 puestos, venta en caja y canje desde dos móviles.
 
+## 2c-bis. Comisión de TIXFAST y facturas a los organizadores (27/11/2026)
+- [ ] Aplicar `20261127090000_ticket_comision_plataforma.sql` (probada en una transacción que se deshace: comisión 8 % con
+      mínimo 0,50 €, gastos por evento, reparto entradas + gastos − comisión, factura TX y copia en Facturación › Gastos).
+- [ ] Publicar las funciones `pagos`, `pagos-stripe` y `admin-plataforma`, y después la app.
+- [ ] Panel TIXFAST › Comisiones: revisar el % y el mínimo con la calculadora y rellenar los **datos fiscales de TIXFAST**
+      (sin ellos las facturas quedan preparadas y salen solas al guardarlos).
+- [ ] Prueba con la tarjeta 4242: compra con gastos «recomendado», «elegir importe» y «sin gastos»; reparto con `ahora`;
+      comprobar el importe del monedero, la factura en el panel y que el coste real de Stripe aparece en el informe.
+- [ ] Que el organizador tenga sus datos fiscales (Facturación › Datos fiscales); si no, su factura espera.
+- [ ] Más adelante: enviar también la factura en PDF por correo (ahora le aparece sola en Facturación › Gastos).
+
 ## 2d. Rendimiento con mucha gente a la vez (prueba de carga del 18/11/2026, ver supabase/pruebas-carga/)
 - [ ] **Aplicar, por este orden** (probarlas antes en una transacción que se deshace) y después publicar la app:
       1. `20261120090000_ticket_rendimiento.sql` (número de ticket, refresco incremental, tope de 500 unidades)

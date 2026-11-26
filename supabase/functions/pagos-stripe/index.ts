@@ -1,6 +1,6 @@
 // TIXFAST · avisos de Stripe (webhooks)
 // Comprueba la firma de cada aviso con los secretos guardados por «pagos › preparar» y:
-//   · pago completado → emite las entradas (una sola vez)
+//   · pago completado → emite las entradas (una sola vez) y guarda lo que cobró Stripe
 //   · pago caducado o fallido → suelta la reserva
 //   · cambio en un monedero (alta) → actualiza su estado
 //   · retirada al banco pagada / fallida → actualiza la retirada
@@ -47,6 +47,9 @@ Deno.serve(async (req) => {
         const cargo = typeof piObj?.latest_charge === "string" ? piObj.latest_charge : piObj?.latest_charge?.id ?? null;
         const { error } = await admin.rpc("pago_emitir", { p_pedido: pedido, p_sesion: o.id, p_pi: pi, p_cargo: cargo, p_importe: Math.round(o.amount_total) / 100 });
         if (error) throw error;
+        // Lo que cobra Stripe (para saber el margen de TIXFAST). Si aún no está, se completa al repartir.
+        if (cargo) { try { const ch = await stripeGet(`charges/${cargo}?expand[]=balance_transaction`); const fee = ch?.balance_transaction?.fee;
+          if (typeof fee === "number") await admin.from("ticket_pagos").update({ coste_stripe: Math.round(fee) / 100 }).eq("pedido_id", pedido); } catch { /* nada */ } }
         break;
       }
       case "checkout.session.expired":

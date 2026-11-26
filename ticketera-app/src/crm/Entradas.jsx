@@ -14,6 +14,7 @@ import { DineroEntradas } from "./DineroEntradas.jsx";
 import { Invitaciones } from "./Invitaciones.jsx";
 import { Descuentos } from "./Descuentos.jsx";
 import { MonederoOrganizador } from "./Monedero.jsx";
+import { GastosGestion } from "./GastosGestion.jsx";
 import { reducirImagen } from "../imagenes";
 
 const urlVenta = (slug) => `${window.location.origin}/e/${slug}`;
@@ -536,6 +537,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
           </label>}
         </div>))}
       {f.pago_pruebas && (f.modo || "pruebas") === "pruebas" && <MonederoOrganizador flash={flash} />}
+      {tarjeta("percent", "Gastos de gestión del comprador", "Lo que paga el comprador además de la entrada al pagar con tarjeta.", <GastosGestion f={f} tramos={d.tramos || []} setFicha={setFicha} isMobile={isMobile} />)}
       <section style={{ ...C.hero, padding: isMobile ? 16 : 20 }}>
         {f.estado === "borrador" && <>
           <div style={{ fontWeight: 700, fontSize: 18 }}>Poner a la venta</div>

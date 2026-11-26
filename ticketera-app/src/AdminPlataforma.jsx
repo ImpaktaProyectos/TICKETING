@@ -1,6 +1,6 @@
 // ===================== PANEL DE ADMINISTRACIÓN DE TIXFAST =====================
 // Solo lo ven los administradores de la plataforma (tabla ticket_superadmins).
-// Resumen · Planes (crear y editar los planes de suscripción) · Cuentas · Crecimiento · Errores · Registro.
+// Resumen · Planes (crear y editar los planes de suscripción) · Comisiones (y facturas a organizadores) · Cuentas · Crecimiento · Errores · Registro.
 // Los datos los dan funciones del servidor que comprueban el permiso: aunque alguien
 // abriera esta pantalla sin serlo, no recibiría nada.
 import React, { useEffect, useMemo, useState } from "react";
@@ -8,6 +8,7 @@ import { Capa } from "./Capa";
 import { supabase } from "./supabase";
 import { ESTADO_CUENTA, eurosTxt } from "./cuenta";
 import { Planes } from "./AdminPlanes";
+import { Comisiones } from "./AdminComisiones";
 import { Icono as IcoUI, enTexto as ikUI } from "./iconos";
 
 const fecha = (iso, conHora) => iso ? new Date(iso).toLocaleString("es-ES", conHora ? { day: "numeric", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" } : { day: "numeric", month: "short", year: "numeric" }) : "—";
@@ -45,13 +46,14 @@ export default function AdminPlataforma({ onCerrar }) {
         <button onClick={onCerrar} style={K.btn} aria-label="Cerrar el panel">Cerrar</button>
       </header>
       <nav role="tablist" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(104px, 1fr))", gap: 6, padding: "10px 12px", borderBottom: "1px solid var(--line)" }}>
-        {[["resumen", "Resumen"], ["planes", "Planes"], ["cuentas", "Cuentas"], ["crecimiento", "Crecimiento"], ["errores", "Errores"], ["registro", "Registro"]].map(([k, t]) =>
+        {[["resumen", "Resumen"], ["planes", "Planes"], ["comisiones", "Comisiones"], ["cuentas", "Cuentas"], ["crecimiento", "Crecimiento"], ["errores", "Errores"], ["registro", "Registro"]].map(([k, t]) =>
           <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} style={{ ...K.chip(tab === k), borderRadius: 12, minHeight: 42, padding: 0 }}>{t}</button>)}
       </nav>
       <main data-scroll style={{ flex: 1, overflow: "auto", overscrollBehavior: "contain", padding: "14px 12px calc(20px + env(safe-area-inset-bottom))" }}>
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
           {tab === "resumen" && <Resumen avisar={avisar} irA={setTab} />}
           {tab === "planes" && <Planes avisar={avisar} />}
+          {tab === "comisiones" && <Comisiones avisar={avisar} />}
           {tab === "cuentas" && <Cuentas avisar={avisar} />}
           {tab === "crecimiento" && <Crecimiento avisar={avisar} />}
           {tab === "errores" && <Errores avisar={avisar} />}

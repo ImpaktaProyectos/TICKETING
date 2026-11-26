@@ -432,7 +432,7 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
   const emailOk = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c.email.trim());
   // Pago con Stripe (por ahora solo en modo pruebas con «pago de prueba» activado)
   const conPago = !ev.vista_previa && ((total > 0 && ev.modo === "pruebas" && !!ev.pago_pruebas) || (ev.modo !== "pruebas" && !!ev.cobro_real));
-  const gastos = conPago ? gastosDe(totalFinal) : 0;
+  const gastos = conPago ? gastosDe(totalFinal, plazas.length, ev.gastos_cfg) : 0;
 
   const enviar = async (e) => {
     e.preventDefault(); setErr("");

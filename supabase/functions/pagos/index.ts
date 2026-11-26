@@ -5,7 +5,8 @@
 //   alta       (con sesión)   → crea el monedero (cuenta conectada) del RRPP u organizador y devuelve el enlace de alta de Stripe
 //   monedero   (con sesión)   → estado del monedero, saldo real en Stripe, repartos y retiradas
 //   retirar    (con sesión)   → pasa el saldo disponible del monedero a su banco
-//   repartir   (tarea programada, con clave) → suelta reservas caducadas y reparte los eventos acabados
+//   repartir   (tarea programada, con clave) → suelta reservas caducadas, reparte los eventos acabados y emite
+//                                               la factura de la comisión de TIXFAST a cada organizador
 //   preparar   (con clave)    → da de alta en Stripe los avisos (webhooks) y guarda sus secretos
 // La clave secreta de Stripe solo vive aquí (STRIPE_SECRET_KEY). Cada orden de dinero lleva clave única.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
@@ -79,6 +80,16 @@ async function pagoPorAcceso(acceso: string) {
   const { data: g } = await admin.from("ticket_pagos").select("*").eq("pedido_id", p.id).maybeSingle();
   return g ? { p, g } : null;
 }
+// Lo que cobra Stripe en un cargo (comisión de la pasarela). Solo para el informe de márgenes: si falla, no pasa nada.
+async function guardarCosteStripe(pedido: string, cargo: string | null) {
+  if (!cargo) return;
+  try {
+    const ch = await stripe("GET", `charges/${cargo}`, { expand: ["balance_transaction"] });
+    const fee = ch?.balance_transaction?.fee;
+    if (typeof fee === "number") await admin.from("ticket_pagos").update({ coste_stripe: eur(fee) }).eq("pedido_id", pedido);
+  } catch { /* se reintenta al repartir */ }
+}
+
 async function emitirDesdeSesion(pedido: string, s: any) {
   if (s?.payment_status !== "paid") return { ok: false, motivo: "sin_pagar" };
   let cargo: string | null = null; let pi: string | null = typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id ?? null;
@@ -86,6 +97,7 @@ async function emitirDesdeSesion(pedido: string, s: any) {
   cargo = typeof piObj?.latest_charge === "string" ? piObj.latest_charge : piObj?.latest_charge?.id ?? null;
   const { data, error } = await admin.rpc("pago_emitir", { p_pedido: pedido, p_sesion: s.id, p_pi: pi, p_cargo: cargo, p_importe: eur(s.amount_total) });
   if (error) throw error;
+  await guardarCosteStripe(pedido, cargo);
   return data;
 }
 
@@ -284,21 +296,34 @@ async function repartirEvento(evento: string, forzar = false) {
   const { data: rr } = await admin.from("ticket_repartos").select("estado, importe").eq("evento_id", evento).eq("modo", MODO).eq("beneficiario", "rrpp");
   if ((rr || []).some((x) => ["preparado", "error"].includes(x.estado))) return { evento, rrpp: res, organizador: "espera" };
   const aRRPP = (rr || []).filter((x) => x.estado === "enviado").reduce((s, x) => s + cents(x.importe), 0);
-  const importe = eur(cents(calc.cobrado) - aRRPP);
+  // Al organizador: entradas + gastos de gestión del comprador − comisión de TIXFAST − lo que ya se mandó a los RRPP
+  const importe = eur(cents(calc.cobrado) + cents(calc.gastos || 0) - cents(calc.comision || 0) - aRRPP);
   const sinMonedero = (rr || []).filter((x) => x.estado === "sin_monedero").reduce((s, x) => s + cents(x.importe), 0);
   const cuentaOrg = (await admin.from("ticket_pago_cuentas").select("*").eq("user_id", calc.owner_id).eq("tipo", "organizador").eq("modo", MODO).eq("estado", "activa").eq("recibe", true).maybeSingle()).data;
   const estado = importe <= 0 ? "nada" : cuentaOrg ? "preparado" : "sin_monedero";
   const { fila: f, cerrada } = await fila(`${MODO}:${evento}:organizador`, { evento_id: evento, owner_id: calc.owner_id, modo: MODO, beneficiario: "organizador", user_id: calc.owner_id, cuenta_id: cuentaOrg?.id ?? null, importe,
-    detalle: { cobrado: calc.cobrado, a_rrpp: eur(aRRPP), rrpp_sin_monedero: eur(sinMonedero) }, estado });
-  if (cerrada || estado !== "preparado") return { evento, rrpp: res, organizador: f.estado };
+    detalle: { cobrado: calc.cobrado, gastos: calc.gastos || 0, comision: calc.comision || 0, a_rrpp: eur(aRRPP), rrpp_sin_monedero: eur(sinMonedero) }, estado });
+  if (cerrada || estado !== "preparado") return { evento, rrpp: res, organizador: f.estado, factura: f.estado === "enviado" || f.estado === "nada" ? await facturar(evento) : null };
   try {
     const tr = await transferir(f, cuentaOrg.stripe_id, importe, capacidad, evento);
     await admin.from("ticket_repartos").update({ estado: "enviado", transferencias: tr, enviado_en: new Date().toISOString() }).eq("id", f.id);
-    return { evento, rrpp: res, organizador: "enviado", importe };
+    return { evento, rrpp: res, organizador: "enviado", importe, factura: await facturar(evento) };
   } catch (e) {
     await admin.from("ticket_repartos").update({ estado: "error", error: String((e as Error).message).slice(0, 300) }).eq("id", f.id);
     return { evento, rrpp: res, organizador: "error", error: (e as Error).message };
   }
+}
+
+// Factura de la comisión de TIXFAST al organizador (se le copia en Facturación › Gastos).
+// Antes se completa lo que cobró Stripe en cada pago del evento, para el informe de márgenes.
+async function facturar(evento: string) {
+  try {
+    const { data: sinCoste } = await admin.from("ticket_pagos").select("pedido_id, cargo_id").eq("evento_id", evento).eq("modo", MODO).eq("estado", "pagado").is("coste_stripe", null).limit(100);
+    for (const g of sinCoste || []) await guardarCosteStripe(g.pedido_id, g.cargo_id);
+    const { data, error } = await admin.rpc("plataforma_facturar_evento", { p_evento: evento, p_modo: MODO });
+    if (error) throw error;
+    return data;
+  } catch (e) { return { ok: false, error: (e as Error).message }; }
 }
 
 async function repartir(b: any) {
@@ -322,6 +347,8 @@ async function repartir(b: any) {
   for (const ev of eventos.slice(0, 20)) {
     try { salida.eventos.push(await repartirEvento(ev, !!b.ahora)); } catch (e) { salida.eventos.push({ evento: ev, error: (e as Error).message }); }
   }
+  // 3) Facturas que esperaban datos fiscales (de TIXFAST o del organizador)
+  try { const { data } = await admin.rpc("plataforma_facturas_reintentar"); salida.facturas_emitidas = data || 0; } catch { /* sin migración aún */ }
   return json({ ok: true, ...salida });
 }
 
