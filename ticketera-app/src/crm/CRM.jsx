@@ -231,7 +231,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
           {!data && !error && tab !== "facturacion" && tab !== "rrpp" && <Esqueleto />}
           {tab === "facturacion" && <Suspense fallback={<div style={{ color: "var(--muted)", padding: 30, textAlign: "center" }}>Cargando facturación…</div>}><Facturacion flash={flash} /></Suspense>}
           {data && tab === "dashboard" && (
-            <Dashboard ev={ev} events={events} sales={sales} gastosCaja={gastosCaja} ajustes={data.ajustes} onSelectEvent={onSelectEvent} refreshKey={data} />
+            <Dashboard ev={ev} events={events} sales={sales} gastosCaja={gastosCaja} ajustes={data.ajustes} onSelectEvent={onSelectEvent} refreshKey={data} onIr={irA} onIrTPV={onExit} />
           )}
           {data && tab === "ingresos" && (
             <Ingresos ev={ev} T={T} F={F} barras={barras} ingresos={ingresos} socios={socios} socioById={socioById} isMobile={isMobile}

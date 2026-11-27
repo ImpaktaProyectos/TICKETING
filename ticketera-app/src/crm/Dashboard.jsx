@@ -5,6 +5,7 @@ import * as crm from "./crmdb";
 import { money, r2, fechaCorta, useIsMobile, C, Icon, Tile } from "./ui";
 import { GRUPOS_VISTA, resumenEvento } from "./modelo";
 import { gcatInfo } from "./Gastos";
+import { useDatosOnline, AvisosEvento, VentaOnline, RankingRRPP } from "./PanelExtra";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const mesDe = (iso) => (iso && /^\d{4}-\d{2}/.test(iso) ? iso.slice(0, 7) : null);
@@ -12,12 +13,13 @@ const mesTxt = (k) => `${MESES[Number(k.slice(5, 7)) - 1]} ${k.slice(2, 4)}`;
 const compact = (v) => { const a = Math.abs(v); return (v < 0 ? "−" : "") + (a >= 1000 ? (Math.round(a / 100) / 10).toString().replace(".", ",") + "k" : Math.round(a).toString()); };
 const pct = (a, b) => (b ? Math.round((a - b) / Math.abs(b) * 100) : null);
 
-export function Dashboard({ ev, events, sales, gastosCaja, ajustes, onSelectEvent, refreshKey }) {
+export function Dashboard({ ev, events, sales, gastosCaja, ajustes, onSelectEvent, refreshKey, onIr = () => {}, onIrTPV = () => {} }) {
   const isMobile = useIsMobile();
   const [modo, setModo] = useState("evento");       // evento | todos
   const [periodo, setPeriodo] = useState("anio");   // anio | pasado | 12m | todo
   const [cuenta, setCuenta] = useState(null);
   const [error, setError] = useState(false);
+  const online = useDatosOnline(ev);
   useEffect(() => { let vivo = true; setError(false); crm.loadCuenta().then(d => vivo && setCuenta(d)).catch(() => vivo && setError(true)); return () => { vivo = false; }; }, [refreshKey]);
 
   const resumenes = useMemo(() => {
@@ -39,14 +41,14 @@ export function Dashboard({ ev, events, sales, gastosCaja, ajustes, onSelectEven
         <button onClick={() => setModo("evento")} style={{ ...C.seg, padding: "10px 16px", fontSize: 14, ...(modo === "evento" ? C.segOn : {}) }}><Icon n="calendar" s={16} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />{ev.name}</button>
         <button onClick={() => setModo("todos")} style={{ ...C.seg, padding: "10px 16px", fontSize: 14, ...(modo === "todos" ? C.segOn : {}) }}><Icon n="chart" s={16} c="currentColor" style={{ verticalAlign: "-3px", marginRight: 6 }} />Todos los eventos</button>
       </div>
-      {modo === "evento" && R && <VistaEvento R={R} anterior={anterior} isMobile={isMobile} />}
+      {modo === "evento" && R && <VistaEvento R={R} anterior={anterior} isMobile={isMobile} ev={ev} sales={sales} online={online} onIr={onIr} onIrTPV={onIrTPV} />}
       {modo === "todos" && <VistaTodos resumenes={resumenes} periodo={periodo} setPeriodo={setPeriodo} isMobile={isMobile} onAbrir={(id) => { onSelectEvent(id); setModo("evento"); }} />}
     </div>
   );
 }
 
 /* ---------- Un evento ---------- */
-function VistaEvento({ R, anterior, isMobile }) {
+function VistaEvento({ R, anterior, isMobile, ev, sales, online, onIr, onIrTPV }) {
   const d = anterior ? pct(R.beneficio, anterior.beneficio) : null;
   const grupos = GRUPOS_VISTA.map(g => ({ ...g, v: R.porGrupo[g.k] || 0 })).filter(g => g.v > 0);
   const cats = Object.entries(R.G.porCat).sort((a, b) => b[1].total - a[1].total).slice(0, 8);
@@ -64,12 +66,20 @@ function VistaEvento({ R, anterior, isMobile }) {
   const pico = horas.reduce((a, h) => (R.horas[h] > (R.horas[a] || 0) ? h : a), horas[0]);
   return (
     <div>
+      <AvisosEvento R={R} anterior={anterior} ev={ev} sales={sales} online={online} onIr={onIr} onIrTPV={onIrTPV} />
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4,minmax(0,1fr))", gap: 10, marginBottom: 14 }}>
         <Big l="Ingresos" v={money(R.ingresos)} sub={anterior ? vs(R.ingresos, anterior.ingresos, anterior.ev.name) : null} />
         <Big l="Gastos" v={money(R.gastos)} sub={R.G.previsto ? `Previsto ${money(R.G.previsto)}` : null} />
         <Big l="Resultado previsto" v={money(R.beneficio)} c={R.beneficio >= 0 ? "var(--green)" : "var(--red)"} sub={d != null ? <Delta d={d} txt={`vs ${anterior.ev.name}`} /> : "Incluye lo pendiente de cobrar"} />
         <Big l="Margen" v={R.margen != null ? `${R.margen} %` : "—"} c={R.margen != null ? (R.margen >= 0 ? "var(--green)" : "var(--red)") : undefined} sub="del total ingresado" />
       </div>
+
+      {(online.web || (online.rrpp || []).length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <VentaOnline online={online} />
+          <RankingRRPP online={online} onIr={onIr} />
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 12 }}>
         <div style={C.panel}>
