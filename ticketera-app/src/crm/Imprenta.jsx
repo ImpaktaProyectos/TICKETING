@@ -37,7 +37,7 @@ async function medidasImagen(file) {
   try { return await new Promise((ok, mal) => { const i = new Image(); i.onload = () => ok({ anchoPx: i.naturalWidth, altoPx: i.naturalHeight }); i.onerror = () => mal(new Error("No se ha podido leer la imagen")); i.src = url; }); }
   finally { URL.revokeObjectURL(url); }
 }
-async function renderPagina(bytes, pagina = 1, ancho = 900) {
+async function renderPagina(bytes, pagina = 1, ancho = 900, tipo = "image/jpeg") {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const w = await import("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url");
   pdfjs.GlobalWorkerOptions.workerSrc = w.default;
@@ -45,7 +45,34 @@ async function renderPagina(bytes, pagina = 1, ancho = 900) {
   const p = await doc.getPage(pagina); const v1 = p.getViewport({ scale: 1 }); const vp = p.getViewport({ scale: ancho / v1.width });
   const c = document.createElement("canvas"); c.width = vp.width; c.height = vp.height;
   await p.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
-  return c.toDataURL("image/jpeg", 0.85);
+  return c.toDataURL(tipo, 0.85);
+}
+
+// ¿Hay textos o dibujos en las zonas reservadas (QR y número)? Mira los bordes nítidos (las letras los tienen;
+// un fondo liso o un degradado suave, no). Devuelve, por zona, la proporción de píxeles con borde.
+export async function lienzoDiseno(file, esPdf, sangrado) {
+  const anchoMm = sangrado ? 156 : 150, pxmm = 12;
+  const c = document.createElement("canvas"); c.width = Math.round(anchoMm * pxmm); c.height = Math.round((sangrado ? 106 : 100) * pxmm);
+  const g = c.getContext("2d", { willReadFrequently: true }); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+  if (esPdf) {
+    const url = await renderPagina(new Uint8Array(await file.arrayBuffer()), 1, c.width, "image/png");
+    const img = await new Promise((ok, mal) => { const i = new Image(); i.onload = () => ok(i); i.onerror = mal; i.src = url; });
+    g.drawImage(img, 0, 0, c.width, c.height);
+  } else {
+    const url = URL.createObjectURL(file);
+    try { const img = await new Promise((ok, mal) => { const i = new Image(); i.onload = () => ok(i); i.onerror = mal; i.src = url; }); g.drawImage(img, 0, 0, c.width, c.height); }
+    finally { URL.revokeObjectURL(url); }
+  }
+  return { c, g, pxmm, off: sangrado ? 3 : 0 };
+}
+export function ocupacionZona({ g, pxmm, off }, z, margen = 1.5) {
+  const x = Math.max(0, Math.round((off + z.x - margen) * pxmm)), y = Math.max(0, Math.round((off + z.y - margen) * pxmm));
+  const w = Math.round((z.ancho + 2 * margen) * pxmm), h = Math.round((z.alto + 2 * margen) * pxmm);
+  const d = g.getImageData(x, y, w, h).data, L = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) L[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+  let bordes = 0;
+  for (let yy = 0; yy < h - 1; yy++) for (let xx = 0; xx < w - 1; xx++) { const i = yy * w + xx; if (Math.abs(L[i + 1] - L[i]) + Math.abs(L[i + w] - L[i]) > 48) bordes++; }
+  return bordes / (w * h);
 }
 
 let fuentesCache = null;
@@ -107,8 +134,16 @@ export function DisenoEntrada({ ev, flash, onClose, onCambio }) {
         if (rev.ok && d.getPageCount() > 1) rev.avisos.push("El PDF tiene varias páginas: se usa solo la primera.");
       } else rev = I.revisarDiseno({ tipo: "imagen", ...(await medidasImagen(file)) });
       if (!rev.ok) { setBusy(""); return flash(rev.error, "warn"); }
+      // El QR no puede tapar ningún texto: la zona del QR tiene que estar libre (la del número de la matriz, si se pone)
+      const lz = await lienzoDiseno(file, esPdf, rev.sangrado);
+      const [zQR, zNum] = I.zonasReservadas(true);
+      const oQR = ocupacionZona(lz, zQR), oNum = ocupacionZona(lz, zNum);
+      if (oQR > 0.0015) { setBusy(""); return flash("El diseño tiene texto o dibujo donde va el QR (el recuadro rojo de arriba a la derecha de la plantilla). El QR lo taparía: déjalo libre y vuelve a subirlo.", "warn"); }
+      if (oQR > 0.0003) rev.avisos.push("Hay algo de dibujo cerca del hueco del QR. Revisa en la vista previa que el QR no tapa nada importante.");
+      const numeroLibre = oNum <= 0.0015;
+      if (!numeroLibre) rev.avisos.push("La zona del número de la matriz tiene diseño: el número de entrada solo saldrá debajo del QR, no en la matriz.");
       const url = await webSubir(ev.id, "entrada-diseno", file);
-      const { data, error } = await supabase.from("ticket_pv_disenos").insert({ evento_id: ev.id, nombre: (file.name || "Diseño").replace(/\.[^.]+$/, "").slice(0, 80) || "Diseño", modo: "propio", archivo_url: url, archivo_tipo: esPdf ? "pdf" : "imagen", ajustes: { sangrado: rev.sangrado, avisos: rev.avisos } }).select("*").single();
+      const { data, error } = await supabase.from("ticket_pv_disenos").insert({ evento_id: ev.id, nombre: (file.name || "Diseño").replace(/\.[^.]+$/, "").slice(0, 80) || "Diseño", modo: "propio", archivo_url: url, archivo_tipo: esPdf ? "pdf" : "imagen", ajustes: { sangrado: rev.sangrado, avisos: rev.avisos, numeroMatriz: numeroLibre } }).select("*").single();
       if (error) throw error;
       await cargar(); setAbierto(data); onCambio && onCambio();
       flash(rev.avisos.length ? "Diseño subido, revisa los avisos" : "Diseño subido");
@@ -241,7 +276,7 @@ function VistaDiseno({ ev, d, ficha, flash, onClose, onCambio }) {
         </div>
         <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: -6 }}>El tipo y lo que incluye se ponen al generar cada tanda; aquí son solo para ver cómo queda.</div>
       </> : (
-        <label style={C.toggleRow}><span>Poner también el número de entrada<span style={{ display: "block", fontSize: 12.5, color: "var(--muted)", fontWeight: 500 }}>En la matriz y bajo el QR. Sirve para controlar las ventas y devoluciones de cada punto.</span></span><input type="checkbox" checked={f.numero} onChange={(e) => set("numero", e.target.checked)} style={{ width: 22, height: 22, accentColor: "var(--accent)", flexShrink: 0 }} /></label>
+        <label style={C.toggleRow}><span>Poner también el número de entrada<span style={{ display: "block", fontSize: 12.5, color: "var(--muted)", fontWeight: 500 }}>Bajo el QR y en la matriz (si esa zona del diseño está libre). Sirve para controlar las ventas y devoluciones de cada punto.</span></span><input type="checkbox" checked={f.numero} onChange={(e) => set("numero", e.target.checked)} style={{ width: 22, height: 22, accentColor: "var(--accent)", flexShrink: 0 }} /></label>
       )}
     </Sheet>
   );

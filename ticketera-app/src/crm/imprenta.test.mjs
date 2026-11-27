@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { PDFDocument, rgb } from "pdf-lib";
-import { comprobarEntradas, revisarDiseno, nombreArchivo, numeroTxt, pdfLoteImprenta, pdfControl, pdfPlantilla, pngDegradado, MEDIDA, PAGINA } from "./imprenta.js";
+import { comprobarEntradas, revisarDiseno, nombreArchivo, numeroTxt, pdfLoteImprenta, pdfControl, pdfPlantilla, pngDegradado, MEDIDA, PAGINA, ZONA_QR, COLUMNA, textosSobreQR, zonasReservadas } from "./imprenta.js";
 
 let n = 0; const ok = (t) => { n++; console.log("✓ " + t); };
 const fuente = (f) => new Uint8Array(fs.readFileSync(new URL("../../node_modules/" + f, import.meta.url)));
@@ -58,6 +58,19 @@ const ra = await pdfLoteImprenta({ ev, punto: { nombre: "Bar" }, lote, entradas:
 assert.equal(ra.paginas, 4);
 await assert.rejects(() => pdfLoteImprenta({ ev, punto: {}, lote, entradas: [entradas[0], entradas[0]], fuentes, diseno: { modo: "auto" } }), /repetido/);
 ok("diseño automático y rechazo de entradas repetidas");
+
+// Nada encima del QR ni el QR encima de nada
+assert.ok(COLUMNA.desde >= ZONA_QR.y + ZONA_QR.alto, "los datos empiezan debajo del QR");
+assert.ok(COLUMNA.x <= ZONA_QR.x, "el flyer termina antes de la zona del QR (que ya lleva 2 mm de aire)");
+assert.equal(textosSobreQR([{ t: "x", x: 120, y: 10, w: 10, h: 3 }]).length, 1);
+assert.equal(textosSobreQR([{ t: "nº", x: 120, y: 38, w: 10, h: 3, delQR: true }]).length, 0);
+assert.equal(textosSobreQR([{ t: "x", x: 60, y: 10, w: 40, h: 3 }]).length, 0);
+for (const z of zonasReservadas(true)) assert.ok(z.x >= 0 && z.y >= 0 && z.x + z.ancho <= MEDIDA.ancho && z.y + z.alto <= MEDIDA.alto);
+// Textos larguísimos: se acortan, nunca suben hacia el QR (si alguno lo tocara, el PDF no se generaría)
+const largo = { name: "Gran Fiesta de Nochevieja con los mejores DJs de la ciudad y muchas sorpresas más para todos", startsAt: "2026-12-31T23:00", venue: "Pabellón Municipal de Deportes y Congresos de la Comarca, Calle Larga 123" };
+const rl = await pdfLoteImprenta({ ev: largo, punto: { nombre: "Bar" }, lote: { ...lote, nombre: "VIP Premium Reservado Zona Alta", incluye: "2 copas, guardarropa y acceso preferente" }, entradas: entradas.slice(0, 2), fuentes, diseno: { modo: "auto", ajustes: {}, flyer: { tipo: "png", bytes: png } } });
+assert.equal(rl.paginas, 3);
+ok("ningún texto toca el QR, ni con textos larguísimos; zonas reservadas dentro de la entrada");
 
 const ctl = await pdfControl({ ev, filas: [{ punto: "Bar", tipo: "VIP", desde: 101, hasta: 150, cantidad: 50, archivo: "01_Bar_VIP_101-150.pdf" }], fuentes });
 const pl = await pdfPlantilla({ fuentes });

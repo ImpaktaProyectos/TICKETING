@@ -21,6 +21,15 @@ export const MEDIDA = {
   qr: { x: 115, y: 5, lado: 30, codigo: 25, numero: 6 },   // recuadro blanco del QR (arriba a la derecha) y franja del número
   numMatriz: { x: 4, y: 4, ancho: 26, alto: 8 },           // número en la matriz (diseño propio)
 };
+// Zona del QR que nada puede tocar: el recuadro blanco (QR + su número) con 2 mm de aire alrededor
+export const ZONA_QR = { x: MEDIDA.qr.x - 2, y: MEDIDA.qr.y - 2, ancho: MEDIDA.qr.lado + 4, alto: MEDIDA.qr.lado + MEDIDA.qr.numero + 4 };
+// Zonas que el diseñador debe dejar libres (en mm desde la esquina del corte): QR y, si se pone, el número de la matriz
+export const zonasReservadas = (conNumero = true) => [
+  { nombre: "el QR", x: MEDIDA.qr.x, y: MEDIDA.qr.y, ancho: MEDIDA.qr.lado, alto: MEDIDA.qr.lado + MEDIDA.qr.numero },
+  ...(conNumero ? [{ nombre: "el número de la matriz", ...MEDIDA.numMatriz }] : []),
+];
+const cruza = (a, b) => a.x < b.x + b.ancho && a.x + a.w > b.x && a.y < b.y + b.alto && a.y + a.h > b.y;
+export function textosSobreQR(textos) { return textos.filter((t) => !t.delQR && cruza(t, ZONA_QR)); }
 export const PAGINA = { ancho: MEDIDA.ancho + 2 * MEDIDA.margen, alto: MEDIDA.alto + 2 * MEDIDA.margen };
 const K = 72 / 25.4;   // mm → puntos
 const pt = (mm) => mm * K;
@@ -124,7 +133,9 @@ function lienzo(page) {
     X, Y,
     rect: (x, y, w, h, o) => page.drawRectangle({ x: X(x), y: Y(y + h), width: pt(w), height: pt(h), ...o }),
     linea: (x1, y1, x2, y2, o) => page.drawLine({ start: { x: X(x1), y: Y(y1) }, end: { x: X(x2), y: Y(y2) }, thickness: 0.3, color: NEGRO, ...o }),
-    texto: (t, x, yBase, o) => page.drawText(String(t), { x: X(x), y: Y(yBase), ...o }),
+    // Cada texto apunta su caja (en mm) para comprobar después que ninguno toca el QR
+    textos: [],
+    texto(t, x, yBase, o) { page.drawText(String(t), { x: X(x), y: Y(yBase), ...o }); const sz = (o.size || 12) / K; this.textos.push({ t: String(t), x, y: yBase - sz * 0.95, w: o.font ? o.font.widthOfTextAtSize(String(t), o.size || 12) / K : sz * String(t).length * 0.6, h: sz * 1.2, delQR: !!o.delQR }); },
     // Recorta lo que se dibuje dentro de fn al rectángulo dado
     recorte: (x, y, w, h, fn) => { page.pushOperators(pushGraphicsState(), rectangle(X(x), Y(y + h), pt(w), pt(h)), clip(), endPath()); fn(); page.pushOperators(popGraphicsState()); },
   };
@@ -179,10 +190,10 @@ function bloqueQR(c, f, x, { numero, hasta, prueba, verNumero }) {
   dibujarQR(c, x.qr_hex);
   if (prueba) {
     const t = "PRUEBA · NO VÁLIDA", s = 6.5, w = f.negrita.widthOfTextAtSize(t, s) / K;
-    c.texto(t, qx + (lado - w) / 2, qy + lado + 4.3, { size: s, font: f.negrita, color: rgb(0.85, 0.45, 0) });
+    c.texto(t, qx + (lado - w) / 2, qy + lado + 4.3, { size: s, font: f.negrita, color: rgb(0.85, 0.45, 0), delQR: true });
   } else if (verNumero) {
     const t = `Nº ${numeroTxt(numero, hasta)}`, s = 8.5, w = f.mono.widthOfTextAtSize(t, s) / K;
-    c.texto(t, qx + (lado - w) / 2, qy + lado + 4.3, { size: s, font: f.mono, color: NEGRO });
+    c.texto(t, qx + (lado - w) / 2, qy + lado + 4.3, { size: s, font: f.mono, color: NEGRO, delQR: true });
   }
 }
 
@@ -194,41 +205,53 @@ const fechaCorta = (ev) => {
   return dia.charAt(0).toUpperCase() + dia.slice(1) + hora;
 };
 
-// Fondo automático: flyer a la derecha de la matriz, degradado para que se lean los textos, datos del evento y de la entrada
+// Fondo automático. Tres zonas que no se pisan nunca:
+//  · matriz (0–38 mm) · flyer (38–112 mm, sin nada encima) · columna derecha (112–150 mm): QR arriba y los datos debajo.
+// Así ningún texto tapa el QR y el QR no tapa ningún texto (ni los nuestros ni los del flyer).
+export const COLUMNA = { x: 112, texto: MEDIDA.qr.x, ancho: MEDIDA.qr.lado, desde: MEDIDA.qr.y + MEDIDA.qr.lado + MEDIDA.qr.numero + 5, hasta: MEDIDA.alto - MEDIDA.seguridad };
 function fondoAuto(c, f, { ev, lote, flyer, ajustes = {} }) {
   const { ancho: A, alto: H, sangrado: S, matriz: MZ } = MEDIDA;
   const fondo = ajustes.fondo || "#0b0c10", acento = ajustes.color || "#ff5a3c";
   c.rect(-S, -S, A + 2 * S, H + 2 * S, { color: hexRgb(fondo, "#0b0c10") });
-  // Flyer «a sangre» en la parte principal, encuadrado sin deformar
+  // Flyer entre la matriz y la columna del QR, encuadrado sin deformar y sin nada encima
   if (flyer) {
-    const zx = MZ, zy = -S, zw = A + S - MZ, zh = H + 2 * S;
+    const zx = MZ, zy = -S, zw = COLUMNA.x - MZ, zh = H + 2 * S;
     const r = flyer.width / flyer.height, rz = zw / zh;
     let w, h; if (r > rz) { h = zh; w = zh * r; } else { w = zw; h = zw / r; }
     const enc = ajustes.encuadre === "arriba" ? 0 : ajustes.encuadre === "abajo" ? 1 : 0.5;
     const x = zx + (zw - w) / 2, y = zy + (zh - h) * enc;
     c.recorte(zx, zy, zw, zh, () => c.page.drawImage(flyer, { x: c.X(x), y: c.Y(y + h), width: pt(w), height: pt(h) }));
-    // Degradado hacia abajo (para el texto) y a la izquierda (une con la matriz)
-    // Degradado continuo hacia abajo para que se lean los textos (una imagen de 1 × 256 px estirada: sin costuras)
-    const desde = 34;
-    c.page.drawImage(c.degradado, { x: c.X(MZ), y: c.Y(H + S), width: pt(A + S - MZ), height: pt(H + S - desde) });
   }
+  c.rect(COLUMNA.x, -S, 0.8, H + 2 * S, { color: hexRgb(acento) });
   // Matriz
   c.rect(-S, -S, MZ + S, H + 2 * S, { color: hexRgb(fondo, "#0b0c10") });
   c.rect(MZ - 1.2, -S, 1.2, H + 2 * S, { color: hexRgb(acento) });
   c.linea(MZ, -S, MZ, H + S, { color: rgb(0.75, 0.75, 0.75), thickness: 0.6, dashArray: [3, 2] });   // perforado (se ve en la entrada)
-  // Textos de la parte principal, de abajo arriba
-  const tx = MZ + 5, tw = A - MZ - 10, blanco = BLANCO, gris = rgb(0.82, 0.83, 0.86);
-  let y = H - MEDIDA.seguridad - 1;
-  const linea = (t, font, size, color, gap = 1.3) => { c.texto(t, tx, y, { size, font, color }); y -= size / K * gap; };
-  if (lote.incluye) linea(`Incluye: ${lote.incluye}`, f.negrita, 9, hexRgb(acento), 1.5);
-  if (ev.venue || ev.recinto) partir(ev.venue || ev.recinto, f.normal, 9, tw, 1).reverse().forEach((l) => linea(l, f.normal, 9, gris));
-  const fc = fechaCorta(ev); if (fc) linea(fc, f.normal, 9, gris, 1.6);
-  partir(ev.name || ev.nombre || "Evento", f.negrita, 16, tw, 2).reverse().forEach((l) => linea(l, f.negrita, 16, blanco, 1.15));
-  y -= 1.5;
-  // Tipo de entrada en una etiqueta del color de la marca
-  const tipo = String(lote.nombre || "Entrada").toUpperCase(), ts = 9, tW = Math.min(f.negrita.widthOfTextAtSize(tipo, ts) / K + 6, tw);
-  c.rect(tx, y - 5.2, tW, 7.2, { color: hexRgb(acento) });
-  c.texto(partir(tipo, f.negrita, ts, tw - 6, 1)[0], tx + 3, y, { size: ts, font: f.negrita, color: claro(acento) ? NEGRO : BLANCO });
+  // Columna derecha, debajo del QR: tipo de entrada, evento, fecha, lugar y lo que incluye
+  const tx = COLUMNA.texto, tw = COLUMNA.ancho, gris = rgb(0.82, 0.83, 0.86);
+  const bloques = [];
+  const tipo = String(lote.nombre || "Entrada").toUpperCase();
+  const nombre = ev.name || ev.nombre || "Evento", fc = fechaCorta(ev), lugar = ev.venue || ev.recinto || "";
+  // Si no cabe todo, se acorta (primero el lugar, luego el nombre); nunca sube hacia el QR
+  for (const [ln, ll, lf] of [[4, 2, 3], [3, 2, 3], [3, 1, 2], [2, 1, 2], [2, 0, 2], [1, 0, 1]]) {
+    bloques.length = 0;
+    bloques.push({ tipo: "chip", texto: partir(tipo, f.negrita, 8, tw - 4, 1)[0], alto: 7 });
+    partir(nombre, f.negrita, 10, tw, ln).forEach((l) => bloques.push({ texto: l, font: f.negrita, size: 10, color: BLANCO, alto: 4.4 }));
+    bloques.push({ alto: 1.5 });
+    if (fc) partir(fc, f.normal, 7, tw, lf).forEach((l) => bloques.push({ texto: l, font: f.normal, size: 7, color: gris, alto: 3.2 }));
+    if (lugar && ll) partir(lugar, f.normal, 7, tw, ll).forEach((l) => bloques.push({ texto: l, font: f.normal, size: 7, color: gris, alto: 3.2 }));
+    if (lote.incluye) { bloques.push({ alto: 1.2 }); partir(`Incluye: ${lote.incluye}`, f.negrita, 7.5, tw, 2).forEach((l) => bloques.push({ texto: l, font: f.negrita, size: 7.5, color: hexRgb(acento), alto: 3.5 })); }
+    if (COLUMNA.desde + bloques.reduce((s, b) => s + b.alto, 0) <= COLUMNA.hasta) break;
+  }
+  let y = COLUMNA.desde;
+  for (const b of bloques) {
+    if (b.tipo === "chip") {
+      const w = Math.min(f.negrita.widthOfTextAtSize(b.texto, 8) / K + 4, tw);
+      c.rect(tx, y, w, 5.6, { color: hexRgb(acento) });
+      c.texto(b.texto, tx + 2, y + 4, { size: 8, font: f.negrita, color: claro(acento) ? NEGRO : BLANCO });
+    } else if (b.texto) c.texto(b.texto, tx, y + b.size / K * 0.95, { size: b.size, font: b.font, color: b.color });
+    y += b.alto;
+  }
 }
 
 // Matriz (la parte que se queda el punto de venta): número grande y datos para controlar las ventas
@@ -266,8 +289,7 @@ async function prepararFondo(doc, diseno) {
     const fl = diseno?.flyer;
     if (!fl) return { modo: "auto", flyer: null };
     const img = fl.tipo === "png" ? await doc.embedPng(fl.bytes) : await doc.embedJpg(fl.bytes);
-    const degradado = await doc.embedPng(pngDegradado(diseno?.ajustes?.fondo || "#0b0c10"));
-    return { modo: "auto", flyer: img, degradado };
+    return { modo: "auto", flyer: img };
   }
   if (diseno.archivo_tipo === "pdf") {
     const [pag] = await doc.embedPdf(diseno.bytes, [0]);
@@ -281,7 +303,7 @@ function dibujarEntrada(doc, f, fondo, datos) {
   const { ev, lote, punto, x, diseno } = datos;
   const page = doc.addPage([pt(PAGINA.ancho), pt(PAGINA.alto)]);
   cajas(page);
-  const c = lienzo(page); c.page = page; c.degradado = fondo.degradado;
+  const c = lienzo(page); c.page = page;
   const S = MEDIDA.sangrado, ajustes = diseno?.ajustes || {};
   const verNumero = diseno?.numero !== false;
   if (fondo.modo === "auto") {
@@ -291,9 +313,11 @@ function dibujarEntrada(doc, f, fondo, datos) {
     const [bx, by, bw, bh] = fondo.sangrado ? [-S, -S, MEDIDA.ancho + 2 * S, MEDIDA.alto + 2 * S] : [0, 0, MEDIDA.ancho, MEDIDA.alto];
     const o = { x: c.X(bx), y: c.Y(by + bh), width: pt(bw), height: pt(bh) };
     if (fondo.pag) page.drawPage(fondo.pag, o); else page.drawImage(fondo.img, o);
-    if (verNumero) numeroMatrizPropio(c, f, x.numero, lote.relleno || lote.hasta);
+    if (verNumero && ajustes.numeroMatriz !== false) numeroMatrizPropio(c, f, x.numero, lote.relleno || lote.hasta);
   }
   bloqueQR(c, f, x, { numero: x.numero, hasta: lote.relleno || lote.hasta, prueba: !!x.prueba, verNumero: fondo.modo === "auto" || verNumero });
+  const tapan = textosSobreQR(c.textos);
+  if (tapan.length) throw new Error(`Un texto («${tapan[0].t}») quedaría encima del QR. No se ha generado el PDF.`);
   marcasCorte(c);
   // Pie fuera del corte (lo ve la imprenta, no sale en la entrada)
   page.drawText(`${punto?.nombre || ""} · ${lote.nombre || ""} · nº ${x.numero}`.slice(0, 90), { x: pt(MEDIDA.margen + 12), y: pt(2.2), size: 5.5, font: f.normal, color: rgb(0.4, 0.4, 0.4) });
@@ -348,7 +372,7 @@ export async function pdfControl({ ev, filas, fuentes, diseno }) {
     `Matriz a la izquierda: perforado a ${MEDIDA.matriz} mm del borde izquierdo (marcas discontinuas arriba y abajo).`,
     "Una entrada por página: cada página es una entrada distinta (número y QR únicos). No duplicar páginas.",
     "Cada archivo empieza con una hoja separadora del punto de venta: empaquetar cada archivo por separado con su hoja encima.",
-    `Diseño: ${diseno?.modo === "propio" ? "del diseñador, con el QR añadido" : "automático de la plataforma"}. El QR debe quedar nítido: no reducir ni reencuadrar.`,
+    `Diseño: ${diseno?.modo === "propio" ? "del diseñador, con el QR añadido" : "automático de la plataforma"}. El QR debe quedar nítido: no reducir ni reencuadrar, y nada (textos, sellos, numeradoras) puede ir encima del QR.`,
   ];
   for (const l of ins) { for (const s of partir(l, f.normal, 9.5, 180, 3)) { t("· " + s, 40); y -= 13; } }
   y -= 10;
@@ -404,7 +428,7 @@ export async function pdfPlantilla({ fuentes }) {
   l("Plantilla de entrada · cómo entregar el diseño", { font: f.negrita, size: 11 }); y -= 6;
   ["Tamaño del archivo: 156 × 106 mm (150 × 100 de entrada + 3 mm de sangrado por cada lado), en horizontal.",
    "Formato: PDF (mejor, los textos salen nítidos) o JPG/PNG a 300 ppp: 1843 × 1252 píxeles. Máximo 10 MB.",
-   "Deja libres los recuadros rojos: ahí TIXFAST pone el QR y el número de cada entrada (todas distintas).",
+   "Deja libres los recuadros rojos: ahí TIXFAST pone el QR y el número de cada entrada (todas distintas). Ni textos ni dibujos dentro: el QR no puede tapar ningún texto y ningún texto puede tapar el QR. Si hay algo ahí, la plataforma no deja subir el diseño.",
    "La matriz (izquierda, 38 mm) se separa por el perforado: diseña la entrada a la derecha de la línea.",
    "Antes de subir el diseño, borra o oculta las guías de esta plantilla (no deben salir en la entrada).",
   ].forEach((s) => l("· " + s));
