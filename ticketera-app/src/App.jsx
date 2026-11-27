@@ -68,7 +68,7 @@ const fechaHora = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d
 // Movimientos de caja: "gasto" = dinero que sale del cajón · "entrada" = cambio que se añade
 const isEntrada = (g) => g && g.tipo === "entrada";
 const sumMov = (arr, tipo) => round2((arr || []).filter(g => !g.voided && (tipo === "entrada" ? isEntrada(g) : !isEntrada(g))).reduce((t, g) => t + g.importe, 0));
-const APP_VERSION = "2026.11.27a";   // súbela al publicar cambios para verificar la actualización
+const APP_VERSION = "2026.11.27b";   // súbela al publicar cambios para verificar la actualización
 globalThis.TIXFAST_VERSION = APP_VERSION;
 
 // Detecta pantalla pequeña (móvil) para adaptar el layout
@@ -1124,7 +1124,7 @@ export default function App() {
   );
 
   return (
-    <div style={{ position: "relative", height: "100dvh", maxWidth: "100vw", overflow: "hidden", boxSizing: "border-box", paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)", background: "var(--bg)", color: "var(--text)", fontFamily: "Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 15 }}>
+    <div style={{ position: "fixed", inset: 0, maxWidth: "100vw", overflow: "hidden", boxSizing: "border-box", paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)", background: "var(--bg)", color: "var(--text)", fontFamily: "Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 15 }}>
       <style>{CSS}</style>
 
       {/* ===== LOGIN ===== */}
@@ -1756,15 +1756,17 @@ const cap1 = (t) => t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
 
 // Pantalla de entrada: marca TIXFAST, luz suave en movimiento, tarjetas grandes para el dedo
 const TG_CSS = `
-.tg{position:relative;min-height:100%;box-sizing:border-box;overflow:auto;display:flex;flex-direction:column;background:#08090d;color:var(--text);
+.tg{position:relative;height:100%;box-sizing:border-box;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;background:#08090d;color:var(--text);
   padding:calc(14px + env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom));isolation:isolate}
 .tg *{box-sizing:border-box}
+/* iPhone: el desenfoque de fondo dentro de una zona con scroll hace que tarjetas enteras se queden sin pintar al bajar. En pantallas táctiles se quita (las tarjetas ya son translúcidas). */
+@media (hover:none){.tg .tg-pill,.tg .tg-evento,.tg .tg-rol,.tg .tg-barra,.tg [style*="backdrop"]{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}}
 .tg-panel{margin-left:10px;min-height:40px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);font-weight:800;font-size:13px}
 .tg-susc{border:1px solid var(--accent);background:rgba(255,90,60,.08);border-radius:18px;padding:14px;margin-bottom:12px}
 .tg-susc-btn{width:100%;min-height:48px;margin-top:10px;border:none;border-radius:14px;background:var(--accent);color:#fff!important;font-weight:900;font-size:15.5px}
 .tg button{font:inherit;color:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .tg button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
-.tg-luz{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
+.tg-luz{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;transform:translateZ(0)}
 .tg-luz span{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55}
 .tg-luz span:nth-child(1){width:62vmax;height:62vmax;left:-18vmax;top:-30vmax;background:radial-gradient(circle,rgba(255,90,60,.55),transparent 62%);animation:tgA 18s ease-in-out infinite alternate}
 .tg-luz span:nth-child(2){width:52vmax;height:52vmax;right:-20vmax;bottom:-26vmax;background:radial-gradient(circle,rgba(124,77,255,.35),transparent 62%);animation:tgB 22s ease-in-out infinite alternate}
