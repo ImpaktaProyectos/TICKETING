@@ -32,7 +32,7 @@ refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las fun
 
 ## 2c-bis. Pagos, comisión de TIXFAST y cambio de nombre (27/11/2026) — HECHO salvo lo que necesita la clave de Stripe
 - [x] Migraciones aplicadas en Supabase (probadas antes en una transacción que se deshace):
-      `20261127090000_ticket_comision_plataforma`, `20261127100000_ticket_pagos_transparentes`, `20261127110000_ticket_cambio_nombre`.
+      `20261127090500_ticket_comision_plataforma`, `20261127100000_ticket_pagos_transparentes`, `20261127110000_ticket_cambio_nombre`.
 - [x] Funciones publicadas: `pagos` (v4), `pagos-stripe` (v2), `admin-plataforma` (v3).
 - [ ] **Publicar la app**: llevar la rama `claude/sweet-franklin-r3fay1` a `main` (sin conflictos: main no tiene nada distinto).
       Hasta entonces, `/cambio`, los gastos por evento y el panel de comisiones no se ven en la web.

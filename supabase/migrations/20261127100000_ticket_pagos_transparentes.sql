@@ -1,5 +1,5 @@
 -- ===================== PAGOS: REPARTO SIN BLOQUEOS, EFECTIVO, DEVOLUCIONES Y CRM =====================
--- Va después de 20261127090000_ticket_comision_plataforma.sql.
+-- Va después de 20261127090500_ticket_comision_plataforma.sql.
 -- · El organizador cobra al acabar el evento sin esperar a los RRPP. La parte de cada RRPP se queda guardada en
 --   TIXFAST y se le manda sola en cuanto tenga monedero. Si a los 60 días sigue sin monedero, se le pasa al
 --   organizador (estado «liberado»: se la paga él) y este puede marcarla como pagada.

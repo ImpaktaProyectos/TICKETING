@@ -47,6 +47,16 @@ export default function Publico() {
   return <MisEntradas acceso={v} />;
 }
 
+/* Visitas: un identificador al azar del navegador (no es un dato personal) para no contar dos veces
+   a la misma persona; el servidor ignora las repetidas en 30 minutos. Si falla, no pasa nada. */
+function apuntarVisita(slug) {
+  let id = null;
+  try { id = localStorage.getItem("tixfast_visitante"); if (!id) { id = crypto.randomUUID(); localStorage.setItem("tixfast_visitante", id); } } catch { id = Math.random().toString(36).slice(2) + Date.now().toString(36); }
+  let rp = null;
+  try { rp = new URLSearchParams(window.location.search).get("rp"); } catch {}
+  supabase.rpc("web_registrar_visita", { p_slug: slug, p_visitante: id, p_rp: rp }).then(() => {}, () => {});
+}
+
 /* ===================== Página del evento ===================== */
 function PaginaEvento({ slug }) {
   const [ev, setEv] = useState(undefined);       // undefined = cargando · null = no existe
@@ -54,6 +64,7 @@ function PaginaEvento({ slug }) {
   const [org, setOrg] = useState(null);          // organización del evento (microsite y carrito)
   const offset = useRef(0);                      // diferencia reloj servidor - móvil
   useEffect(() => { supabase.rpc("web_evento_organizacion", { p_slug: slug }).then(({ data }) => setOrg(data || null)).catch(() => {}); }, [slug]);
+  useEffect(() => { apuntarVisita(slug); }, [slug]);
 
   const cargar = async () => {
     try {
