@@ -55,6 +55,16 @@ refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las fun
       solo queda el recibo de Stripe; decidir si se activa el recibo de Stripe o se añade una factura simplificada automática.
 - [ ] Recomendado: que el validador de la puerta pueda buscar una entrada por nombre o DNI (para quien ya no tiene el correo).
 
+## 2c-quater. Puntos de venta físicos e imprenta (27/11/2026) — HECHO
+- Entradas › Puntos de venta: entregas (talonario propio o con QR), liquidación, PDFs y paso al CRM.
+- Panel del local en /pv/<enlace> (sin cuenta): registrar ventas (escanear o «+1»), devolver escaneando (anula al momento)
+  y venta al móvil si la activas (la entrada llega al correo: necesita CORREO_REMITENTE, como la venta online).
+- Imprenta: diseño de 15 × 10 (del diseñador sobre la plantilla, o automático con el flyer), tandas para varios puntos
+  y ZIP con un PDF por punto + hoja de control. Ningún texto puede ir encima del QR (se comprueba al subir y al generar).
+- Por tu parte: preguntar a la imprenta si acepta PDF en RGB (casi todas sí) y probar una tirada corta antes de la grande,
+  escaneando unas cuantas entradas impresas con el validador.
+- Más adelante: conector propio para otras ticketeras con API (sincronización cada 15 min); buscar por nombre/DNI en la puerta.
+
 ## 2d. Rendimiento con mucha gente a la vez (prueba de carga del 18/11/2026, ver supabase/pruebas-carga/)
 - [x] **Aplicadas** (comprobado el 27/11/2026: todas sus funciones existen en Supabase):
       1. `20261120090000_ticket_rendimiento.sql` (número de ticket, refresco incremental, tope de 500 unidades)
