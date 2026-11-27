@@ -213,7 +213,9 @@ function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, o
           {gestionar ? <>
             <button onClick={() => { setGestionar(false); refrescarLista(); window.scrollTo({ top: 0, behavior: "smooth" }); }} style={{ ...C.btnGhost, alignSelf: "flex-start", minHeight: 44 }}><Icon n="right" s={16} style={{ transform: "rotate(180deg)" }} />Volver al resumen</button>
             <Editor key={ev.id} ev={ev} d={d} setD={setD} flash={flash} isMobile={isMobile} onDuplicar={() => setDup(true)} onCambio={refrescarLista} />
-          </> : <ResumenVentas ev={ev} estado={ESTADOS[d.ficha.estado]} onGestionar={() => { setGestionar(true); window.scrollTo({ top: 0, behavior: "smooth" }); }} onAbrir={() => { setVerClientes(true); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
+          </> : <><ResumenVentas ev={ev} estado={ESTADOS[d.ficha.estado]} onGestionar={() => { setGestionar(true); window.scrollTo({ top: 0, behavior: "smooth" }); }} onAbrir={() => { setVerClientes(true); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+            <EnlaceResumen ev={ev} f={d.ficha} flash={flash} />
+          </>}
         </>)}
       {/* ===== Dinero de entradas de todos los canales (TIXFAST, otras ticketeras, taquilla): plegado al final ===== */}
       {!verClientes && !gestionar && ingresos && (
@@ -264,11 +266,60 @@ function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, o
     </div>
   );
 }
+// Enlace de venta también en el resumen: copiar, WhatsApp y abrir
+export function EnlaceResumen({ ev, f, flash }) {
+  if (!f?.slug) return null;
+  const url = urlVenta(f.slug);
+  const wa = `https://wa.me/?text=${encodeURIComponent(`${ev.name} · ${fechaTxt(ev.startsAt || ev.date)} · Entradas: ${url}`)}`;
+  const copiar = async () => { try { await navigator.clipboard.writeText(url); flash("Enlace copiado"); } catch { flash(url); } };
+  return (
+    <section style={{ ...C.panel, padding: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: "var(--muted)", marginBottom: 6 }}>Enlace de venta{f.estado === "borrador" ? " · en borrador" : ""}</div>
+      <div style={{ fontSize: 14, wordBreak: "break-all", marginBottom: 10 }}>{url}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+        <button onClick={copiar} style={{ ...C.btnGhost, minHeight: 44, padding: "0 8px" }}><Icon n="copy" s={16} />Copiar</button>
+        <a href={wa} target="_blank" rel="noopener noreferrer" style={{ ...C.btnGhost, minHeight: 44, padding: "0 8px", textDecoration: "none", color: "#25d366", boxSizing: "border-box" }}><Icon n="whatsapp" s={16} />WhatsApp</a>
+        <a href={url} target="_blank" rel="noopener noreferrer" style={{ ...C.btnGhost, minHeight: 44, padding: "0 8px", textDecoration: "none", boxSizing: "border-box" }}><Icon n="eye" s={16} />Abrir</a>
+      </div>
+    </section>
+  );
+}
 const Miniatura = ({ url, s }) => (
   <span style={{ width: s, height: s, borderRadius: 12, flexShrink: 0, overflow: "hidden", background: "var(--surface2)", display: "grid", placeItems: "center", border: "1px solid var(--line)" }}>
     {url ? <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <Icon n="ticket" s={Math.round(s * .42)} c="var(--muted)" />}
   </span>
 );
+
+/* ===================== Aforo real de la sala (todos los canales) ===================== */
+export function AforoSala({ ev, ficha, setFicha, sumaTramos, isMobile }) {
+  const [txt, setTxt] = useState(ficha.aforo != null ? String(ficha.aforo) : "");
+  const [est, setEst] = useState(null);
+  useEffect(() => { let vivo = true; supabase.rpc("web_aforo_estado", { p_evento: ev.id }).then(({ data }) => vivo && setEst(data)); return () => { vivo = false; }; }, [ev.id, ficha.aforo]);
+  const cambiar = (v) => { const limpio = v.replace(/\D/g, "").slice(0, 7); setTxt(limpio); const n = parseInt(limpio, 10); setFicha({ aforo: n > 0 ? n : null }); };
+  const a = ficha.aforo, oc = est?.ocupado ?? null;
+  return (
+    <section style={{ ...C.panel, padding: isMobile ? 12 : 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+          <b style={{ fontSize: 16 }}>Aforo de la sala</b>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2, lineHeight: 1.45 }}>Las personas que caben de verdad. Cuenta todo: online, invitaciones, puntos de venta, taquilla y otras ticketeras. Al llenarse, la web deja de vender.</div>
+        </div>
+        <div style={{ position: "relative", width: isMobile ? "100%" : 160 }}>
+          <input inputMode="numeric" aria-label="Aforo de la sala" value={txt} placeholder="Sin límite" onChange={(e) => cambiar(e.target.value)} style={{ ...C.input, paddingRight: 70, fontWeight: 800, fontSize: 18 }} />
+          <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", fontWeight: 700, fontSize: 13 }}>personas</span>
+        </div>
+      </div>
+      {a && oc != null && (
+        <div style={{ marginTop: 10, fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
+          <b style={{ color: oc >= a ? "var(--red)" : "var(--text)" }}>{oc} de {a} ocupadas</b> · quedan {Math.max(0, a - oc)}
+          <span style={{ display: "block" }}>Online {est.online} · Puntos de venta {est.puntos} · Otras ventas {est.otras}</span>
+        </div>
+      )}
+      {a && sumaTramos != null && sumaTramos > a && <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--amber)", fontWeight: 700 }}>Los tramos suman {sumaTramos} entradas y la sala {a}: la web dejará de vender al llegar a {a}, aunque queden entradas en los tramos.</div>}
+      {a && sumaTramos != null && sumaTramos < a && <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--muted)" }}>Los tramos suman {sumaTramos}: las otras {a - sumaTramos} plazas quedan para puntos de venta, taquilla u otras ticketeras.</div>}
+    </section>
+  );
+}
 
 /* ===================== Ficha del evento: pasos ===================== */
 function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
@@ -832,6 +883,7 @@ function Tramos({ ev, d, setD, ficha, setFicha, flash, isMobile, inicio }) {
   const bt = { ...C.btnSm, width: isMobile ? 40 : 34, height: isMobile ? 40 : 34, padding: 0, justifyContent: "center" };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <AforoSala ev={ev} ficha={ficha} setFicha={setFicha} sumaTramos={aforo} isMobile={isMobile} />
       {tramos.length === 0 ? (
         <section style={{ ...C.panel, padding: isMobile ? 14 : 18 }}>
           <div style={{ fontWeight: 700, fontSize: 16 }}>Empieza con una plantilla</div>

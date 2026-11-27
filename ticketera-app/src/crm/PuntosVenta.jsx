@@ -15,7 +15,7 @@ import { DisenoEntrada, GenerarTandas, DescargarImprenta } from "./Imprenta.jsx"
 const num = (v) => { const n = Number(String(v ?? "").replace(",", ".")); return Number.isFinite(n) ? n : 0; };
 const coma = (v) => (v == null ? "" : String(v).replace(".", ","));
 const comisionCorta = (t, v) => (t === "pct" ? `${coma(v)} %` : `${money(v)}/entrada`);
-const MOTIVO = { sin_web: "Para generar entradas con QR, activa antes la venta online del evento (en Entradas › Eventos; puede quedarse en borrador).", cantidad: "Entre 1 y 2.000 entradas por talonario.", precio: "Revisa el precio.", evento: "Evento no válido.", punto: "Punto de venta no válido.", sesion: "Vuelve a entrar." };
+const MOTIVO = { aforo: "No caben: con estas entradas se pasaría del aforo de la sala (Gestionar evento › paso 3).", sin_web: "Para generar entradas con QR, activa antes la venta online del evento (en Entradas › Eventos; puede quedarse en borrador).", cantidad: "Entre 1 y 2.000 entradas por talonario.", precio: "Revisa el precio.", evento: "Evento no válido.", punto: "Punto de venta no válido.", sesion: "Vuelve a entrar." };
 const aLocal = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d)) return ""; const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
 const errorTxt = (e) => String(e?.message || e || "No se ha podido guardar").replace(/^.*?ERROR:\s*/, "");
 

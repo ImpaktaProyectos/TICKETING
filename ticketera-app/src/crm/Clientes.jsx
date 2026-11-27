@@ -3,6 +3,7 @@
 // Pensado para usarse cumpliendo el RGPD: marketing solo con permiso, derechos de acceso, oposición y supresión a un clic.
 import React, { useEffect, useMemo, useState } from "react";
 import * as crm from "./crmdb";
+import { supabase } from "../supabase";
 import { money, useIsMobile, C, Icon, Tile, Badge, Seg, Sheet, Field } from "./ui";
 
 const n0 = (v) => new Intl.NumberFormat("es-ES").format(Math.round(v || 0));
@@ -20,8 +21,14 @@ export function ResumenVentas({ ev, onAbrir, onGestionar, estado }) {
   const isMobile = useIsMobile();
   const [d, setD] = useState(null);
   useEffect(() => { let vivo = true; setD(null); crm.clientesCargar(ev.id, false).then(x => vivo && setD(x)).catch(() => vivo && setD({ error: true })); return () => { vivo = false; }; }, [ev.id]);
+  const [sala, setSala] = useState(null);   // aforo real de la sala con todos los canales
+  useEffect(() => { let vivo = true; setSala(null); supabase.rpc("web_aforo_estado", { p_evento: ev.id }).then(({ data }) => vivo && setSala(data), () => {}); return () => { vivo = false; }; }, [ev.id]);
   const r = d?.resumen;
-  const aforo = r?.aforo;
+  // Con aforo de sala, lo que queda online es lo menor entre lo que queda en los tramos y lo que queda en la sala
+  const libreSala = sala?.aforo ? Math.max(0, sala.aforo - sala.ocupado) : null;
+  const libreTramos = r?.aforo ? Math.max(0, r.aforo - r.entradas) : null;
+  const quedan = libreSala != null && libreTramos != null ? Math.min(libreSala, libreTramos) : (libreTramos ?? libreSala);
+  const aforo = r && quedan != null ? r.entradas + quedan : null;
   const lleno = aforo ? Math.min(100, pct(r.entradas, aforo)) : null;
   return (
     <section style={{ ...C.hero, display: "block", width: "100%", boxSizing: "border-box", textAlign: "left", color: "var(--text)", padding: isMobile ? 16 : 22, position: "relative", overflow: "hidden" }}>
@@ -44,9 +51,15 @@ export function ResumenVentas({ ev, onAbrir, onGestionar, estado }) {
               <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={lleno} aria-label="Aforo vendido" style={{ height: 10, borderRadius: 10, background: "var(--surface2)", overflow: "hidden" }}>
                 <div style={{ width: `${lleno}%`, height: "100%", borderRadius: 10, background: "var(--accent)" }} />
               </div>
-              <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 5, fontWeight: 700 }}>{lleno} % del aforo · quedan {n0(Math.max(0, aforo - r.entradas))}</div>
+              <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 5, fontWeight: 700 }}>{lleno} % del aforo online · quedan {n0(quedan)}</div>
             </div>
           )}
+          {sala?.aforo ? (
+            <div style={{ marginTop: 10, fontSize: 13, color: "var(--muted)", lineHeight: 1.45 }}>
+              <b style={{ color: sala.ocupado >= sala.aforo ? "var(--red)" : "var(--text)" }}>Sala: {n0(sala.ocupado)} de {n0(sala.aforo)}</b> con todos los canales · quedan {n0(Math.max(0, sala.aforo - sala.ocupado))}
+              {(sala.puntos > 0 || sala.otras > 0) && <span style={{ display: "block" }}>Online {n0(sala.online)} · Puntos de venta {n0(sala.puntos)} · Otras ventas {n0(sala.otras)}</span>}
+            </div>
+          ) : null}
           {d?.error && <div style={{ fontSize: 13, color: "var(--amber)", marginTop: 6 }}>No se han podido cargar las ventas.</div>}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 8, flex: "1 1 300px", minWidth: 0 }}>

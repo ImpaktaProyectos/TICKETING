@@ -14,7 +14,7 @@ import { money, C, Icon, Sheet, Field, Seg, MoneyInput, parseImporte } from "./u
 const num = (v) => { const n = Number(String(v ?? "").replace(",", ".")); return Number.isFinite(n) ? n : 0; };
 const coma = (v) => (v == null ? "" : String(v).replace(".", ","));
 const errorTxt = (e) => String(e?.message || e || "No se ha podido hacer").replace(/^.*?ERROR:\s*/, "");
-const MOTIVO_TANDA = { punto: "uno de los puntos de venta ya no existe", cantidad: "la cantidad tiene que ir de 1 a 2.000", precio: "revisa el precio", sin_web: "activa antes la venta online del evento (puede quedarse en borrador)", evento: "evento no válido", sesion: "vuelve a entrar" };
+const MOTIVO_TANDA = { aforo: "se pasaría del aforo de la sala (Gestionar evento › paso 3)", punto: "uno de los puntos de venta ya no existe", cantidad: "la cantidad tiene que ir de 1 a 2.000", precio: "revisa el precio", sin_web: "activa antes la venta online del evento (puede quedarse en borrador)", evento: "evento no válido", sesion: "vuelve a entrar" };
 
 // ---------- Utilidades del navegador ----------
 const descargar = (bytes, nombre, tipo = "application/pdf") => {
