@@ -16,7 +16,7 @@ const PROV = { "01": "Álava", "02": "Albacete", "03": "Alicante", "04": "Almer�
 const ORDEN = [["recientes", "Recientes"], ["entradas", "Más entradas"], ["gasto", "Más gasto"], ["edad", "Edad"], ["nombre", "A-Z"]];
 
 /* ---------- Resumen grande en la página de Entradas (se pulsa para ver los clientes) ---------- */
-export function ResumenVentas({ ev, onAbrir }) {
+export function ResumenVentas({ ev, onAbrir, onGestionar, estado }) {
   const isMobile = useIsMobile();
   const [d, setD] = useState(null);
   useEffect(() => { let vivo = true; setD(null); crm.clientesCargar(ev.id, false).then(x => vivo && setD(x)).catch(() => vivo && setD({ error: true })); return () => { vivo = false; }; }, [ev.id]);
@@ -24,8 +24,13 @@ export function ResumenVentas({ ev, onAbrir }) {
   const aforo = r?.aforo;
   const lleno = aforo ? Math.min(100, pct(r.entradas, aforo)) : null;
   return (
-    <button type="button" onClick={onAbrir} aria-label="Ver clientes y estadísticas de la venta"
-      style={{ ...C.hero, display: "block", width: "100%", textAlign: "left", cursor: "pointer", color: "var(--text)", font: "inherit", padding: isMobile ? 16 : 22, position: "relative", overflow: "hidden" }}>
+    <section style={{ ...C.hero, display: "block", width: "100%", boxSizing: "border-box", textAlign: "left", color: "var(--text)", padding: isMobile ? 16 : 22, position: "relative", overflow: "hidden" }}>
+      {onGestionar && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid var(--line)" }}>
+          <span style={{ minWidth: 0 }}>{estado && <Badge c={estado.c} solid>{estado.t}</Badge>}</span>
+          <button type="button" onClick={onGestionar} style={{ ...C.btnPrimary, minHeight: 44, flexShrink: 0 }}><Icon n="edit" s={16} />Gestionar evento<Icon n="chev" s={14} style={{ transform: "rotate(-90deg)" }} /></button>
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "flex-start", gap: 14, flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 220px", minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1.4, textTransform: "uppercase", color: "var(--muted)" }}>Vendidas en TIXFAST online</div>
@@ -54,9 +59,9 @@ export function ResumenVentas({ ev, onAbrir }) {
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
         <span style={{ fontSize: 13, color: "var(--muted)" }}>Quién compra, de dónde son, edades, tipos de entrada y cuándo compran</span>
-        <span style={{ ...C.btnPrimary, minHeight: 38, padding: "0 14px", flexShrink: 0 }}><Icon n="users" s={16} />Ver clientes<Icon n="chev" s={14} style={{ transform: "rotate(-90deg)" }} /></span>
+        <button type="button" onClick={onAbrir} aria-label="Ver clientes y estadísticas de la venta" style={{ ...(onGestionar ? C.btnGhost : C.btnPrimary), minHeight: 44, padding: "0 14px", flexShrink: 0 }}><Icon n="users" s={16} />Ver clientes<Icon n="chev" s={14} style={{ transform: "rotate(-90deg)" }} /></button>
       </div>
-    </button>
+    </section>
   );
 }
 

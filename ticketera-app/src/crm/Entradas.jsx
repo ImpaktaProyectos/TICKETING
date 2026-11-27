@@ -159,6 +159,9 @@ function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, o
   const [busy, setBusy] = useState(false);
   const [verClientes, setVerClientes] = useState(false);
   const [verDinero, setVerDinero] = useState(false);
+  const [gestionar, setGestionar] = useState(false);   // el paso a paso del evento se abre con «Gestionar evento»
+  const abrirAlCambiar = useRef(false);    // un evento recién creado o duplicado se abre directamente en el paso a paso
+  useEffect(() => { setGestionar(abrirAlCambiar.current); abrirAlCambiar.current = false; }, [ev.id]);
 
   const refrescarLista = () => crm.webListar().then(setLista).catch(() => setLista({}));
   useEffect(() => { refrescarLista(); }, []);
@@ -170,7 +173,7 @@ function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, o
 
   const activar = async () => {
     setBusy(true);
-    try { const ficha = await crm.webActivar(ev); setD({ ficha, tramos: [] }); refrescarLista(); flash("Venta online activada (en borrador)"); }
+    try { const ficha = await crm.webActivar(ev); setD({ ficha, tramos: [] }); setGestionar(true); refrescarLista(); flash("Venta online activada (en borrador)"); }
     catch (e) { flash(String(e.message || "No se ha podido activar").replace(/^TIXFAST: /, ""), "warn"); } finally { setBusy(false); }
   };
   const ordenados = useMemo(() => [...events].sort((a, b) => String(b.startsAt || b.date || "").localeCompare(String(a.startsAt || a.date || ""))), [events]);
@@ -207,11 +210,13 @@ function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, o
           </section>
         ) : verClientes ? <Clientes ev={ev} flash={flash} onVolver={() => setVerClientes(false)} asistentes={<Ventas ev={ev} flash={flash} isMobile={isMobile} />} />
         : (<>
-          <ResumenVentas ev={ev} onAbrir={() => { setVerClientes(true); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
-          <Editor key={ev.id} ev={ev} d={d} setD={setD} flash={flash} isMobile={isMobile} onDuplicar={() => setDup(true)} onCambio={refrescarLista} />
+          {gestionar ? <>
+            <button onClick={() => { setGestionar(false); refrescarLista(); window.scrollTo({ top: 0, behavior: "smooth" }); }} style={{ ...C.btnGhost, alignSelf: "flex-start", minHeight: 44 }}><Icon n="right" s={16} style={{ transform: "rotate(180deg)" }} />Volver al resumen</button>
+            <Editor key={ev.id} ev={ev} d={d} setD={setD} flash={flash} isMobile={isMobile} onDuplicar={() => setDup(true)} onCambio={refrescarLista} />
+          </> : <ResumenVentas ev={ev} estado={ESTADOS[d.ficha.estado]} onGestionar={() => { setGestionar(true); window.scrollTo({ top: 0, behavior: "smooth" }); }} onAbrir={() => { setVerClientes(true); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
         </>)}
       {/* ===== Dinero de entradas de todos los canales (TIXFAST, otras ticketeras, taquilla): plegado al final ===== */}
-      {!verClientes && ingresos && (
+      {!verClientes && !gestionar && ingresos && (
         verDinero || !d?.ficha
           ? <DineroEntradas ingresos={ingresos} facturar={{ evNombre: ev?.name, ajustes, flash, onIrFacturacion }} canales={{ onPuntosVenta, onTicketera }} titulo="Dinero de entradas · todos los canales"
               onAnadir={onVentaEntradas ? () => onVentaEntradas({}) : null}
@@ -247,13 +252,13 @@ function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, o
           const id = await crm.webNuevoEvento(nombre, inicio);
           if (fin) await crm.webGuardarEvento(id, { fin: aIso(fin) });
           await crm.webActivar({ id, name: nombre }).catch(() => null);   // listo para configurar su venta online
-          setNuevo(false); flash("Evento creado"); await refrescarLista(); setTimeout(() => onSelectEvent(id), 900);
+          setNuevo(false); flash("Evento creado"); await refrescarLista(); abrirAlCambiar.current = true; setTimeout(() => onSelectEvent(id), 900);
         } catch { flash("No se ha podido crear el evento", "warn"); } finally { setBusy(false); }
       }} />}
       {dup && d?.ficha && <NuevoEvento titulo="Duplicar evento" nota="Se copian la ficha, los tramos, el formulario y el diseño. Sin ventas y en borrador." inicial={`${ev.name} (COPIA)`} sinFecha busy={busy} onClose={() => setDup(false)}
         onCrear={async (nombre) => {
           setBusy(true);
-          try { const r = await crm.webDuplicar(ev, d.ficha, d.tramos, nombre); setDup(false); flash("Evento duplicado"); await refrescarLista(); setTimeout(() => onSelectEvent(r.id), 900); }
+          try { const r = await crm.webDuplicar(ev, d.ficha, d.tramos, nombre); setDup(false); flash("Evento duplicado"); await refrescarLista(); abrirAlCambiar.current = true; setTimeout(() => onSelectEvent(r.id), 900); }
           catch { flash("No se ha podido duplicar", "warn"); } finally { setBusy(false); }
         }} />}
     </div>
