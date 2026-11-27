@@ -46,6 +46,16 @@ refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las fun
   que ponga el organizador. Si aun así hay una devolución desde Stripe (p. ej. un evento cancelado, que la ley obliga a devolver),
   se anulan las entradas y se descuenta al organizador; la comisión de TIXFAST no se devuelve. Revisarlo con la gestoría.
 
+## 2c-ter. Recuperación de entradas perdidas (27/11/2026) — HECHO, falta la clave de Stripe para cobrar
+- [x] Migración `20261127120000_ticket_recuperacion_entradas` aplicada (probada antes); `pagos` v5, `pagos-stripe` v3, `admin-plataforma` v4.
+- Seguridad: las entradas SOLO se reenvían al correo de la compra (nunca en pantalla ni a otro correo); respuesta siempre igual;
+  búsqueda tras pagar; correo + nombre o teléfono; casilla trampa; 6 intentos por IP y hora; 3 solicitudes por correo al día;
+  reenvíos por pedido limitados; registro con IP y navegador; datos personales borrados a los 90 días.
+- [ ] Probar con la tarjeta 4242 cuando esté `STRIPE_SECRET_KEY` (el reenvío usa `web-enviar-entradas`, como «Enviar a mi correo»).
+- [ ] **Gestoría:** el euro es un servicio de TIXFAST a un consumidor: hay que emitirle factura simplificada (ticket). Ahora mismo
+      solo queda el recibo de Stripe; decidir si se activa el recibo de Stripe o se añade una factura simplificada automática.
+- [ ] Recomendado: que el validador de la puerta pueda buscar una entrada por nombre o DNI (para quien ya no tiene el correo).
+
 ## 2d. Rendimiento con mucha gente a la vez (prueba de carga del 18/11/2026, ver supabase/pruebas-carga/)
 - [x] **Aplicadas** (comprobado el 27/11/2026: todas sus funciones existen en Supabase):
       1. `20261120090000_ticket_rendimiento.sql` (número de ticket, refresco incremental, tope de 500 unidades)

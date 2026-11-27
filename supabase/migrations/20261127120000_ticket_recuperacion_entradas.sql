@@ -151,3 +151,11 @@ returns jsonb language sql stable security definer set search_path = '' as $$
     from public.ticket_web_recuperaciones where creado_en >= p_desde
 $$;
 revoke all on function public.plataforma_recuperaciones(date) from public, anon, authenticated;
+
+-- Pública: precio del servicio (para enseñarlo antes de pagar)
+create or replace function public.web_recuperar_precio()
+returns numeric language sql stable security definer set search_path = '' as $$
+  select coalesce((select recuperacion_precio from public.ticket_plataforma_ajustes where id), 1)
+$$;
+revoke all on function public.web_recuperar_precio() from public;
+grant execute on function public.web_recuperar_precio() to anon, authenticated;

@@ -35,7 +35,7 @@ function Marco({ children }) {
       <div style={{ maxWidth: 560, margin: "0 auto", padding: "18px 16px calc(40px + env(safe-area-inset-bottom))" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
           <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width="34" height="34" />
-          <div style={{ fontWeight: 900, fontSize: 19 }}>Cambio de nombre</div>
+          <div style={{ fontWeight: 900, fontSize: 19 }}>Tus entradas</div>
         </div>
         {children}
       </div>
@@ -285,6 +285,8 @@ function Recuperar() {
   const [acepto, setAcepto] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [precio, setPrecio] = useState(1);
+  useEffect(() => { supabase.rpc("web_recuperar_precio").then(({ data }) => { if (Number(data) > 0) setPrecio(Number(data)); }, () => {}); }, []);
   const cancelado = (() => { try { return new URL(window.location.href).searchParams.get("recuperar") === "cancelado"; } catch { return false; } })();
   const enviar = async (e) => {
     e.preventDefault(); setErr("");
@@ -316,11 +318,11 @@ function Recuperar() {
           <input tabIndex={-1} autoComplete="off" aria-hidden="true" value={d.web} onChange={e => setD({ ...d, web: e.target.value })} style={{ position: "absolute", left: -9999, width: 1, height: 1, opacity: 0 }} />
         </div>
         <div style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 12, padding: 12, margin: "4px 0 12px", fontSize: 14.5, display: "flex", justifyContent: "space-between", gap: 10 }}>
-          <span>Servicio de recuperación</span><b>{eur(1)}</b>
+          <span>Servicio de recuperación</span><b>{eur(precio)}</b>
         </div>
-        <Check v={acepto} on={setAcepto}>Entiendo que se cobra {eur(1)} aunque no se encuentre ninguna entrada con estos datos, y que las entradas solo se envían al correo de la compra.</Check>
+        <Check v={acepto} on={setAcepto}>Entiendo que se cobra {eur(precio)} aunque no se encuentre ninguna entrada con estos datos, y que las entradas solo se envían al correo de la compra.</Check>
         {err && <div role="alert" style={{ color: "#ff6b6b", fontWeight: 700, marginTop: 12, lineHeight: 1.4 }}>{err}</div>}
-        <button type="submit" disabled={busy} style={{ ...btn("var(--c)", T.tinta), width: "100%", marginTop: 14, minHeight: 54, opacity: busy ? .6 : 1 }}>{busy ? "Abriendo el pago seguro…" : `Pagar ${eur(1)} y buscar mis entradas`}</button>
+        <button type="submit" disabled={busy} style={{ ...btn("var(--c)", T.tinta), width: "100%", marginTop: 14, minHeight: 54, opacity: busy ? .6 : 1 }}>{busy ? "Abriendo el pago seguro…" : `Pagar ${eur(precio)} y buscar mis entradas`}</button>
       </form>
       <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 14, lineHeight: 1.5 }}>¿Ya no tienes acceso a ese correo? Ve al evento con tu DNI: en la puerta pueden buscar tu entrada por tu nombre.</div>
     </>
