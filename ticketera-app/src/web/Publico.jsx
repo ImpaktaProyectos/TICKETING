@@ -12,6 +12,7 @@ import QrCodigo from "../qr/QrCodigo";
 import { textoQR, money, eur, fecha, hora, tema, Mensaje, Esqueleto, MIS, cap, reducido, Diapositivas, Galeria, card, btn, Chip, Aviso, Linea, Tramo, CuentaAtras, AvisosCompra, PruebaSocial, CAMPOS, ERRORES, lbl, inpP, Campo, Check, CSS_PUB, InfoPrivacidad, PRIVACIDAD_VERSION, precioConDescuento } from "./comun";
 export { textoQR } from "./comun";
 const PaginaCambio = React.lazy(() => import("./Cambio.jsx"));
+const PanelPuntoVenta = React.lazy(() => import("./PanelPuntoVenta.jsx"));
 import { useCarrito, BarraCarrito, HojaCarrito, ElegirEntradas, CompraVarios } from "./Carrito";
 import PaginaOrganizacion, { MasFiestas } from "./Microsite";
 const PaginaReservas = React.lazy(() => import("./Reservas"));
@@ -32,6 +33,9 @@ export default function Publico() {
   if (unirse || /^\/rp\/?$/.test(ruta)) return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><CuentaRRPP token={unirse ? unirse[1].toLowerCase() : null} /></React.Suspense>;
   // Cambio de nombre de una entrada: /cambio (subir la entrada) y /cambio/<acceso> (vuelta del pago)
   // y entradas perdidas: /cambio/recuperar/<acceso> (vuelta del pago de la recuperación)
+  // Panel del punto de venta (local que vende entradas físicas): /pv/<enlace>
+  const pv = ruta.match(/^\/pv\/([0-9a-f-]{36})\/?$/i);
+  if (pv) return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><PanelPuntoVenta token={pv[1].toLowerCase()} /></React.Suspense>;
   const cambio = ruta.match(/^\/cambio(?:\/(recuperar\/)?([0-9a-f-]{36}))?\/?$/i);
   if (cambio) return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><PaginaCambio acceso={cambio[2] && !cambio[1] ? cambio[2].toLowerCase() : null} recuperar={cambio[2] && cambio[1] ? cambio[2].toLowerCase() : null} /></React.Suspense>;
   const m = ruta.match(/^\/(e|o|mis-entradas|compra|r|b|p|rp)\/([^/?#]+)/);

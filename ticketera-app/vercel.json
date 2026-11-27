@@ -96,6 +96,10 @@
     {
       "source": "/cambio/:acceso*",
       "destination": "/publico.html"
+    },
+    {
+      "source": "/pv/:token*",
+      "destination": "/publico.html"
     }
   ]
 }

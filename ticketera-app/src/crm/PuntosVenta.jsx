@@ -4,7 +4,9 @@
 //    Con talonario propio (solo se apuntan los números) o con talonario de TIXFAST con QR (se valida en la puerta).
 //  · Liquidación: cuántas ha vendido o qué números devuelve → total, su comisión, lo que te tiene que dar y lo pendiente.
 //  · Todo pasa solo al CRM del evento: la venta como ingreso y la comisión como gasto.
-import React, { useEffect, useMemo, useState } from "react";
+//  · Cada punto tiene su enlace (/pv/<enlace>) para registrar ventas, devolver entradas y, si lo activas, vender al móvil.
+//    Lo que registra se ve aquí al momento (es informativo: la entrada vale para entrar igual).
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { money, useIsMobile, C, Icon, Sheet, Field, Seg, Tile, Badge, MoneyInput, parseImporte, hoy } from "./ui";
 import { resumenLote, leerRangos, textoRangos, solapan } from "./pvCalc.js";
@@ -13,6 +15,7 @@ const num = (v) => { const n = Number(String(v ?? "").replace(",", ".")); return
 const coma = (v) => (v == null ? "" : String(v).replace(".", ","));
 const comisionCorta = (t, v) => (t === "pct" ? `${coma(v)} %` : `${money(v)}/entrada`);
 const MOTIVO = { sin_web: "Para generar entradas con QR, activa antes la venta online del evento (en Entradas › Eventos; puede quedarse en borrador).", cantidad: "Entre 1 y 2.000 entradas por talonario.", precio: "Revisa el precio.", evento: "Evento no válido.", punto: "Punto de venta no válido.", sesion: "Vuelve a entrar." };
+const aLocal = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d)) return ""; const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
 const errorTxt = (e) => String(e?.message || e || "No se ha podido guardar").replace(/^.*?ERROR:\s*/, "");
 
 export function PuntosVenta({ ev, flash }) {
@@ -22,22 +25,31 @@ export function PuntosVenta({ ev, flash }) {
   const [punto, setPunto] = useState(null);     // ficha en edición
   const [entrega, setEntrega] = useState(null); // nueva entrega
   const [lote, setLote] = useState(null);       // entrega abierta (liquidar)
+  const [directa, setDirecta] = useState(null); // ventas al móvil de un punto (cobrar)
+  const [vivo, setVivo] = useState({ registradas: {}, directas: [] });   // lo que registran los puntos, al momento
   const cargar = async () => {
-    const [p, l] = await Promise.all([
+    const [p, l, e] = await Promise.all([
       supabase.from("ticket_pv").select("*").order("nombre"),
       ev?.id ? supabase.from("ticket_pv_lotes").select("*").eq("evento_id", ev.id).order("desde") : Promise.resolve({ data: [] }),
+      ev?.id ? supabase.rpc("pv_estado_evento", { p_evento: ev.id }) : Promise.resolve({ data: null }),
     ]);
     if (p.error) { setPuntos(false); return; }
     setPuntos(p.data || []); setLotes(l.data || []);
+    if (e.data) setVivo({ registradas: e.data.registradas || {}, directas: e.data.directas || [] });
   };
-  useEffect(() => { cargar(); }, [ev?.id]);
+  useEffect(() => { cargar(); const t = setInterval(() => { if (document.visibilityState === "visible") cargar(); }, 30000); return () => clearInterval(t); }, [ev?.id]);
   const porPunto = useMemo(() => {
     const m = new Map();
     lotes.forEach(l => { const r = resumenLote(l); const a = m.get(l.pv_id) || { lotes: [], entregadas: 0, vendidas: 0, total: 0, comision: 0, pendiente: 0, sinLiquidar: 0 };
-      a.lotes.push(l); a.entregadas += r.entregadas; a.vendidas += r.vendidas; a.total += r.total; a.comision += r.comision; a.pendiente += r.pendiente; if (!l.vendidas_modo) a.sinLiquidar++; m.set(l.pv_id, a); });
+      a.lotes.push(l); a.entregadas += r.entregadas; a.vendidas += r.vendidas; a.total += r.total; a.comision += r.comision; a.pendiente += r.pendiente; if (!l.vendidas_modo) a.sinLiquidar++;
+      a.registradas = (a.registradas || 0) + (l.vendidas_modo ? 0 : (vivo.registradas[l.id] || 0)); m.set(l.pv_id, a); });
+    // Ventas al móvil: cuentan como vendidas del punto (ya cobradas por él en efectivo)
+    vivo.directas.forEach(dd => { const a = m.get(dd.pv_id) || { lotes: [], entregadas: 0, vendidas: 0, total: 0, comision: 0, pendiente: 0, sinLiquidar: 0 };
+      const debe = Math.max(0, Number(dd.total) - Number(dd.comision) - Number(dd.pagado));
+      a.directa = dd; a.vendidas += dd.entradas; a.total += Number(dd.total); a.comision += Number(dd.comision); a.pendiente += debe; m.set(dd.pv_id, a); });
     return m;
-  }, [lotes]);
-  const T = [...porPunto.values()].reduce((t, a) => ({ entregadas: t.entregadas + a.entregadas, vendidas: t.vendidas + a.vendidas, total: t.total + a.total, comision: t.comision + a.comision, pendiente: t.pendiente + a.pendiente }), { entregadas: 0, vendidas: 0, total: 0, comision: 0, pendiente: 0 });
+  }, [lotes, vivo]);
+  const T = [...porPunto.values()].reduce((t, a) => ({ entregadas: t.entregadas + a.entregadas, vendidas: t.vendidas + a.vendidas, total: t.total + a.total, comision: t.comision + a.comision, pendiente: t.pendiente + a.pendiente, registradas: t.registradas + (a.registradas || 0) }), { entregadas: 0, vendidas: 0, total: 0, comision: 0, pendiente: 0, registradas: 0 });
 
   if (puntos === null) return <div style={{ color: "var(--muted)", padding: 20 }}>Cargando…</div>;
   if (puntos === false) return <div style={C.empty}>No se han podido cargar los puntos de venta.</div>;
@@ -60,6 +72,7 @@ export function PuntosVenta({ ev, flash }) {
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(5, 1fr)", gap: 12, marginTop: 14 }}>
           {dato("Entregadas", T.entregadas)}{dato("Vendidas", T.vendidas)}{dato("Total vendido", money(T.total))}{dato("Comisiones", money(T.comision))}{dato("Te deben", money(T.pendiente), T.pendiente > 0 ? "var(--amber)" : "var(--green)")}
         </div>
+        {T.registradas > 0 && <div style={{ marginTop: 12, fontSize: 13.5, color: "var(--muted)" }}><b style={{ color: "var(--green)" }}>{T.registradas}</b> vendidas registradas por los puntos en entregas aún sin liquidar (se actualiza solo).</div>}
       </section>
 
       {conLotes.length === 0 && <div style={C.empty}>Aún no has entregado entradas a ningún punto de venta en este evento.</div>}
@@ -69,7 +82,7 @@ export function PuntosVenta({ ev, flash }) {
             <Tile n="building" s={36} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 800, fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nombre}</div>
-              <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{a.entregadas} entregadas · {a.vendidas} vendidas{a.sinLiquidar ? ` · ${a.sinLiquidar} sin liquidar` : ""}</div>
+              <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{a.entregadas} entregadas · {a.vendidas} vendidas{a.sinLiquidar ? ` · ${a.sinLiquidar} sin liquidar` : ""}{a.registradas ? ` · ${a.registradas} registradas ahora` : ""}</div>
             </div>
             <div style={{ textAlign: "right", flexShrink: 0 }}>
               <div style={C.label}>Te debe</div>
@@ -81,11 +94,21 @@ export function PuntosVenta({ ev, flash }) {
               <button key={l.id} onClick={() => setLote(l)} style={{ ...C.listBtn, width: "100%", borderTop: "1px solid var(--line)", borderRadius: 0, padding: "10px 4px", minHeight: 52 }}>
                 <span style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
                   <span style={{ display: "block", fontWeight: 700 }}>Nº {l.desde}–{l.hasta} · {l.nombre}{l.modo === "qr" ? " · con QR" : ""}</span>
-                  <span style={{ display: "block", fontSize: 12.5, color: "var(--muted)" }}>{money(l.precio)} · comisión {comisionCorta(l.comision_tipo, l.comision_valor)} · {l.vendidas_modo ? `${r.vendidas} vendidas · ${money(r.aEntregar)} a entregar` : "sin liquidar"}</span>
+                  <span style={{ display: "block", fontSize: 12.5, color: "var(--muted)" }}>{money(l.precio)} · comisión {comisionCorta(l.comision_tipo, l.comision_valor)} · {l.vendidas_modo ? `${r.vendidas} vendidas · ${money(r.aEntregar)} a entregar` : `sin liquidar${vivo.registradas[l.id] ? ` · ${vivo.registradas[l.id]} registradas` : ""}${r.devueltas ? ` · ${r.devueltas} devueltas` : ""}`}</span>
+                  {!l.vendidas_modo && l.devolver_hasta && new Date(l.devolver_hasta) < new Date() && <span style={{ display: "block", fontSize: 12.5, color: "var(--amber)", fontWeight: 700 }}>Ha pasado el plazo de devolución: liquida esta entrega</span>}
                 </span>
                 {l.vendidas_modo ? (r.pendiente > 0 ? <Badge c="var(--amber)">Debe {money(r.pendiente)}</Badge> : <Badge c="var(--green)">Pagado</Badge>) : <Badge>Liquidar</Badge>}
               </button>); })}
+            {a.directa && (() => { const dd = a.directa; const debe = Math.max(0, Number(dd.total) - Number(dd.comision) - Number(dd.pagado)); return (
+              <button onClick={() => setDirecta({ punto: p, dd })} style={{ ...C.listBtn, width: "100%", borderTop: "1px solid var(--line)", borderRadius: 0, padding: "10px 4px", minHeight: 52 }}>
+                <span style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+                  <span style={{ display: "block", fontWeight: 700 }}>Venta al móvil · {dd.entradas} entradas</span>
+                  <span style={{ display: "block", fontSize: 12.5, color: "var(--muted)" }}>{money(dd.total)} cobrado en efectivo · comisión {money(dd.comision)}</span>
+                </span>
+                {debe > 0 ? <Badge c="var(--amber)">Debe {money(debe)}</Badge> : <Badge c="var(--green)">Pagado</Badge>}
+              </button>); })()}
           </div>
+          <EnlacePunto p={p} ev={ev} flash={flash} />
         </section>); })}
 
       <section style={{ ...C.panel, padding: isMobile ? 14 : 18 }}>
@@ -103,8 +126,63 @@ export function PuntosVenta({ ev, flash }) {
 
       {punto && <FichaPunto p={punto} usado={porPunto.has(punto.id)} flash={flash} onClose={() => setPunto(null)} onCambio={() => { setPunto(null); cargar(); }} />}
       {entrega && <NuevaEntrega ev={ev} puntos={puntos.filter(p => p.activo)} lotes={lotes} flash={flash} onClose={() => setEntrega(null)} onCreada={(l) => { setEntrega(null); cargar(); if (l) setLote(l); }} />}
-      {lote && <Liquidacion ev={ev} lote={lote} punto={puntos.find(p => p.id === lote.pv_id) || {}} lotes={lotes} flash={flash} onClose={() => setLote(null)} onCambio={(sigue) => { cargar(); if (!sigue) setLote(null); }} />}
+      {lote && <Liquidacion ev={ev} lote={lote} registradas={vivo.registradas[lote.id] || 0} punto={puntos.find(p => p.id === lote.pv_id) || {}} lotes={lotes} flash={flash} onClose={() => setLote(null)} onCambio={(sigue) => { cargar(); if (!sigue) setLote(null); }} />}
+      {directa && <CobroDirectas ev={ev} punto={directa.punto} dd={directa.dd} flash={flash} onClose={() => setDirecta(null)} onCambio={() => { setDirecta(null); cargar(); }} />}
     </div>
+  );
+}
+
+/* ---------- Enlace del panel del punto: copiar, WhatsApp ---------- */
+const enlacePunto = (p) => `${window.location.origin}/pv/${p.token}`;
+const waPunto = (p, ev) => {
+  const tel = String(p.telefono || "").replace(/[^\d]/g, "");
+  const num = tel.length === 9 ? "34" + tel : tel;
+  const txt = `Hola${p.contacto ? " " + p.contacto : ""}, este es tu panel de punto de venta${ev?.name ? " para " + ev.name : ""}: ${enlacePunto(p)}\nÁbrelo en el móvil. Escanea cada entrada al venderla (o pulsa «+1 vendida») y, antes del evento, escanea las que no vendas para devolverlas.`;
+  return `https://wa.me/${num}?text=${encodeURIComponent(txt)}`;
+};
+function EnlacePunto({ p, ev, flash }) {
+  if (!p.token) return null;
+  const copiar = async () => { try { await navigator.clipboard.writeText(enlacePunto(p)); flash("Enlace copiado"); } catch { flash(enlacePunto(p)); } };
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10, alignItems: "center" }}>
+      <span style={{ fontSize: 12.5, color: "var(--muted)", flex: "1 1 160px" }}>Su panel para registrar ventas y devolver{p.venta_directa ? " (venta al móvil activada)" : ""}</span>
+      <button onClick={copiar} style={{ ...C.btnGhost, minHeight: 44 }}><Icon n="copy" s={16} />Copiar enlace</button>
+      <a href={waPunto(p, ev)} target="_blank" rel="noopener noreferrer" style={{ ...C.btnGhost, minHeight: 44, textDecoration: "none" }}>WhatsApp</a>
+    </div>
+  );
+}
+
+/* ---------- Ventas al móvil de un punto: lo que te tiene que dar ---------- */
+function CobroDirectas({ ev, punto, dd, flash, onClose, onCambio }) {
+  const aDar = Math.max(0, Number(dd.total) - Number(dd.comision));
+  const [pagado, setPagado] = useState(coma(dd.pagado || 0));
+  const [busy, setBusy] = useState(false);
+  const guardar = async () => {
+    setBusy(true);
+    const { error } = await supabase.from("ticket_pv_eventos").upsert({ pv_id: punto.id, evento_id: ev.id, pagado_directas: parseImporte(pagado), actualizado_en: new Date().toISOString() }, { onConflict: "pv_id,evento_id" });
+    setBusy(false);
+    if (error) return flash(errorTxt(error), "warn");
+    flash("Guardado"); onCambio();
+  };
+  const fila2 = (t, v, c, fuerte) => <div style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "4px 0", fontWeight: fuerte ? 800 : 600, color: c || (fuerte ? "var(--text)" : "var(--muted)") }}><span>{t}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{v}</span></div>;
+  const pend = Math.max(0, aDar - parseImporte(pagado));
+  return (
+    <Sheet title={`${punto.nombre} · venta al móvil`} onClose={onClose} footer={<button onClick={guardar} disabled={busy} style={{ ...C.btnPrimary, width: "100%", minHeight: 52 }}>{busy ? "Guardando…" : "Guardar"}</button>}>
+      <div style={{ ...C.card, padding: 12, marginBottom: 12, fontSize: 14 }}>
+        {fila2("Entradas vendidas al móvil", dd.entradas)}
+        {fila2("Cobrado por el punto (efectivo)", money(dd.total))}
+        {fila2("Su comisión", "− " + money(dd.comision))}
+        {fila2("Te tiene que dar", money(aDar), null, true)}
+        {fila2("Pendiente", money(pend), pend > 0 ? "var(--amber)" : "var(--green)", true)}
+      </div>
+      <Field l="Ya te ha pagado">
+        <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ flex: 1 }}><MoneyInput value={pagado} onChange={setPagado} /></div>
+          <button type="button" onClick={() => setPagado(coma(aDar))} style={{ ...C.btnGhost, minHeight: 44 }}>Todo</button>
+        </div>
+      </Field>
+      <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.45 }}>Las compradoras y compradores recibieron su entrada en el correo. La venta y la comisión pasan solas al CRM del evento; al apuntar lo pagado, el ingreso queda como cobrado.</div>
+    </Sheet>
   );
 }
 
@@ -130,11 +208,17 @@ function FichaPunto({ p, usado, flash, onClose, onCambio }) {
     if (!String(f.nombre || "").trim()) return flash("Escribe el nombre", "warn");
     setBusy(true);
     const fila = { nombre: f.nombre.trim(), contacto: f.contacto || null, telefono: f.telefono || null, email: f.email || null, direccion: f.direccion || null, notas: f.notas || null,
-      comision_tipo: f.comision_tipo, comision_valor: num(f.comision_valor), activo: f.activo !== false, actualizado_en: new Date().toISOString() };
+      comision_tipo: f.comision_tipo, comision_valor: num(f.comision_valor), activo: f.activo !== false, venta_directa: !!f.venta_directa, actualizado_en: new Date().toISOString() };
     const r = p.id ? await supabase.from("ticket_pv").update(fila).eq("id", p.id) : await supabase.from("ticket_pv").insert(fila);
     setBusy(false);
     if (r.error) return flash(errorTxt(r.error), "warn");
     flash(p.id ? "Punto de venta guardado" : "Punto de venta creado"); onCambio();
+  };
+  const [renovar, setRenovar] = useState(false);
+  const nuevoEnlace = async () => {
+    setBusy(true); const r = await supabase.from("ticket_pv").update({ token: crypto.randomUUID() }).eq("id", p.id); setBusy(false);
+    if (r.error) return flash(errorTxt(r.error), "warn");
+    flash("Enlace renovado: el anterior ya no funciona. Envíale el nuevo."); onCambio();
   };
   const borrar = async () => {
     setBusy(true); const r = await supabase.from("ticket_pv").delete().eq("id", p.id); setBusy(false);
@@ -156,6 +240,12 @@ function FichaPunto({ p, usado, flash, onClose, onCambio }) {
       <Field l="Dirección"><input value={f.direccion || ""} maxLength={200} onChange={e => set("direccion", e.target.value)} style={C.input} /></Field>
       <Field l="Comisión por defecto (se puede cambiar en cada entrega)"><Comision tipo={f.comision_tipo} valor={f.comision_valor} onTipo={(v) => set("comision_tipo", v)} onValor={(v) => set("comision_valor", v)} /></Field>
       <Field l="Notas"><input value={f.notas || ""} maxLength={1000} onChange={e => set("notas", e.target.value)} style={C.input} /></Field>
+      <label style={C.toggleRow}><span>Venta al móvil<span style={{ display: "block", fontSize: 12.5, color: "var(--muted)", fontWeight: 500 }}>Desde su panel puede vender entradas de la web: cobra en efectivo y la entrada llega al correo del comprador.</span></span><input type="checkbox" checked={!!f.venta_directa} onChange={e => set("venta_directa", e.target.checked)} style={{ width: 22, height: 22, accentColor: "var(--accent)", flexShrink: 0 }} /></label>
+      {p.id && p.token && <Field l="Enlace de su panel">
+        <div style={{ fontSize: 12.5, color: "var(--muted)", wordBreak: "break-all", marginBottom: 6 }}>{enlacePunto(p)}</div>
+        {renovar ? <div style={{ display: "flex", gap: 8 }}><button onClick={nuevoEnlace} disabled={busy} style={{ ...C.btnGhost, color: "var(--red)", borderColor: "var(--red)", minHeight: 44 }}>Sí, crear uno nuevo</button><button onClick={() => setRenovar(false)} style={{ ...C.btnGhost, minHeight: 44 }}>No</button></div>
+          : <button onClick={() => setRenovar(true)} style={{ ...C.btnGhost, minHeight: 44 }}>Renovar enlace (si se ha compartido con quien no debía)</button>}
+      </Field>}
       {p.id && <label style={C.toggleRow}><span>Activo (aparece al hacer entregas)</span><input type="checkbox" checked={f.activo !== false} onChange={e => set("activo", e.target.checked)} style={{ width: 22, height: 22, accentColor: "var(--accent)" }} /></label>}
     </Sheet>
   );
@@ -222,9 +312,11 @@ function NuevaEntrega({ ev, puntos, lotes, flash, onClose, onCreada }) {
 }
 
 /* ---------- Liquidación de una entrega ---------- */
-function Liquidacion({ ev, lote, punto, lotes, flash, onClose, onCambio }) {
+function Liquidacion({ ev, lote, registradas = 0, punto, lotes, flash, onClose, onCambio }) {
   const isMobile = useIsMobile();
-  const [f, setF] = useState({ ...lote, precio: coma(lote.precio), comision_valor: coma(lote.comision_valor), pagado: coma(lote.pagado), vendidas: lote.vendidas ?? "", devTexto: textoRangos(lote.devueltas) });
+  const [f, setF] = useState({ ...lote, precio: coma(lote.precio), comision_valor: coma(lote.comision_valor), pagado: coma(lote.pagado), vendidas: lote.vendidas ?? "", devTexto: textoRangos(lote.devueltas), plazo: aLocal(lote.devolver_hasta) });
+  const [anular, setAnular] = useState(null);   // null | "preguntar" | { sinNumero }
+  const base = useRef(lote.devueltas);   // las devueltas tal como estaban al abrir (para no pisar las del punto)
   const [busy, setBusy] = useState("");
   const [borrar, setBorrar] = useState(false);
   const set = (k, v) => setF(x => ({ ...x, [k]: v }));
@@ -235,17 +327,36 @@ function Liquidacion({ ev, lote, punto, lotes, flash, onClose, onCambio }) {
   const choca = !qr && lotes.some(l => l.id !== lote.id && solapan(l, { desde, hasta }));
   const actual = { ...f, desde, hasta, precio: num(f.precio), comision_valor: num(f.comision_valor), pagado: parseImporte(f.pagado), vendidas: parseInt(f.vendidas, 10) || 0, vendidas_modo: modoLiq, devueltas: rangos.rangos || [] };
   const r = resumenLote(actual);
+  // En los talonarios con QR las devueltas se guardan siempre (también las que el punto devuelve escaneando)
   const fila = () => ({ nombre: String(f.nombre || "").trim() || "Entrada", precio: actual.precio, comision_tipo: f.comision_tipo, comision_valor: actual.comision_valor, pagado: actual.pagado,
-    vendidas_modo: modoLiq || null, vendidas: modoLiq === "cantidad" ? actual.vendidas : null, devueltas: modoLiq === "devueltas" ? actual.devueltas : [], notas: f.notas || null,
+    vendidas_modo: modoLiq || null, vendidas: modoLiq === "cantidad" ? actual.vendidas : null, devueltas: qr || modoLiq === "devueltas" ? actual.devueltas : [], notas: f.notas || null,
+    devolver_hasta: f.plazo ? new Date(f.plazo).toISOString() : null,
     ...(qr ? {} : { desde, hasta }) });
   const guardar = async (cerrar = true) => {
     if (rangos.error) return flash(rangos.error, "warn");
     if (choca) return flash("Esa numeración se pisa con otra entrega", "warn");
     setBusy("guardar");
+    if (qr) {
+      // Si el punto ha devuelto entradas desde su panel mientras tenías esto abierto, no se pisa lo suyo
+      const { data: hoyEs } = await supabase.from("ticket_pv_lotes").select("devueltas").eq("id", lote.id).maybeSingle();
+      if (hoyEs && textoRangos(hoyEs.devueltas) !== textoRangos(base.current)) {
+        setBusy(""); base.current = hoyEs.devueltas; set("devTexto", textoRangos(hoyEs.devueltas));
+        return flash("El punto acaba de devolver entradas desde su panel. Hemos puesto las devueltas al día: revisa y vuelve a guardar.", "warn");
+      }
+    }
     const { error } = await supabase.from("ticket_pv_lotes").update(fila()).eq("id", lote.id);
     setBusy("");
     if (error) return flash(errorTxt(error), "warn");
     flash("Guardado"); onCambio(!cerrar);
+  };
+  const anularNoRegistradas = async (forzar) => {
+    setBusy("anular");
+    const { data, error } = await supabase.rpc("pv_anular_no_registradas", { p_lote: lote.id, p_forzar: !!forzar });
+    setBusy("");
+    if (error) return flash(errorTxt(error), "warn");
+    if (!data?.ok && data?.motivo === "sin_numero") return setAnular({ sinNumero: data.sin_numero });
+    if (!data?.ok) return flash("No se ha podido anular", "warn");
+    flash(`${data.devueltas} entradas dadas por devueltas y anuladas`); onCambio(false);
   };
   const quitar = async () => { setBusy("borrar"); const { error } = await supabase.from("ticket_pv_lotes").delete().eq("id", lote.id); setBusy(""); if (error) return flash(errorTxt(error), "warn"); flash("Entrega borrada"); onCambio(false); };
   const pdf = async (tipo) => {
@@ -273,7 +384,8 @@ function Liquidacion({ ev, lote, punto, lotes, flash, onClose, onCambio }) {
           : <button onClick={() => setBorrar(true)} style={{ ...C.btnGhost, color: "var(--red)", padding: "0 14px" }} aria-label="Borrar entrega"><Icon n="trash" s={18} /></button>}
         <button onClick={() => guardar(true)} disabled={!!busy} style={{ ...C.btnPrimary, flex: 1, minHeight: 52 }}>{busy === "guardar" ? "Guardando…" : "Guardar"}</button>
       </div>}>
-      {qr && <div style={{ ...C.card, padding: 12, marginBottom: 12, fontSize: 13.5, lineHeight: 1.45 }}>Talonario con QR de TIXFAST. Imprímelo y entrégalo; las entradas que te devuelva, apúntalas abajo y quedarán <b>anuladas</b> en la puerta.</div>}
+      {qr && <div style={{ ...C.card, padding: 12, marginBottom: 12, fontSize: 13.5, lineHeight: 1.45 }}>Talonario con QR de TIXFAST. Imprímelo y entrégalo; las entradas que te devuelva (él mismo desde su panel o tú apuntándolas abajo) quedan <b>anuladas</b> en la puerta.</div>}
+      {!lote.vendidas_modo && <div style={{ ...C.card, padding: 12, marginBottom: 12, fontSize: 13.5, display: "flex", justifyContent: "space-between", gap: 10 }}><span>Registradas como vendidas por el punto</span><b style={{ color: "var(--green)" }}>{registradas} de {lote.hasta - lote.desde + 1}</b></div>}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.3fr 1fr", gap: 10 }}>
         <Field l="Tipo de entrada"><input value={f.nombre} maxLength={80} onChange={e => set("nombre", e.target.value)} style={C.input} /></Field>
         <Field l="Precio de venta"><MoneyInput value={f.precio} onChange={(v) => set("precio", v)} /></Field>
@@ -284,14 +396,18 @@ function Liquidacion({ ev, lote, punto, lotes, flash, onClose, onCambio }) {
       </div>}
       <Field l="Comisión del punto"><Comision tipo={f.comision_tipo} valor={f.comision_valor} onTipo={(v) => set("comision_tipo", v)} onValor={(v) => set("comision_valor", v)} /></Field>
 
+      <Field l="Plazo para devolver las no vendidas">
+        <input type="datetime-local" value={f.plazo || ""} onChange={e => set("plazo", e.target.value)} style={{ ...C.input, minWidth: 0, maxWidth: "100%", boxSizing: "border-box" }} />
+        <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 4 }}>Lo ve el punto en su panel. Al pasar, te avisamos aquí para que liquides.</div>
+      </Field>
       <Field l="Liquidación">
         {qr ? (
-          <label style={{ ...C.toggleRow, marginBottom: 8 }}><span>Ya me ha dicho qué devuelve</span><input type="checkbox" checked={!!f.vendidas_modo} onChange={e => set("vendidas_modo", e.target.checked ? "devueltas" : null)} style={{ width: 22, height: 22, accentColor: "var(--accent)" }} /></label>
+          <label style={{ ...C.toggleRow, marginBottom: 8 }}><span>Liquidación cerrada (las no devueltas cuentan como vendidas)</span><input type="checkbox" checked={!!f.vendidas_modo} onChange={e => set("vendidas_modo", e.target.checked ? "devueltas" : null)} style={{ width: 22, height: 22, accentColor: "var(--accent)", flexShrink: 0 }} /></label>
         ) : (
           <Seg full valor={f.vendidas_modo || "nada"} onChange={(v) => set("vendidas_modo", v === "nada" ? null : v)} opciones={[{ k: "nada", t: "Sin liquidar" }, { k: "cantidad", t: "Ha vendido…" }, { k: "devueltas", t: "Me devuelve…" }]} />
         )}
         {modoLiq === "cantidad" && <input inputMode="numeric" value={f.vendidas} onChange={e => set("vendidas", e.target.value.replace(/\D/g, "").slice(0, 5))} placeholder="Nº de entradas vendidas" style={{ ...C.input, marginTop: 8 }} />}
-        {modoLiq === "devueltas" && <>
+        {(qr || modoLiq === "devueltas") && <>
           <input value={f.devTexto} onChange={e => set("devTexto", e.target.value)} placeholder={`Ej. ${Math.max(lote.desde, lote.hasta - 19)}-${lote.hasta} (vacío si no devuelve ninguna)`} style={{ ...C.input, marginTop: 8 }} />
           <div style={{ fontSize: 12.5, color: rangos.error ? "var(--red)" : "var(--muted)", marginTop: 4 }}>{rangos.error || "Números o rangos separados por comas. Las que no devuelva cuentan como vendidas."}</div>
         </>}
@@ -313,6 +429,15 @@ function Liquidacion({ ev, lote, punto, lotes, flash, onClose, onCambio }) {
         </div>
       </Field>}
       <Field l="Notas"><input value={f.notas || ""} maxLength={1000} onChange={e => set("notas", e.target.value)} style={C.input} /></Field>
+      {qr && !lote.vendidas_modo && <div style={{ ...C.card, padding: 12, marginBottom: 12, fontSize: 13.5, lineHeight: 1.45 }}>
+        <b>Última protección:</b> anula todas las que el punto no ha registrado como vendidas (y que no han entrado al evento). Úsalo solo si sabes que registró todas sus ventas: si vendió alguna sin registrarla, a esa persona no le valdrá la entrada.
+        {anular === null && <button onClick={() => setAnular("preguntar")} disabled={!!busy} style={{ ...C.btnGhost, color: "var(--red)", borderColor: "var(--red)", minHeight: 44, marginTop: 8, display: "flex" }}>Anular las no registradas</button>}
+        {anular === "preguntar" && <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}><button onClick={() => anularNoRegistradas(false)} disabled={!!busy} style={{ ...C.btnGhost, color: "var(--red)", borderColor: "var(--red)", minHeight: 44 }}>{busy === "anular" ? "Anulando…" : `Sí, anular ${Math.max(0, lote.hasta - lote.desde + 1 - registradas - r.devueltas)}`}</button><button onClick={() => setAnular(null)} style={{ ...C.btnGhost, minHeight: 44 }}>No</button></div>}
+        {anular && anular.sinNumero && <div style={{ marginTop: 8 }}>
+          <div style={{ color: "var(--amber)", fontWeight: 700 }}>El punto registró {anular.sinNumero} con «+1» (sin escanear): no sabemos qué números son. Si anulas, alguna de esas personas podría quedarse fuera. Mejor pídele que las escanee.</div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}><button onClick={() => anularNoRegistradas(true)} disabled={!!busy} style={{ ...C.btnGhost, color: "var(--red)", borderColor: "var(--red)", minHeight: 44 }}>Anular igualmente</button><button onClick={() => setAnular(null)} style={{ ...C.btnGhost, minHeight: 44 }}>No</button></div>
+        </div>}
+      </div>}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {qr && <button onClick={() => pdf("talonario")} disabled={!!busy} style={{ ...C.btnGhost, minHeight: 44 }}><Icon n="download" s={16} />{busy === "talonario" ? "Creando…" : "Talonario para imprimir"}</button>}
         <button onClick={() => pdf("albaran")} disabled={!!busy} style={{ ...C.btnGhost, minHeight: 44 }}><Icon n="file" s={16} />{busy === "albaran" ? "Creando…" : "Albarán de entrega"}</button>
