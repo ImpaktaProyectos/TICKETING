@@ -10,6 +10,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { money, useIsMobile, C, Icon, Sheet, Field, Seg, Tile, Badge, MoneyInput, parseImporte, hoy } from "./ui";
 import { resumenLote, leerRangos, textoRangos, solapan } from "./pvCalc.js";
+import { DisenoEntrada, GenerarTandas, DescargarImprenta } from "./Imprenta.jsx";
 
 const num = (v) => { const n = Number(String(v ?? "").replace(",", ".")); return Number.isFinite(n) ? n : 0; };
 const coma = (v) => (v == null ? "" : String(v).replace(".", ","));
@@ -27,7 +28,10 @@ export function PuntosVenta({ ev, flash }) {
   const [lote, setLote] = useState(null);       // entrega abierta (liquidar)
   const [directa, setDirecta] = useState(null); // ventas al móvil de un punto (cobrar)
   const [vivo, setVivo] = useState({ registradas: {}, directas: [] });   // lo que registran los puntos, al momento
+  const [disenos, setDisenos] = useState([]);
+  const [hoja, setHoja] = useState(null);       // "diseno" | "tandas" | { imprenta: [ids] }
   const cargar = async () => {
+    if (ev?.id) supabase.from("ticket_pv_disenos").select("*").eq("evento_id", ev.id).order("creado_en").then(({ data }) => setDisenos(data || []));
     const [p, l, e] = await Promise.all([
       supabase.from("ticket_pv").select("*").order("nombre"),
       ev?.id ? supabase.from("ticket_pv_lotes").select("*").eq("evento_id", ev.id).order("desde") : Promise.resolve({ data: [] }),
@@ -68,6 +72,11 @@ export function PuntosVenta({ ev, flash }) {
             <button onClick={() => setPunto({ comision_tipo: "fija", comision_valor: 0, activo: true })} style={C.btnGhost}><Icon n="plus" s={16} />Punto de venta</button>
             <button onClick={() => puntos.length ? setEntrega({}) : flash("Primero crea un punto de venta", "warn")} style={C.btnPrimary}><Icon n="plus" s={16} w={2.4} />Nueva entrega</button>
           </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+          <button onClick={() => setHoja("diseno")} style={{ ...C.btnGhost, minHeight: 44 }}><Icon n="eye" s={16} />Diseño de la entrada{disenos.length ? ` (${disenos.length})` : ""}</button>
+          <button onClick={() => puntos.some(p => p.activo) ? setHoja("tandas") : flash("Primero crea un punto de venta", "warn")} style={{ ...C.btnGhost, minHeight: 44 }}><Icon n="plus" s={16} />Generar tandas con QR</button>
+          <button onClick={() => setHoja({ imprenta: [] })} style={{ ...C.btnGhost, minHeight: 44 }}><Icon n="download" s={16} />Descargar para imprenta</button>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(5, 1fr)", gap: 12, marginTop: 14 }}>
           {dato("Entregadas", T.entregadas)}{dato("Vendidas", T.vendidas)}{dato("Total vendido", money(T.total))}{dato("Comisiones", money(T.comision))}{dato("Te deben", money(T.pendiente), T.pendiente > 0 ? "var(--amber)" : "var(--green)")}
@@ -126,7 +135,10 @@ export function PuntosVenta({ ev, flash }) {
 
       {punto && <FichaPunto p={punto} usado={porPunto.has(punto.id)} flash={flash} onClose={() => setPunto(null)} onCambio={() => { setPunto(null); cargar(); }} />}
       {entrega && <NuevaEntrega ev={ev} puntos={puntos.filter(p => p.activo)} lotes={lotes} flash={flash} onClose={() => setEntrega(null)} onCreada={(l) => { setEntrega(null); cargar(); if (l) setLote(l); }} />}
-      {lote && <Liquidacion ev={ev} lote={lote} registradas={vivo.registradas[lote.id] || 0} punto={puntos.find(p => p.id === lote.pv_id) || {}} lotes={lotes} flash={flash} onClose={() => setLote(null)} onCambio={(sigue) => { cargar(); if (!sigue) setLote(null); }} />}
+      {lote && <Liquidacion onImprenta={() => { const id = lote.id; setLote(null); setHoja({ imprenta: [id] }); }} ev={ev} lote={lote} registradas={vivo.registradas[lote.id] || 0} punto={puntos.find(p => p.id === lote.pv_id) || {}} lotes={lotes} flash={flash} onClose={() => setLote(null)} onCambio={(sigue) => { cargar(); if (!sigue) setLote(null); }} />}
+      {hoja === "diseno" && <DisenoEntrada ev={ev} flash={flash} onClose={() => setHoja(null)} onCambio={cargar} />}
+      {hoja === "tandas" && <GenerarTandas ev={ev} puntos={puntos} disenos={disenos} flash={flash} onClose={() => setHoja(null)} onHecho={async (ids) => { await cargar(); setHoja({ imprenta: ids }); }} />}
+      {hoja?.imprenta && <DescargarImprenta ev={ev} puntos={puntos} lotes={lotes} disenos={disenos} inicial={hoja.imprenta} flash={flash} onClose={() => setHoja(null)} />}
       {directa && <CobroDirectas ev={ev} punto={directa.punto} dd={directa.dd} flash={flash} onClose={() => setDirecta(null)} onCambio={() => { setDirecta(null); cargar(); }} />}
     </div>
   );
@@ -312,7 +324,7 @@ function NuevaEntrega({ ev, puntos, lotes, flash, onClose, onCreada }) {
 }
 
 /* ---------- Liquidación de una entrega ---------- */
-function Liquidacion({ ev, lote, registradas = 0, punto, lotes, flash, onClose, onCambio }) {
+function Liquidacion({ onImprenta, ev, lote, registradas = 0, punto, lotes, flash, onClose, onCambio }) {
   const isMobile = useIsMobile();
   const [f, setF] = useState({ ...lote, precio: coma(lote.precio), comision_valor: coma(lote.comision_valor), pagado: coma(lote.pagado), vendidas: lote.vendidas ?? "", devTexto: textoRangos(lote.devueltas), plazo: aLocal(lote.devolver_hasta) });
   const [anular, setAnular] = useState(null);   // null | "preguntar" | { sinNumero }
@@ -439,7 +451,8 @@ function Liquidacion({ ev, lote, registradas = 0, punto, lotes, flash, onClose, 
         </div>}
       </div>}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {qr && <button onClick={() => pdf("talonario")} disabled={!!busy} style={{ ...C.btnGhost, minHeight: 44 }}><Icon n="download" s={16} />{busy === "talonario" ? "Creando…" : "Talonario para imprimir"}</button>}
+        {qr && <button onClick={onImprenta} disabled={!!busy} style={{ ...C.btnPrimary, minHeight: 44 }}><Icon n="download" s={16} />PDF para imprenta</button>}
+        {qr && <button onClick={() => pdf("talonario")} disabled={!!busy} style={{ ...C.btnGhost, minHeight: 44 }}><Icon n="download" s={16} />{busy === "talonario" ? "Creando…" : "A4 para imprimir en casa"}</button>}
         <button onClick={() => pdf("albaran")} disabled={!!busy} style={{ ...C.btnGhost, minHeight: 44 }}><Icon n="file" s={16} />{busy === "albaran" ? "Creando…" : "Albarán de entrega"}</button>
         {modoLiq && <button onClick={() => pdf("liquidacion")} disabled={!!busy} style={{ ...C.btnGhost, minHeight: 44 }}><Icon n="file" s={16} />{busy === "liquidacion" ? "Creando…" : "Liquidación"}</button>}
       </div>
