@@ -1,6 +1,6 @@
 # TIXFAST · Lo que falta (para hacerlo todo de una)
 
-Actualizado: 18/11/2026. Ya está hecho y en producción: base de datos (reserva online, Mis planos,
+Actualizado: 27/11/2026. Ya está hecho y en producción: base de datos (reserva online, Mis planos,
 refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las funciones `suscripcion`,
 `suscripcion-stripe`, `pagos` y `reservas-web`. La app está en `main`.
 
@@ -13,9 +13,10 @@ refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las fun
 - [ ] Authentication › URL Configuration: revisar la URL del sitio y las de redirección.
 
 ## 2. Después, me dices «lanza lo pendiente» y lo hago yo
-- [ ] Publicar `web-enviar-entradas` (ya sin tu correo personal en el código; necesita `CORREO_REMITENTE`).
-- [ ] Publicar `rrpp-registro` y `pagos-stripe` desde el repo (mismas versiones que en producción).
-- [ ] Registrar los avisos de Stripe (acción «preparar» de `pagos`).
+- [ ] Publicar `web-enviar-entradas` (ya sin tu correo personal en el código). **Espera a `CORREO_REMITENTE`**: publicarla
+      antes dejaría de enviar las entradas por correo.
+- [x] `pagos-stripe` publicada desde el repo (27/11). `rrpp-registro` ya era igual que la del repo.
+- [ ] Registrar los avisos de Stripe (acción «preparar» de `pagos`) — necesita `STRIPE_SECRET_KEY`.
 - [ ] Prueba completa con la tarjeta 4242 4242 4242 4242: alta de suscripción (7 días), compra de
       entradas, reserva de mesa con adelanto desde el portal del evento, y cambio de nivel.
 - [ ] Alta de RRPP con confirmación por correo (en vez de confirmada al momento).
@@ -29,32 +30,22 @@ refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las fun
 - [x] Aplicar `20261118090000_ticket_multipuesto.sql` (después de la de planes) y publicar la app (ruta `/p/`) (15/11/2026).
 - [ ] Prueba real: evento Multipuesto, 2 puestos, venta en caja y canje desde dos móviles.
 
-## 2c-bis. Comisión de TIXFAST y facturas a los organizadores (27/11/2026)
-- [ ] Aplicar `20261127090000_ticket_comision_plataforma.sql` (probada en una transacción que se deshace: comisión 8 % con
-      mínimo 0,50 €, gastos por evento, reparto entradas + gastos − comisión, factura TX y copia en Facturación › Gastos).
-- [ ] Publicar las funciones `pagos`, `pagos-stripe` y `admin-plataforma`, y después la app.
-- [ ] Panel TIXFAST › Comisiones: revisar el % y el mínimo con la calculadora y rellenar los **datos fiscales de TIXFAST**
-      (sin ellos las facturas quedan preparadas y salen solas al guardarlos).
-- [ ] Prueba con la tarjeta 4242: compra con gastos «recomendado», «elegir importe» y «sin gastos»; reparto con `ahora`;
-      comprobar el importe del monedero, la factura en el panel y que el coste real de Stripe aparece en el informe.
-- [ ] Que el organizador tenga sus datos fiscales (Facturación › Datos fiscales); si no, su factura espera.
-- [ ] Más adelante: enviar también la factura en PDF por correo (ahora le aparece sola en Facturación › Gastos).
-
-## 2c-ter. Pagos transparentes: RRPP, efectivo y devoluciones (27/11/2026)
-Estado a 27/11: los monederos **nunca se han usado** (0 RRPP, 0 monederos) y Stripe no está conectado (la tarea de
-`pagos` responde «sin_pasarela» cada 10 min). Orden para dejarlo funcionando:
-- [ ] Poner `STRIPE_SECRET_KEY` (`sk_test_…`) en Supabase › Edge Functions › Secrets.
-- [ ] Aplicar `20261127090000_ticket_comision_plataforma.sql` y después `20261127100000_ticket_pagos_transparentes.sql`
-      (probadas juntas en una transacción que se deshace: efectivo, devolución parcial y total, factura y CRM).
-- [ ] Publicar `pagos`, `pagos-stripe` y `admin-plataforma`; después la app.
-- [ ] Lanzar `pagos › preparar` (da de alta los avisos de Stripe, ahora también las devoluciones `charge.refunded`).
-- [ ] Prueba completa con la tarjeta 4242: RRPP con monedero, RRPP sin monedero (se le guarda y le llega al abrirlo),
-      venta en efectivo de RRPP, devolución desde el panel de Stripe antes y después del reparto, retirada al banco.
-- [ ] Decidir con la gestoría la política de devoluciones: ahora la comisión de TIXFAST no se devuelve y lo devuelto
-      se descuenta al organizador. Si se devuelve después de emitir la factura, la factura no cambia (no hay rectificativa automática).
+## 2c-bis. Pagos, comisión de TIXFAST y cambio de nombre (27/11/2026) — HECHO salvo lo que necesita la clave de Stripe
+- [x] Migraciones aplicadas en Supabase (probadas antes en una transacción que se deshace):
+      `20261127090000_ticket_comision_plataforma`, `20261127100000_ticket_pagos_transparentes`, `20261127110000_ticket_cambio_nombre`.
+- [x] Funciones publicadas: `pagos` (v4), `pagos-stripe` (v2), `admin-plataforma` (v3). App publicada en `main`.
+- [ ] **Tú:** poner `STRIPE_SECRET_KEY` (`sk_test_…` para probar). Hasta entonces la tarea de `pagos` responde «sin_pasarela».
+- [ ] **Después (me lo pides):** lanzar `pagos › preparar` (avisos de Stripe, incluidas devoluciones) y la prueba completa con
+      la tarjeta 4242: compra con los tres tipos de gastos, RRPP con y sin monedero, venta en efectivo de RRPP, cambio de nombre
+      de pago, reparto con `ahora`, factura en el panel y retirada al banco.
+- [ ] **Tú:** Panel TIXFAST › Comisiones: revisar % y mínimo con la calculadora y rellenar los **datos fiscales de TIXFAST**.
+- [ ] Más adelante: enviar también la factura de la comisión en PDF por correo (ahora aparece sola en Facturación › Gastos).
+- Política: **las entradas no se devuelven** (aviso en la compra); sí se pueden pasar a otra persona en `/cambio` con el precio
+  que ponga el organizador. Si aun así hay una devolución desde Stripe (p. ej. un evento cancelado, que la ley obliga a devolver),
+  se anulan las entradas y se descuenta al organizador; la comisión de TIXFAST no se devuelve. Revisarlo con la gestoría.
 
 ## 2d. Rendimiento con mucha gente a la vez (prueba de carga del 18/11/2026, ver supabase/pruebas-carga/)
-- [ ] **Aplicar, por este orden** (probarlas antes en una transacción que se deshace) y después publicar la app:
+- [x] **Aplicadas** (comprobado el 27/11/2026: todas sus funciones existen en Supabase):
       1. `20261120090000_ticket_rendimiento.sql` (número de ticket, refresco incremental, tope de 500 unidades)
       2. `20261120100000_ticket_compras_rendimiento.sql` (compra de entradas, IP de Cloudflare)
       3. `20261120110000_ticket_puestos_rendimiento.sql` (panel y liquidación de puestos)
