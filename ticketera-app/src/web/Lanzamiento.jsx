@@ -10,6 +10,75 @@ import React, { useEffect, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { Diapositivas, fecha, cap, btn, inpP, reducido } from "./comun";
 
+/* ---------- Cola virtual (solo eventos con lanzamiento; el servidor decide si hace falta) ---------- */
+// Al entrar en la página (durante la cuenta atrás o en las 2 horas siguientes a la apertura) se pide turno.
+// Si hay hueco, el servidor da al momento un pase de 10 minutos y no se nota nada. Si no, se espera el turno.
+// Se consulta el puesto más o menos a menudo según lo lejos que se esté (así la cola no satura el servidor).
+const leer = (k) => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } };
+const guardar = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch { /* nada */ } };
+export const claveCola = (slug) => `tixfast_cola_${slug}`;
+// Pase vigente de un evento (para enviarlo con la compra)
+export function paseDe(slug) { const c = leer(claveCola(slug)); return c?.pase && c?.hasta && new Date(c.hasta) > new Date() ? c.pase : null; }
+export function pasesGuardados(slugs) { return Object.fromEntries((slugs || []).map((s) => [s, paseDe(s)]).filter(([, v]) => v)); }
+
+export function useCola(ev, { activo, offset = 0 }) {
+  const [cola, setCola] = useState(null);   // null | { estado: apertura|cola|dentro|libre, delante, minutos, hasta, espero }
+  const slug = ev?.slug, clave = slug ? claveCola(slug) : null;
+  const ini = ev?.venta_inicio ? new Date(ev.venta_inicio).getTime() : 0;
+  const ventana = activo && ini > 0 && Date.now() + offset < ini + 2 * 3600000;
+  const vivo = useRef(true);
+  const consultar = async () => {
+    if (!clave) return;
+    const g = leer(clave);
+    try {
+      let r = g?.token ? (await supabase.rpc("web_cola_estado", { p_token: g.token })).data : null;
+      if (!r?.ok || r.estado === "caducado") r = (await supabase.rpc("web_cola_entrar", { p_slug: slug, p_token: null })).data;
+      if (!vivo.current || !r?.ok) return;
+      const espero = !!(g?.espero || r.estado === "cola");
+      const nuevo = { token: r.token || r.pase || g?.token, pase: r.estado === "dentro" ? r.pase : null, hasta: r.hasta || null, espero };
+      guardar(clave, nuevo);
+      setCola({ ...r, espero });
+    } catch { /* sin conexión: se reintenta en la siguiente vuelta */ }
+  };
+  useEffect(() => { vivo.current = true; if (ventana) consultar(); return () => { vivo.current = false; }; }, [slug, ventana]);
+  // Al abrir: cada móvil pregunta en un momento distinto de los 4 s siguientes
+  useEffect(() => {
+    if (!ventana || cola?.estado !== "apertura") return;
+    const falta = Math.max(0, ini - (Date.now() + offset));
+    const t = setTimeout(consultar, falta + 400 + Math.random() * 3600);
+    return () => clearTimeout(t);
+  }, [ventana, cola?.estado, ini]);
+  // En la cola: más a menudo cuanto más cerca
+  useEffect(() => {
+    if (cola?.estado !== "cola") return;
+    const d = cola.delante ?? 0, base = d > 5000 ? 45000 : d > 1000 ? 25000 : d > 200 ? 12000 : 5000;
+    const t = setTimeout(consultar, base * (0.75 + Math.random() * 0.5));
+    const vis = () => { if (document.visibilityState === "visible") consultar(); };
+    document.addEventListener("visibilitychange", vis);
+    return () => { clearTimeout(t); document.removeEventListener("visibilitychange", vis); };
+  }, [cola]);
+  return { cola, esperando: cola?.estado === "cola" || (cola?.estado === "apertura" && Date.now() + offset >= ini), consultar };
+}
+
+// Sala de espera (con el diseño del evento)
+export function SalaEspera({ cola, color }) {
+  const d = cola?.delante, min = cola?.minutos;
+  const pct = d == null ? 8 : Math.max(4, Math.min(96, 100 - Math.log10(d + 1) * 22));
+  return (
+    <div role="status" aria-live="polite" style={{ width: "100%", maxWidth: 460, display: "flex", flexDirection: "column", gap: 14, alignItems: "center" }}>
+      <div style={{ fontSize: 13, fontWeight: 900, letterSpacing: 3, textTransform: "uppercase", opacity: .9 }}>Estás en la cola</div>
+      <div style={{ fontSize: "clamp(44px, 14vw, 96px)", fontWeight: 900, lineHeight: 1, fontVariantNumeric: "tabular-nums", textShadow: `0 0 24px ${color}` }}>{d == null ? "…" : d.toLocaleString("es-ES")}</div>
+      <div style={{ fontWeight: 800, fontSize: 16 }}>{d === 0 ? "¡Eres el siguiente!" : d === 1 ? "persona delante de ti" : "personas delante de ti"}</div>
+      <div style={{ width: "100%", height: 10, borderRadius: 10, background: "rgba(255,255,255,.18)", overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 10, transition: "width .8s ease" }} /></div>
+      <div style={{ fontSize: 14.5, opacity: .9, lineHeight: 1.5 }}>
+        {min ? `Tiempo estimado: unos ${min} min.` : "Calculando el tiempo de espera…"} Hay mucha gente a la vez: te dejaremos pasar por orden.
+        <br /><b>No cierres ni recargues esta página</b>: si la cierras un rato, al volver conservas tu puesto.
+      </div>
+      <div style={{ fontSize: 12.5, opacity: .75 }}>Cuando sea tu turno tendrás 10 minutos para comprar.</div>
+    </div>
+  );
+}
+
 export const ESTILOS_LANZAMIENTO = [
   { k: "cine", t: "Cinematográfico", sub: "Tus fotos en fundido con zoom lento y los números encima" },
   { k: "neon", t: "Neón", sub: "Números con brillo del color de tu marca que laten cada segundo" },
@@ -116,7 +185,7 @@ function Cifra({ v, l, estilo, color, grande }) {
   );
 }
 
-export function Lanzamiento({ ev, lz, T, offset = 0, previa = false, simular = null, onAbierta, cabecera = null }) {
+export function Lanzamiento({ ev, lz, T, offset = 0, previa = false, simular = null, onAbierta, cabecera = null, cola = null, enCola = false }) {
   const estilo = ESTILOS_LANZAMIENTO.some((e) => e.k === lz?.estilo) ? lz.estilo : "cine";
   const color = T.d.color || "#ff5a3c";
   // «simular»: en la vista previa del CRM, segundos que faltan (p. ej. 12 para ver el final sin esperar)
@@ -136,12 +205,12 @@ export function Lanzamiento({ ev, lz, T, offset = 0, previa = false, simular = n
   // Al llegar a cero: destello y, tras un momento distinto para cada móvil, se pide la venta (y se reintenta si aún no está)
   const [intentos, setIntentos] = useState(0);
   useEffect(() => {
-    if (!abierta || previa || simular != null) return;
+    if (!abierta || previa || simular != null || enCola) return;
     let vivo = true;
     const espera = (intentos === 0 ? 1600 : 2000) + Math.random() * 2500;
     const t = setTimeout(async () => { try { await onAbierta?.(); } catch { /* reintenta */ } if (vivo && intentos < 30) setIntentos((n) => n + 1); }, espera);
     return () => { vivo = false; clearTimeout(t); };
-  }, [abierta, intentos]);
+  }, [abierta, intentos, enCola]);
 
   const unidades = [...(p.d > 0 ? [[p.d, "días"]] : []), [p.h, "horas"], [p.m, "min"], [p.s, "seg"]];
   const fondo = estilo === "tablero"
@@ -181,8 +250,10 @@ export function Lanzamiento({ ev, lz, T, offset = 0, previa = false, simular = n
           </div>
         )}
 
+        {/* Ya abierto, pero hay cola: sala de espera */}
+        {abierta && enCola && <SalaEspera cola={cola} color={color} />}
         {/* Cero: destello y paso a la venta */}
-        {abierta && (
+        {abierta && !enCola && (
           <div aria-live="assertive" style={{ display: "grid", placeItems: "center", minHeight: "60svh", gap: 14 }}>
             <div className="lz-destello" aria-hidden="true" style={{ position: "absolute", inset: 0, background: `radial-gradient(circle at 50% 50%, #fff, ${color} 45%, transparent 75%)` }} />
             <div className="lz-abre" style={{ fontSize: "clamp(44px, 12vw, 130px)", fontWeight: 900, lineHeight: .95, letterSpacing: "-.03em", textTransform: "uppercase", textShadow: `0 0 22px ${color}` }}>¡Venta<br />abierta!</div>

@@ -4,6 +4,7 @@
 // un formulario, una compra (web_comprar_varios: todo o nada) y un «Mis entradas».
 // Los precios que se ven aquí son orientativos: el total lo calcula siempre el servidor.
 import { Icono } from "../iconos";
+import { pasesGuardados } from "./Lanzamiento.jsx";
 import { avisosDe } from "./avisos";
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -237,7 +238,7 @@ export function CompraVarios({ org, carrito, T, onVolver }) {
     setBusy(true);
     let clave; try { clave = sessionStorage.getItem("tixfast_clave_" + org.slug) || crypto.randomUUID(); sessionStorage.setItem("tixfast_clave_" + org.slug, clave); } catch { clave = crypto.randomUUID(); }
     try {
-      const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: aceptaEdad, marketing: novedades, privacidad: PRIVACIDAD_VERSION, rrpp: codigoRP() };
+      const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: aceptaEdad, marketing: novedades, privacidad: PRIVACIDAD_VERSION, rrpp: codigoRP() , pases: pasesGuardados([...new Set(lineas.map(l => l.evento))]) };
       CAMPOS.forEach(f => { if (pedir(f.k) && c[f.k]) comprador[f.k] = String(c[f.k]).trim(); });
       if (algunoVale) comprador.descuento = cod.trim().toUpperCase();
       const asistentes = gs.flatMap(g => plazasDe(g).map((p, i) => ({ evento: g.evento, tramo: p.tramo, nombre: a(g.evento, i).nombre.trim(), dni: dniAsis(g.evento) !== "no" ? a(g.evento, i).dni.trim() : "" })));

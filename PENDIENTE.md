@@ -70,7 +70,12 @@ refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las fun
   fotos y texto. Antes de abrir no se ven precios (el servidor no los envía). A cero, se pasa sola a la venta.
 - «Avísame cuando abra»: se envía al abrir (tarea cada minuto, función lanzamiento-avisos). Necesita BREVO_API_KEY,
   CORREO_REMITENTE y SITE_URL; sin ellos los avisos esperan y no se pierden.
-- Para festivales muy grandes, pendiente la sala de espera virtual (ver 2d).
+- Cola virtual automática (solo eventos con lanzamiento): nadie la configura; se nota solo si hay más de
+  `cola_capacidad` personas comprando a la vez (ticket_pago_config, ahora 1000). Sorteo de puestos al abrir entre quienes
+  ya esperaban, pase de 10 minutos, el servidor no deja comprar sin pase mientras haya cola, y si no hay nadie esperando
+  se compra sin pase (nunca bloquea la venta). Medido con 20.000 en cola: ~1 ms por consulta de puesto.
+- Al pasar a plan Pro de Supabase: subir `cola_capacidad` a 3000-5000. Para más de ~50.000 personas a la vez,
+  poner delante Cloudflare Waiting Room (de pago).
 
 ## 2d. Rendimiento con mucha gente a la vez (prueba de carga del 18/11/2026, ver supabase/pruebas-carga/)
 - [x] **Aplicadas** (comprobado el 27/11/2026: todas sus funciones existen en Supabase):

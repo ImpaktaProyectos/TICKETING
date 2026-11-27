@@ -17,7 +17,7 @@ import { useCarrito, BarraCarrito, HojaCarrito, ElegirEntradas, CompraVarios } f
 import PaginaOrganizacion, { MasFiestas } from "./Microsite";
 const PaginaReservas = React.lazy(() => import("./Reservas"));
 const WidgetReservas = React.lazy(() => import("./Reservas").then(m => ({ default: m.WidgetReservas })));
-import { Lanzamiento } from "./Lanzamiento.jsx";
+import { Lanzamiento, useCola, paseDe } from "./Lanzamiento.jsx";
 import { Icono } from "../iconos";
 const PaginaBebidas = React.lazy(() => import("./Bebidas"));
 const PaginaPuesto = React.lazy(() => import("./Puesto"));
@@ -71,19 +71,22 @@ function PaginaEvento({ slug }) {
   useEffect(() => { supabase.rpc("web_evento_organizacion", { p_slug: slug }).then(({ data }) => setOrg(data || null)).catch(() => {}); }, [slug]);
   useEffect(() => { apuntarVisita(slug); }, [slug]);
 
+  const evRef = useRef(null);
+  // Durante la cuenta atrás de un lanzamiento no hace falta refrescar (miles de personas mirando = miles de peticiones)
+  const enCuentaAtras = () => { const x = evRef.current; return !!(x?.diseno?.lanzamiento?.activo && x?.venta_inicio && new Date(x.venta_inicio).getTime() - (Date.now() + offset.current) > 30000); };
   const cargar = async () => {
     try {
       const { data, error: e } = await supabase.rpc("web_evento_publico", { p_slug: slug });
       if (e) throw e;
       if (data?.ahora) offset.current = new Date(data.ahora).getTime() - Date.now();
-      setEv(data || null); setError(false);
+      evRef.current = data || null; setEv(data || null); setError(false);
     } catch { setError(true); }
   };
   // En directo: cada 20 s mientras la página está a la vista (las cifras de lo que queda bajan con cada venta real)
   useEffect(() => {
     cargar();
-    const t = setInterval(() => { if (document.visibilityState !== "hidden") cargar(); }, 20000);
-    const vis = () => { if (document.visibilityState === "visible") cargar(); };
+    const t = setInterval(() => { if (document.visibilityState !== "hidden" && !enCuentaAtras()) cargar(); }, 20000);
+    const vis = () => { if (document.visibilityState === "visible" && !enCuentaAtras()) cargar(); };
     document.addEventListener("visibilitychange", vis);
     return () => { clearInterval(t); document.removeEventListener("visibilitychange", vis); };
   }, [slug]);
@@ -114,6 +117,10 @@ export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, pre
   const [entradasVisibles, setEntradasVisibles] = useState(false);
   const raiz = useRef(null);
   const T = tema(ev.diseno);
+  // Cola virtual: solo en eventos con lanzamiento (el servidor decide si hace falta esperar)
+  const lz = T.d.lanzamiento;
+  const { cola, esperando: enColaRaw } = useCola(ev, { activo: !!lz?.activo && !previa, offset });
+  const enCola = !previa && enColaRaw;
   const plantilla = PLANTILLAS_WEB.some(p => p.k === T.d.plantilla) ? T.d.plantilla : "clasica";
   const ahora = Date.now() + offset;
   const lanzamiento = ev.venta_inicio && new Date(ev.venta_inicio).getTime() > ahora;
@@ -146,6 +153,7 @@ export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, pre
   const avisos = <>
     {ev.vista_previa && !previa && <Aviso c="#ffb400">Vista previa: solo tú ves esta página. Las compras son de prueba.</Aviso>}
     {!ev.vista_previa && ev.modo === "pruebas" && <Aviso c="#ffb400">Venta de prueba: las entradas que se emiten no son válidas.</Aviso>}
+    {!previa && cola?.estado === "dentro" && cola.espero && cola.hasta && <Aviso c="#22d3a6">¡Es tu turno! Tienes hasta las {new Date(cola.hasta).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} para comprar.</Aviso>}
   </>;
   const datos = (grande) => <>
     <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: grande ? 17 : 16 }}>
@@ -224,12 +232,11 @@ export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, pre
   // Al rellenar los datos, la página se centra solo en la compra
   // Lanzamiento de festival: cuenta atrás a pantalla completa hasta que abre la venta (sin precios: el servidor no los envía).
   // Justo al abrir se mantiene unos segundos («Abriendo la venta…») mientras llegan las entradas.
-  const lz = T.d.lanzamiento;
   const vIni = ev.venta_inicio ? new Date(ev.venta_inicio).getTime() : 0;
-  const modoLanz = !!lz?.activo && paso === "elegir" && (simularLanz != null || lanzamiento || (vIni > 0 && tramos.length === 0 && ahora - vIni < 90000));
+  const modoLanz = !!lz?.activo && paso === "elegir" && (simularLanz != null || lanzamiento || enCola || (vIni > 0 && tramos.length === 0 && ahora - vIni < 90000));
   let cuerpo;
   if (modoLanz) cuerpo = (<>
-    <Lanzamiento ev={ev} lz={lz} T={T} offset={offset} previa={previa} simular={simularLanz} onAbierta={onRecargar} cabecera={cabecera(true)} />
+    <Lanzamiento ev={ev} lz={lz} T={T} offset={offset} previa={previa} simular={simularLanz} onAbierta={onRecargar} cabecera={cabecera(true)} cola={cola} enCola={enCola} />
     <div style={{ ...marco, ...pie, paddingTop: 22 }}>
       {avisos}
       <div className="pub-dos">
@@ -331,7 +338,7 @@ export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, pre
 
       {/* Barra fija: total y continuar, o el botón de comprar mientras las entradas no se ven */}
       {conCarrito && paso === "elegir" && carrito.n > 0 ? <BarraCarrito carrito={carrito} T={T} onAbrir={() => setHoja("carrito")} />
-      : abierta && paso === "elegir" && (nEnt > 0 ? (
+      : abierta && !modoLanz && paso === "elegir" && (nEnt > 0 ? (
         <div className="pub-barra" style={previa ? barraPrevia : null}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, color: "var(--muted)", fontWeight: 700 }}>{nEnt} {nEnt === 1 ? "entrada" : "entradas"}</div>
@@ -348,7 +355,7 @@ export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, pre
           <button onClick={irAEntradas} style={{ ...btn(T.d.color, T.tinta), padding: "16px 22px", fontSize: 17 }}>{textoBoton}</button>
         </div>
       ))}
-      {!previa && abierta && paso === "elegir" && av.notificaciones && <AvisosCompra social={ev.social} servidor={ev.ahora} offset={offset} T={T} />}
+      {!previa && abierta && !modoLanz && paso === "elegir" && av.notificaciones && <AvisosCompra social={ev.social} servidor={ev.ahora} offset={offset} T={T} />}
       {hoja === "carrito" && <HojaCarrito carrito={carrito} T={T} orgNombre={org?.nombre} onClose={() => setHoja(null)}
         onContinuar={() => { setHoja(null); setPaso(carrito.eventos.length === 1 && carrito.eventos[0] === ev.slug ? "datos" : "varios"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
       {hoja?.evento && <ElegirEntradas slug={hoja.evento} carrito={carrito} T={T} onClose={() => setHoja(null)} />}
@@ -492,7 +499,7 @@ function Formulario({ ev, tramos, cant, total, T, onVolver, onExito }) {
     if (!acepta) return setErr(ERRORES.condiciones);
     setBusy(true);
     try {
-      const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: aceptaEdad, marketing: novedades, privacidad: PRIVACIDAD_VERSION, rrpp: codigoRP() };
+      const comprador = { nombre: c.nombre.trim(), email: c.email.trim(), acepta: true, acepta_edad: aceptaEdad, marketing: novedades, privacidad: PRIVACIDAD_VERSION, rrpp: codigoRP(), pase: paseDe(ev.slug) };
       CAMPOS.forEach(f => { if (pedir(f.k) && c[f.k]) comprador[f.k] = String(c[f.k]).trim(); });
       if (desc?.ok) comprador.descuento = desc.codigo;
       const { data, error } = await supabase.rpc("web_comprar", {
