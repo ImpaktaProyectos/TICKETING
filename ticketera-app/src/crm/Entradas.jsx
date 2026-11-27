@@ -18,6 +18,7 @@ import { GastosGestion } from "./GastosGestion.jsx";
 import { CambiosNombre } from "./CambiosNombre.jsx";
 import { PuntosVenta } from "./PuntosVenta.jsx";
 import { reducirImagen } from "../imagenes";
+import { ESTILOS_LANZAMIENTO } from "../web/Lanzamiento.jsx";
 
 const urlVenta = (slug) => `${window.location.origin}/e/${slug}`;
 const ESTADOS = { borrador: { t: "Borrador", c: "var(--muted)" }, publicado: { t: "A la venta", c: "var(--green)" }, cerrado: { t: "Venta cerrada", c: "var(--red)" } };
@@ -369,6 +370,20 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
   const fRef = useRef(f); fRef.current = f;
   const setDiseno = (patch) => setFicha({ diseno: { ...crm.DISENO_DEF, ...(fRef.current.diseno || {}), ...patch } });
   const galeria = Array.isArray(diseno.galeria) ? diseno.galeria : [];
+  const lanz = diseno.lanzamiento || {};
+  const setLanz = (patch) => setDiseno({ lanzamiento: { ...(fRef.current.diseno?.lanzamiento || {}), ...patch } });
+  const fotosLanz = Array.isArray(lanz.fotos) ? lanz.fotos : [];
+  const subirLanz = async (files) => {
+    const hueco = 8 - fotosLanz.length; const lista = [...files].filter(x => /^image\//.test(x.type)).slice(0, Math.max(0, hueco));
+    if (!lista.length) { flash(hueco <= 0 ? "Máximo 8 fotos" : "Elige fotos (JPG, PNG o WEBP)", "warn"); return; }
+    const urls = [];
+    for (const fl of lista) { if (fl.size > 25 * 1024 * 1024) continue; try { urls.push(await crm.webSubir(ev.id, "lanzamiento", await reducirImagen(fl, 1920, "image/webp"))); } catch {} }
+    if (urls.length) { const act = Array.isArray(fRef.current.diseno?.lanzamiento?.fotos) ? fRef.current.diseno.lanzamiento.fotos : []; setLanz({ fotos: [...act, ...urls].slice(0, 8) }); }
+    flash(urls.length === lista.length ? `${urls.length} foto${urls.length > 1 ? "s" : ""} añadida${urls.length > 1 ? "s" : ""}` : `Se han subido ${urls.length} de ${lista.length}`, urls.length === lista.length ? undefined : "warn");
+  };
+  const [avisados, setAvisados] = useState(null);
+  useEffect(() => { supabase.from("ticket_web_avisos").select("id", { count: "exact", head: true }).eq("evento_id", ev.id).then(({ count }) => setAvisados(count ?? null)); }, [ev.id]);
+  const [simLanz, setSimLanz] = useState(undefined);   // vista previa del lanzamiento: null = cuenta real, 12 = últimos segundos
   const subirGaleria = async (files) => {
     const hueco = 12 - galeria.length; const lista = [...files].filter(x => /^image\//.test(x.type)).slice(0, Math.max(0, hueco));
     if (!lista.length) { flash(hueco <= 0 ? "Máximo 12 fotos" : "Elige fotos (JPG, PNG o WEBP)", "warn"); return; }
@@ -487,6 +502,33 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
             </button>); })}
         </div>
       ), <button onClick={() => setVerPrevia(true)} style={{ ...C.btnSm, flexShrink: 0 }}><Icon n="eye" s={14} />{isMobile ? "Ver" : "Ver en grande"}</button>)}
+      {tarjeta("clock", "Lanzamiento con cuenta atrás", "Para festivales: la página se abre con una cuenta atrás a pantalla completa y, al llegar a cero, se abre la venta. Antes no se ven precios.", <>
+        <Sw primero on={!!lanz.activo} onClick={() => setLanz({ activo: !lanz.activo, estilo: lanz.estilo || "cine" })} l="Activar el lanzamiento" sub={lanz.activo ? "La cuenta atrás se ve mientras la venta no ha abierto." : "Apagado: la página funciona como siempre."} />
+        {lanz.activo && <>
+          <Field l="Día y hora exactos de apertura">
+            <FechaHora valor={aLocal(f.venta_inicio)} onChange={(v) => setFicha({ venta_inicio: aIso(v) })} titulo="¿Cuándo se abre la venta?" placeholder="Elige día y hora" quitar={false} />
+            <div style={ayuda}>{f.venta_inicio && new Date(f.venta_inicio) > new Date() ? `Abre el ${fechaTxt(aLocal(f.venta_inicio), true)} (hora de España). Hasta entonces nadie puede comprar.` : "Pon una fecha futura: si ya ha pasado, la venta está abierta y no se ve la cuenta atrás."}</div>
+          </Field>
+          <Field l="Estilo">
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3,minmax(0,1fr))", gap: 8 }}>
+              {ESTILOS_LANZAMIENTO.map(e => { const on = (lanz.estilo || "cine") === e.k; return (
+                <button key={e.k} onClick={() => setLanz({ estilo: e.k })} aria-pressed={on} style={{ textAlign: "left", padding: 12, minHeight: 64, borderRadius: 14, cursor: "pointer", color: "var(--text)", border: `2px solid ${on ? "var(--accent)" : "var(--line)"}`, background: on ? "color-mix(in srgb, var(--accent) 8%, var(--surface))" : "var(--surface)" }}>
+                  <b style={{ display: "block" }}>{e.t}</b><span style={{ fontSize: 12.5, color: "var(--muted)" }}>{e.sub}</span>
+                </button>); })}
+            </div>
+          </Field>
+          <Field l="Texto encima de la cuenta atrás"><input style={C.input} value={lanz.texto || ""} maxLength={60} placeholder="La venta abre en" onChange={e => setLanz({ texto: e.target.value })} /></Field>
+          <Field l={`Fotos del lanzamiento (${fotosLanz.length} de 8)`}>
+            <GaleriaEditor fotos={fotosLanz} isMobile={isMobile} onOrden={(arr) => setLanz({ fotos: arr })} onSubir={subirLanz} />
+            <div style={ayuda}>Si no subes ninguna, se usan las fotos de la galería o el flyer. Se ven en «Cinematográfico» y de fondo en «Neón».</div>
+          </Field>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button onClick={() => setSimLanz(null)} style={{ ...C.btnGhost, minHeight: 44 }}><Icon n="eye" s={16} />Ver cómo queda</button>
+            <button onClick={() => setSimLanz(13)} style={{ ...C.btnGhost, minHeight: 44 }}><Icon n="clock" s={16} />Ver los últimos 10 segundos y la apertura</button>
+          </div>
+          {avisados != null && <div style={{ ...ayuda, marginTop: 10 }}><b style={{ color: "var(--text)" }}>{avisados}</b> {avisados === 1 ? "persona ha pedido" : "personas han pedido"} que les avisemos por correo al abrir.</div>}
+        </>}
+      </>)}
       {tarjeta("sparkle", "Colores y letra", null, <>
         <Field l="Color principal (botones y precios)">
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -681,6 +723,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
       </div>
     </>)}
     {verPrevia && <PreviaGrande ev={evPrevia} url={url} isMobile={isMobile} onClose={() => setVerPrevia(false)} />}
+    {simLanz !== undefined && <PreviaGrande key={String(simLanz) + Date.now()} ev={{ ...evPrevia, diseno: { ...evPrevia.diseno, lanzamiento: { ...lanz, activo: true } }, venta_inicio: simLanz == null && f.venta_inicio && new Date(f.venta_inicio) > new Date() ? f.venta_inicio : new Date(Date.now() + 3 * 86400000).toISOString() }} simular={simLanz} url={url} isMobile={isMobile} onClose={() => setSimLanz(undefined)} />}
   </>);
 }
 const sufijo = { position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", fontWeight: 600, pointerEvents: "none", fontSize: 13.5 };
@@ -699,16 +742,16 @@ function Compartir({ url, wa, copiar, borrador, onDuplicar }) {
 }
 
 /* ===================== Vista previa: la página de verdad, en pequeño ===================== */
-function MovilReal({ ev, ancho = 270, alto = 560 }) {
+function MovilReal({ ev, ancho = 270, alto = 560, simular = null }) {
   return (
     <div style={{ width: ancho + 20, height: alto + 20, borderRadius: 40, padding: 10, background: "#111", boxShadow: "0 18px 50px rgba(0,0,0,.35), inset 0 0 0 2px #2a2a2a", flexShrink: 0 }}>
       <div aria-label="Vista previa de la página de venta" style={{ width: ancho, height: alto, borderRadius: 30, overflow: "auto", overscrollBehavior: "contain", scrollbarWidth: "none", background: "#000" }}>
-        <div style={{ width: 390, zoom: ancho / 390, pointerEvents: "none", minHeight: alto * 390 / ancho }}><Landing ev={ev} previa /></div>
+        <div style={{ width: 390, zoom: ancho / 390, pointerEvents: "none", minHeight: alto * 390 / ancho }}><Landing ev={ev} previa simularLanz={simular} /></div>
       </div>
     </div>
   );
 }
-function PreviaGrande({ ev, url, isMobile, onClose }) {
+function PreviaGrande({ ev, url, isMobile, onClose, simular = null }) {
   const [modo, setModo] = useState(isMobile ? "movil" : "ordenador");
   const ancho = useAncho();
   const anchoPc = Math.min(1280, ancho - 48), zoomPc = anchoPc / 1280;
@@ -720,9 +763,9 @@ function PreviaGrande({ ev, url, isMobile, onClose }) {
         <button onClick={onClose} style={{ ...C.btnSm, background: "#fff", color: "#111" }}><Icon n="x" s={14} />Cerrar</button>
       </div>
       {modo === "movil"
-        ? <MovilReal ev={ev} ancho={Math.min(390, ancho - 44)} alto={Math.min(780, window.innerHeight - 110)} />
+        ? <MovilReal ev={ev} simular={simular} ancho={Math.min(390, ancho - 44)} alto={Math.min(780, window.innerHeight - 110)} />
         : <div style={{ width: anchoPc, flex: 1, minHeight: 0, borderRadius: 14, overflow: "auto", background: "#000", boxShadow: "0 18px 50px rgba(0,0,0,.5)" }}>
-            <div style={{ width: 1280, zoom: zoomPc, pointerEvents: "none" }}><Landing ev={ev} previa /></div>
+            <div style={{ width: 1280, zoom: zoomPc, pointerEvents: "none" }}><Landing ev={ev} previa simularLanz={simular} /></div>
           </div>}
     </div>
   </Capa>);

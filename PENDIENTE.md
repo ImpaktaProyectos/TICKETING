@@ -65,6 +65,13 @@ refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las fun
   escaneando unas cuantas entradas impresas con el validador.
 - Más adelante: conector propio para otras ticketeras con API (sincronización cada 15 min); buscar por nombre/DNI en la puerta.
 
+## 2c-quinquies. Lanzamiento de festivales con cuenta atrás (27/11/2026) — HECHO
+- Gestionar evento › paso 4 (Diseño) › «Lanzamiento con cuenta atrás»: fecha exacta, estilo (Cinematográfico, Neón, Tablero),
+  fotos y texto. Antes de abrir no se ven precios (el servidor no los envía). A cero, se pasa sola a la venta.
+- «Avísame cuando abra»: se envía al abrir (tarea cada minuto, función lanzamiento-avisos). Necesita BREVO_API_KEY,
+  CORREO_REMITENTE y SITE_URL; sin ellos los avisos esperan y no se pierden.
+- Para festivales muy grandes, pendiente la sala de espera virtual (ver 2d).
+
 ## 2d. Rendimiento con mucha gente a la vez (prueba de carga del 18/11/2026, ver supabase/pruebas-carga/)
 - [x] **Aplicadas** (comprobado el 27/11/2026: todas sus funciones existen en Supabase):
       1. `20261120090000_ticket_rendimiento.sql` (número de ticket, refresco incremental, tope de 500 unidades)

@@ -17,6 +17,7 @@ import { useCarrito, BarraCarrito, HojaCarrito, ElegirEntradas, CompraVarios } f
 import PaginaOrganizacion, { MasFiestas } from "./Microsite";
 const PaginaReservas = React.lazy(() => import("./Reservas"));
 const WidgetReservas = React.lazy(() => import("./Reservas").then(m => ({ default: m.WidgetReservas })));
+import { Lanzamiento } from "./Lanzamiento.jsx";
 import { Icono } from "../iconos";
 const PaginaBebidas = React.lazy(() => import("./Bebidas"));
 const PaginaPuesto = React.lazy(() => import("./Puesto"));
@@ -103,7 +104,7 @@ export const PLANTILLAS_WEB = [
 ];
 
 // La página completa a partir de los datos del evento. «previa»: dentro del CRM (sin compras ni lecturas del móvil)
-export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, previa = false }) {
+export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, previa = false, simularLanz = null }) {
   const [cantLocal, setCant] = useState({});     // { tramoId: n } (evento sin organización)
   const [paso, setPaso] = useState("elegir");    // elegir | datos | varios
   const [hoja, setHoja] = useState(null);        // null | "carrito" | { evento }
@@ -221,8 +222,26 @@ export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, pre
   const pie = { paddingBottom: "calc(130px + env(safe-area-inset-bottom))" };
 
   // Al rellenar los datos, la página se centra solo en la compra
+  // Lanzamiento de festival: cuenta atrás a pantalla completa hasta que abre la venta (sin precios: el servidor no los envía).
+  // Justo al abrir se mantiene unos segundos («Abriendo la venta…») mientras llegan las entradas.
+  const lz = T.d.lanzamiento;
+  const vIni = ev.venta_inicio ? new Date(ev.venta_inicio).getTime() : 0;
+  const modoLanz = !!lz?.activo && paso === "elegir" && (simularLanz != null || lanzamiento || (vIni > 0 && tramos.length === 0 && ahora - vIni < 90000));
   let cuerpo;
-  if (paso === "datos" || paso === "varios") cuerpo = (
+  if (modoLanz) cuerpo = (<>
+    <Lanzamiento ev={ev} lz={lz} T={T} offset={offset} previa={previa} simular={simularLanz} onAbierta={onRecargar} cabecera={cabecera(true)} />
+    <div style={{ ...marco, ...pie, paddingTop: 22 }}>
+      {avisos}
+      <div className="pub-dos">
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <section style={card}>{titulo("clamp(26px, 5cqw, 40px)")}{lema}{datos(false)}</section>
+          {ev.flyer_url && <div style={{ maxWidth: 420 }}>{flyer(18)}</div>}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>{extras}</div>
+      </div>
+    </div>
+  </>);
+  else if (paso === "datos" || paso === "varios") cuerpo = (
     <div style={{ ...marco, maxWidth: 640, paddingTop: "max(14px, env(safe-area-inset-top))", ...pie }}>
       {cabecera(false)}{avisos}
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 6 }}>
