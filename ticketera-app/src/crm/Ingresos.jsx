@@ -12,7 +12,7 @@ const FUENTES_PUNTO = [["barra", "Barra"], ["entradas", "Entradas"], ["merch", "
 const haceTxt = (iso) => { if (!iso) return "nunca"; const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000); return m < 1 ? "ahora mismo" : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : new Date(iso).toLocaleDateString("es-ES", { day: "2-digit", month: "short" }); };
 export const esExterno = (i) => i.origen === "api" || i.origen === "csv" || i.origen === "tixfast";   // tixfast = venta online propia
 
-export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById, conexion, vinculo, sincronizando, onNuevo, onEditar, onFuente, onEntregar, onSync, onImportar, onAjustes, onVentaEntradas }) {
+export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById, conexion, vinculo, sincronizando, onNuevo, onEditar, onFuente, onEntregar, onSync, onImportar, onAjustes, onVentaEntradas, ajustes, flash, onIrFacturacion }) {
   const isMobile = useIsMobile();
   const [filtro, setFiltro] = useState("todos");
   const [cat, setCat] = useState("");
@@ -57,7 +57,7 @@ export function Ingresos({ ev, T, F, barras, ingresos: todos, socios, socioById,
 
       {/* ===== Dinero de entradas (todas las ticketeras, venta en mano y taquilla) ===== */}
       <div id="ing-online">
-        <DineroEntradas ingresos={todos} nota="Solo ticketeras y ventas apuntadas a mano. Lo cobrado en el TPV está más abajo, en Ventas del TPV." onAnadir={() => onVentaEntradas({})} onEditar={(i) => (i.canal ? onVentaEntradas(i) : onEditar(i))}
+        <DineroEntradas ingresos={todos} facturar={{ evNombre: ev?.name, ajustes, flash, onIrFacturacion }} nota="Solo ticketeras y ventas apuntadas a mano. Lo cobrado en el TPV está más abajo, en Ventas del TPV." onAnadir={() => onVentaEntradas({})} onEditar={(i) => (i.canal ? onVentaEntradas(i) : onEditar(i))}
           acciones={<>
             {vinculo && conexion
               ? <button disabled={sincronizando} onClick={onSync} style={{ ...C.btnGhost, opacity: sincronizando ? .6 : 1 }} title={`Fourvenues · actualizado ${haceTxt(vinculo.ultimaSync)}`}><Icon n="refresh" s={16} w={2.2} />{sincronizando ? "Sincronizando…" : "Fourvenues"}</button>

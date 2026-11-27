@@ -14,6 +14,8 @@ import { DineroEntradas } from "./DineroEntradas.jsx";
 import { Invitaciones } from "./Invitaciones.jsx";
 import { Descuentos } from "./Descuentos.jsx";
 import { MonederoOrganizador } from "./Monedero.jsx";
+import { GastosGestion } from "./GastosGestion.jsx";
+import { CambiosNombre } from "./CambiosNombre.jsx";
 import { reducirImagen } from "../imagenes";
 
 const urlVenta = (slug) => `${window.location.origin}/e/${slug}`;
@@ -144,7 +146,7 @@ export function Entradas(props) {
     </div>
   );
 }
-function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, onVentaEntradas, onEditarIngreso }) {
+function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, onVentaEntradas, onEditarIngreso, ajustes, onIrFacturacion }) {
   const isMobile = useIsMobile();
   const [lista, setLista] = useState(null);        // { eventoId: resumen de su venta online }
   const [d, setD] = useState(null);                // { ficha, tramos } del evento elegido
@@ -209,7 +211,7 @@ function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, o
       {/* ===== Dinero de entradas de todos los canales (TIXFAST, otras ticketeras, taquilla): plegado al final ===== */}
       {!verClientes && ingresos && (
         verDinero || !d?.ficha
-          ? <DineroEntradas ingresos={ingresos} titulo="Dinero de entradas · todos los canales"
+          ? <DineroEntradas ingresos={ingresos} facturar={{ evNombre: ev?.name, ajustes, flash, onIrFacturacion }} titulo="Dinero de entradas · todos los canales"
               onAnadir={onVentaEntradas ? () => onVentaEntradas({}) : null}
               onEditar={(i) => (i.canal ? onVentaEntradas?.(i) : onEditarIngreso?.(i))}
               onClientes={d?.ficha ? () => { setVerClientes(true); window.scrollTo({ top: 0, behavior: "smooth" }); } : null} />
@@ -286,6 +288,22 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
     const listo = img ? await reducirImagen(file, tipo === "logo" ? 600 : 1600, tipo === "logo" ? "image/png" : "image/jpeg") : file;
     try { const u = await crm.webSubir(ev.id, tipo, listo); setFicha({ [campo]: u }); flash("Subido"); }
     catch { flash("No se ha podido subir el archivo", "warn"); }
+  };
+  // Autorización de menores: plantilla genérica con los datos fiscales y los del evento ya puestos
+  const [generando, setGenerando] = useState(false);
+  const generarAutorizacion = async () => {
+    setGenerando(true);
+    try {
+      const { cargar } = await import("./fac/facdb");
+      const { emisor } = await cargar();
+      if (!emisor) { flash("Primero rellena tus datos fiscales en Facturación › Datos fiscales (se piden una sola vez)", "warn"); return; }
+      const { pdfAutorizacion, organizadorDe } = await import("./autorizacion");
+      const doc = await pdfAutorizacion({ organizador: organizadorDe(emisor), evento: { nombre: ev.name, inicio: ev.startsAt || ev.date, lugar: ev.venue, edadMinima: f.edad_minima, vestimenta: f.vestimenta }, edad: f.autorizacion_edad ?? 16 });
+      const archivo = new File([doc.output("blob")], "autorizacion.pdf", { type: "application/pdf" });
+      const u = await crm.webSubir(ev.id, "autorizacion", archivo);
+      setFicha({ autorizacion_url: u });
+      flash("Autorización creada: ya está en la web del evento para descargar");
+    } catch (e) { flash(e?.message || "No se ha podido crear la autorización", "warn"); } finally { setGenerando(false); }
   };
   const form = { ...crm.FORM_DEF, ...(f.formulario || {}) };
   const avisos = { ...crm.AVISOS_DEF, ...(f.avisos || {}) };
@@ -387,7 +405,9 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
         {tarjeta("sparkle", "Logo", "Opcional. Se muestra arriba en la página.", (
           <Subida t="Logo" url={f.logo_url} img accept="image/*" onFile={(fl) => subir("logo", fl, "logo_url")} onQuitar={() => setFicha({ logo_url: null })} alto={130} />
         ))}
-        {tarjeta("file", "Autorización para menores", "PDF opcional: lo descargan, lo rellenan y lo traen a mano.", <>
+        {tarjeta("file", "Autorización para menores", "Se crea sola con tus datos fiscales y los del evento; solo falta que la rellenen y la traigan firmada.", <>
+          <button onClick={generarAutorizacion} disabled={generando} style={{ ...C.btnPrimary, width: "100%", marginBottom: 8, opacity: generando ? .6 : 1 }}><Icon n="file" s={17} />{generando ? "Creando…" : f.autorizacion_url ? "Crear de nuevo con mis datos" : "Crear autorización con mis datos"}</button>
+          <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.45, marginBottom: 10 }}>Es una plantilla genérica. Si cambias la fecha, el lugar o la edad, vuelve a crearla. La normativa de menores cambia según la comunidad: conviene que la revise tu asesor. También puedes subir tu propio PDF.</div>
           <Subida t="Autorización (PDF)" url={f.autorizacion_url} accept="application/pdf" onFile={(fl) => subir("autorizacion", fl, "autorizacion_url")} onQuitar={() => setFicha({ autorizacion_url: null })} alto={130} />
           <Field l="Se pide a menores de" mb={0}><div style={{ position: "relative" }}><input inputMode="numeric" style={{ ...C.input, paddingRight: 52 }} value={f.autorizacion_edad ?? 16} onChange={e => setFicha({ autorizacion_edad: Math.min(99, +limpioNum(e.target.value) || 0) })} /><span style={sufijo}>años</span></div></Field>
         </>)}
@@ -518,6 +538,8 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
           </label>}
         </div>))}
       {f.pago_pruebas && (f.modo || "pruebas") === "pruebas" && <MonederoOrganizador flash={flash} />}
+      {tarjeta("percent", "Gastos de gestión del comprador", "Lo que paga el comprador además de la entrada al pagar con tarjeta.", <GastosGestion f={f} tramos={d.tramos || []} setFicha={setFicha} isMobile={isMobile} />)}
+      {tarjeta("users", "Cambios de nombre", "Las entradas no se devuelven: quien no pueda ir se la pasa a otra persona.", <CambiosNombre ev={ev} f={f} setFicha={setFicha} flash={flash} isMobile={isMobile} />)}
       <section style={{ ...C.hero, padding: isMobile ? 16 : 20 }}>
         {f.estado === "borrador" && <>
           <div style={{ fontWeight: 700, fontSize: 18 }}>Poner a la venta</div>

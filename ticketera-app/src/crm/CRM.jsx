@@ -237,7 +237,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
             <Ingresos ev={ev} T={T} F={F} barras={barras} ingresos={ingresos} socios={socios} socioById={socioById} isMobile={isMobile}
               conexion={data.conexion} vinculo={vinculo} sincronizando={sincronizando}
               onSync={() => sincronizar(ev.id)} onImportar={() => setImportar(true)} onAjustes={() => abrirAjustes("conexiones")}
-              onNuevo={() => setEditIng({})} onEditar={(i) => setEditIng(i)} onVentaEntradas={(i) => setEditVenta(i)}
+              onNuevo={() => setEditIng({})} onEditar={(i) => setEditIng(i)} onVentaEntradas={(i) => setEditVenta(i)} ajustes={data.ajustes} flash={flash} onIrFacturacion={() => setTab("facturacion")}
               onFuente={(pid, f) => run(() => crm.setFuentePunto(pid, f), "Tipo de ingreso actualizado")}
               onEntregar={(socioId) => run(() => crm.setEntregado(ingresos.filter(i => i.cobradoPor === socioId && !i.entregado && i.estado === "cobrado").map(i => i.id), true), "Marcado como entregado")} />
           )}
@@ -251,7 +251,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
               onCopiar={(desde) => run(async () => { const nn = await crm.copiarPresupuesto(desde.id, ev.id); if (!nn) throw new Error("vacío"); }, `Presupuesto de ${desde.name} copiado`)} />
           )}
           {data && tab === "entradas" && (
-            <Entradas ev={ev} events={events} onSelectEvent={onSelectEvent} flash={flash} ingresos={ingresos} barras={barras} onVentaEntradas={(i) => setEditVenta(i)} onEditarIngreso={(i) => setEditIng(i)} />
+            <Entradas ajustes={data.ajustes} onIrFacturacion={() => setTab("facturacion")} ev={ev} events={events} onSelectEvent={onSelectEvent} flash={flash} ingresos={ingresos} barras={barras} onVentaEntradas={(i) => setEditVenta(i)} onEditarIngreso={(i) => setEditIng(i)} />
           )}
           {data && tab === "prevision" && (
             <Prevision ev={ev} events={events} ingresos={ingresos} gastos={gastosEv} G={G} F={F} ajustes={data.ajustes || {}}

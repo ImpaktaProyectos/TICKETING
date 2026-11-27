@@ -1,12 +1,15 @@
 // TIXFAST · pagos con Stripe Connect
 // Un solo punto con varias acciones (cuerpo JSON { accion, ... }):
-//   checkout   (público)      → crea el pago en Stripe de un pedido reservado y devuelve la URL de pago
+//   checkout   (público)      → crea el pago en Stripe de un pedido reservado (o de un cambio de nombre) y devuelve la URL de pago
 //   confirmar  (público)      → al volver de Stripe, comprueba el pago y emite las entradas (si el aviso aún no llegó)
 //   alta       (con sesión)   → crea el monedero (cuenta conectada) del RRPP u organizador y devuelve el enlace de alta de Stripe
 //   monedero   (con sesión)   → estado del monedero, saldo real en Stripe, repartos y retiradas
 //   retirar    (con sesión)   → pasa el saldo disponible del monedero a su banco
-//   repartir   (tarea programada, con clave) → suelta reservas caducadas y reparte los eventos acabados
+//   repartir   (tarea programada, con clave) → suelta reservas caducadas, reparte los eventos acabados (el organizador
+//                                               sin esperar; los RRPP en cuanto tengan monedero) y emite la factura de la comisión
 //   preparar   (con clave)    → da de alta en Stripe los avisos (webhooks) y guarda sus secretos
+//   recuperar_checkout / recuperar_confirmar (públicos) → cobro de 1 € del servicio de recuperación de entradas (para TIXFAST)
+//                              y reenvío de las entradas SOLO al correo de la compra
 // La clave secreta de Stripe solo vive aquí (STRIPE_SECRET_KEY). Cada orden de dinero lleva clave única.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
@@ -79,6 +82,16 @@ async function pagoPorAcceso(acceso: string) {
   const { data: g } = await admin.from("ticket_pagos").select("*").eq("pedido_id", p.id).maybeSingle();
   return g ? { p, g } : null;
 }
+// Lo que cobra Stripe en un cargo (comisión de la pasarela). Solo para el informe de márgenes: si falla, no pasa nada.
+async function guardarCosteStripe(pedido: string, cargo: string | null) {
+  if (!cargo) return;
+  try {
+    const ch = await stripe("GET", `charges/${cargo}`, { expand: ["balance_transaction"] });
+    const fee = ch?.balance_transaction?.fee;
+    if (typeof fee === "number") await admin.from("ticket_pagos").update({ coste_stripe: eur(fee) }).eq("pedido_id", pedido);
+  } catch { /* se reintenta al repartir */ }
+}
+
 async function emitirDesdeSesion(pedido: string, s: any) {
   if (s?.payment_status !== "paid") return { ok: false, motivo: "sin_pagar" };
   let cargo: string | null = null; let pi: string | null = typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id ?? null;
@@ -86,6 +99,7 @@ async function emitirDesdeSesion(pedido: string, s: any) {
   cargo = typeof piObj?.latest_charge === "string" ? piObj.latest_charge : piObj?.latest_charge?.id ?? null;
   const { data, error } = await admin.rpc("pago_emitir", { p_pedido: pedido, p_sesion: s.id, p_pi: pi, p_cargo: cargo, p_importe: eur(s.amount_total) });
   if (error) throw error;
+  await guardarCosteStripe(pedido, cargo);
   return data;
 }
 
@@ -98,6 +112,24 @@ async function checkout(b: any) {
   if (g.estado === "pagado") return json({ ok: true, pagado: true });
   if (g.estado !== "pendiente" || new Date(g.caduca_en).getTime() < Date.now() + 60e3) return json({ ok: false, motivo: "caducado" });
   if (g.modo !== MODO) return json({ ok: false, motivo: "modo" });
+  // Cambio de nombre: un solo concepto con el precio que puso el organizador
+  if (g.tipo === "cambio") {
+    if (g.sesion_id) {
+      try { const s0 = await stripe("GET", `checkout/sessions/${g.sesion_id}`); if (s0.status === "open" && s0.url) return json({ ok: true, url: s0.url }); if (s0.payment_status === "paid") { await emitirDesdeSesion(g.pedido_id, s0); return json({ ok: true, pagado: true }); } } catch { /* se crea otro */ }
+    }
+    const { data: evc } = await admin.from("ticket_eventos").select("nombre").eq("id", g.evento_id).maybeSingle();
+    const caducaC = Math.max(Math.floor(new Date(g.caduca_en).getTime() / 1000) - 60, Math.floor(Date.now() / 1000) + 30 * 60 + 30);
+    const sc = await stripe("POST", "checkout/sessions", {
+      mode: "payment", locale: "es", customer_email: p.email, client_reference_id: g.pedido_id, expires_at: caducaC,
+      line_items: [{ quantity: 1, price_data: { currency: "eur", unit_amount: cents(g.entradas), product_data: { name: `Cambio de nombre · ${evc?.nombre || "entrada"}` } } }],
+      metadata: { pedido: g.pedido_id, evento: g.evento_id, tixfast: "cambio" },
+      payment_intent_data: { transfer_group: `ev_${g.evento_id}`, description: `Cambio de nombre ${evc?.nombre || ""}`.trim(), metadata: { pedido: g.pedido_id, evento: g.evento_id } },
+      success_url: `${origen}/cambio/${p.acceso}?pago={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origen}/cambio?pago=cancelado`,
+    }, { clave: `cambio-${g.pedido_id}-${Math.floor(Date.now() / 600000)}` });
+    await admin.from("ticket_pagos").update({ sesion_id: sc.id }).eq("pedido_id", g.pedido_id);
+    return json({ ok: true, url: sc.url });
+  }
   // Si ya hay un pago abierto, se reutiliza
   if (g.sesion_id) {
     try { const s = await stripe("GET", `checkout/sessions/${g.sesion_id}`); if (s.status === "open" && s.url) return json({ ok: true, url: s.url }); if (s.payment_status === "paid") { await emitirDesdeSesion(g.pedido_id, s); return json({ ok: true, pagado: true }); } } catch { /* nueva sesión */ }
@@ -131,6 +163,62 @@ async function checkout(b: any) {
   }, { clave: `checkout-${g.pedido_id}-${Math.floor(Date.now() / 600000)}` });
   await admin.from("ticket_pagos").update({ sesion_id: s.id }).eq("pedido_id", g.pedido_id);
   return json({ ok: true, url: s.url });
+}
+
+// ---------- Recuperación de entradas perdidas (servicio de TIXFAST) ----------
+// El dinero se queda en TIXFAST (no entra en el reparto de ningún evento). Tras pagar, el servidor busca las entradas y
+// las reenvía al correo con el que se compraron, nunca a otro. A quien lo pide no se le dice si había entradas.
+async function reenviarRecuperacion(acceso: string, s: any) {
+  const pi = typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id ?? null;
+  const piObj = typeof s.payment_intent === "object" && s.payment_intent ? s.payment_intent : pi ? await stripe("GET", `payment_intents/${pi}`) : null;
+  const cargo = typeof piObj?.latest_charge === "string" ? piObj.latest_charge : piObj?.latest_charge?.id ?? null;
+  const { data, error } = await admin.rpc("web_recuperar_pagado", { p_acceso: acceso, p_sesion: s.id, p_pi: pi, p_cargo: cargo, p_importe: eur(s.amount_total) });
+  if (error) throw error;
+  if (!data?.ok || data.ya) return data;
+  let enviados = 0, fallidos = 0;
+  const sitioOk = /^https:\/\/(somostixfast\.vercel\.app|([a-z0-9-]+\.)*tixfast\.app)$/i;
+  const origen = sitioOk.test((Deno.env.get("SITE_URL") || "").replace(/\/$/, "")) ? (Deno.env.get("SITE_URL") || "").replace(/\/$/, "") : "https://somostixfast.vercel.app";
+  for (const a of (data.accesos || []).slice(0, 20)) {
+    try {
+      const r = await fetch(`${URL_SB}/functions/v1/web-enviar-entradas`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_ANON_KEY") || ""}`, apikey: Deno.env.get("SUPABASE_ANON_KEY") || "" },
+        body: JSON.stringify({ acceso: a, origen }) });
+      const j = await r.json().catch(() => ({}));
+      if (j?.ok) enviados++; else fallidos++;
+    } catch { fallidos++; }
+  }
+  await admin.rpc("web_recuperar_enviado", { p_id: data.id, p_enviados: enviados, p_fallidos: fallidos });
+  return { ok: true };
+}
+async function recuperarCheckout(b: any) {
+  const origen = origenValido(b.origen);
+  if (!origen) return json({ ok: false, motivo: "origen" });
+  const acceso = String(b.acceso || "");
+  if (!/^[0-9a-f-]{36}$/i.test(acceso)) return json({ ok: false, motivo: "no_existe" });
+  const { data: r } = await admin.from("ticket_web_recuperaciones").select("id, acceso, estado, importe, sesion_id, creado_en").eq("acceso", acceso).maybeSingle();
+  if (!r) return json({ ok: false, motivo: "no_existe" });
+  if (r.estado !== "pendiente") return json({ ok: true, pagado: r.estado !== "caducado", caducado: r.estado === "caducado" });
+  if (Date.now() - new Date(r.creado_en).getTime() > 100 * 60e3) return json({ ok: false, motivo: "caducado" });
+  if (r.sesion_id) { try { const s0 = await stripe("GET", `checkout/sessions/${r.sesion_id}`); if (s0.status === "open" && s0.url) return json({ ok: true, url: s0.url }); } catch { /* otra */ } }
+  const s = await stripe("POST", "checkout/sessions", {
+    mode: "payment", locale: "es", client_reference_id: r.id, expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
+    line_items: [{ quantity: 1, price_data: { currency: "eur", unit_amount: cents(r.importe), product_data: { name: "Recuperación de entradas · TIXFAST", description: "Reenviamos tus entradas al correo de la compra, si hay alguna con esos datos. Se cobra aunque no se encuentre ninguna." } } }],
+    metadata: { tixfast: "recuperacion", recuperacion: r.acceso },
+    payment_intent_data: { description: "Recuperación de entradas · TIXFAST", metadata: { tixfast: "recuperacion" } },
+    success_url: `${origen}/cambio/recuperar/${r.acceso}?pago={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origen}/cambio?recuperar=cancelado`,
+  }, { clave: `recuperar-${r.id}` });
+  await admin.from("ticket_web_recuperaciones").update({ sesion_id: s.id, modo: MODO }).eq("id", r.id);
+  return json({ ok: true, url: s.url });
+}
+async function recuperarConfirmar(b: any) {
+  const acceso = String(b.acceso || "");
+  if (!/^[0-9a-f-]{36}$/i.test(acceso)) return json({ ok: false, motivo: "no_existe" });
+  const { data: r } = await admin.from("ticket_web_recuperaciones").select("estado, sesion_id").eq("acceso", acceso).maybeSingle();
+  if (!r) return json({ ok: false, motivo: "no_existe" });
+  if (r.estado !== "pendiente" || !r.sesion_id) return json({ ok: true, estado: r.estado === "pendiente" ? "pendiente" : r.estado === "caducado" ? "caducado" : "hecho" });
+  const s = await stripe("GET", `checkout/sessions/${r.sesion_id}`, { expand: ["payment_intent"] });
+  if (s.payment_status === "paid") { await reenviarRecuperacion(acceso, s); return json({ ok: true, estado: "hecho" }); }
+  return json({ ok: true, estado: s.status === "expired" ? "caducado" : "pendiente" });
 }
 
 async function confirmar(b: any) {
@@ -250,26 +338,71 @@ async function transferir(reparto: any, destino: string, importe: number, capaci
 }
 async function fila(clave: string, base: Record<string, unknown>) {
   const { data: ex } = await admin.from("ticket_repartos").select("*").eq("clave", clave).maybeSingle();
-  if (ex && ["enviado", "nada"].includes(ex.estado)) return { fila: ex, cerrada: true };
+  if (ex && ["enviado", "nada", "liberado", "pagado_mano"].includes(ex.estado)) return { fila: ex, cerrada: true };
   if (ex && ex.estado === "preparado" && Date.now() - new Date(ex.creado_en).getTime() < 5 * 60e3) return { fila: ex, cerrada: true };
   if (ex) { const { data } = await admin.from("ticket_repartos").update({ ...base, error: null }).eq("id", ex.id).select("*").single(); return { fila: data, cerrada: false }; }
   const { data, error } = await admin.from("ticket_repartos").insert({ clave, ...base }).select("*").single();
   if (error) throw error;
   return { fila: data, cerrada: false };
 }
+// Días que se guarda la parte de un RRPP sin monedero antes de pasársela al organizador (que se la paga él)
+const DIAS_RETENCION = 60;
+const cuentaActiva = async (uid: string | null, tipo: string) => uid
+  ? (await admin.from("ticket_pago_cuentas").select("*").eq("user_id", uid).eq("tipo", tipo).eq("modo", MODO).eq("estado", "activa").eq("recibe", true).maybeSingle()).data
+  : null;
+
+// Un pago al organizador (el principal del evento o el de una parte de RRPP que se le pasa)
+async function pagarOrganizador(clave: string, evento: string, owner: string, importe: number, detalle: Record<string, unknown>, capacidad: Map<string, number>) {
+  const cuentaOrg = await cuentaActiva(owner, "organizador");
+  const estado = importe <= 0 ? "nada" : cuentaOrg ? "preparado" : "sin_monedero";
+  const { fila: f, cerrada } = await fila(clave, { evento_id: evento, owner_id: owner, modo: MODO, beneficiario: "organizador", user_id: owner, cuenta_id: cuentaOrg?.id ?? null, importe, detalle, estado });
+  if (cerrada || estado !== "preparado") return { estado: f.estado, importe: f.importe };
+  try {
+    const tr = await transferir(f, cuentaOrg.stripe_id, importe, capacidad, evento);
+    await admin.from("ticket_repartos").update({ estado: "enviado", transferencias: tr, enviado_en: new Date().toISOString() }).eq("id", f.id);
+    return { estado: "enviado", importe };
+  } catch (e) {
+    await admin.from("ticket_repartos").update({ estado: "error", error: String((e as Error).message).slice(0, 300) }).eq("id", f.id);
+    return { estado: "error", error: (e as Error).message };
+  }
+}
+
+// Reparto de un evento. El organizador cobra sin esperar a nadie: la parte de cada RRPP se queda guardada
+// y se le manda en cuanto tenga monedero; si a los 60 días sigue sin él, se le pasa al organizador.
 async function repartirEvento(evento: string, forzar = false) {
   const { data: calc, error } = await admin.rpc("pago_reparto_calculo", { p_evento: evento, p_modo: MODO });
   if (error) throw error;
   if (calc.pendientes > 0 && !forzar) return { evento, espera: "pagos_pendientes" };
   const { data: hechos } = await admin.from("ticket_repartos").select("transferencias").eq("evento_id", evento).eq("modo", MODO);
   const capacidad = new Map<string, number>((calc.cargos || []).map((c: any) => [c.cargo, cents(c.entradas)]));
-  for (const h of hechos || []) for (const t of (h.transferencias || [])) if (capacidad.has(t.cargo)) capacidad.set(t.cargo, capacidad.get(t.cargo)! - cents(t.importe));
+  for (const h of hechos || []) for (const t of (h.transferencias || [])) if (capacidad.has(t.cargo)) capacidad.set(t.cargo, capacidad.get(t.cargo)! - cents(t.importe) + cents(t.revertido || 0));
+
+  // 1) Organizador: lo disponible (entradas + gastos − comisión − devoluciones − comisión del efectivo) menos la parte de los RRPP
+  const paraRRPP = (calc.rrpp || []).reduce((s: number, r: any) => s + cents(r.neto), 0);
+  const resto = cents(calc.disponible) - paraRRPP;
+  const org = await pagarOrganizador(`${MODO}:${evento}:organizador`, evento, calc.owner_id, eur(Math.max(resto, 0)), {
+    cobrado: calc.cobrado, gastos: calc.gastos || 0, comision: calc.comision || 0, devuelto: calc.devuelto || 0,
+    comision_efectivo: calc.comision_efectivo || 0, efectivo_entradas: calc.efectivo_entradas || 0, a_rrpp: eur(paraRRPP),
+    deuda: eur(Math.max(-resto, 0)),   // si la comisión del efectivo o las devoluciones no caben en lo cobrado online
+  }, capacidad);
+
+  // 2) RRPP: cada uno lo suyo, en cuanto tenga monedero
   const res: any[] = [];
   for (const r of calc.rrpp || []) {
+    const clave = `${MODO}:${evento}:rrpp:${r.rrpp_id}`;
     const detalle = { entradas: r.entradas, online: r.online, en_efectivo: r.en_efectivo, comision: r.comision, efectivo: r.efectivo, debe: r.debe, nombre: r.nombre };
-    const cuenta = r.user_id ? (await admin.from("ticket_pago_cuentas").select("*").eq("user_id", r.user_id).eq("tipo", "rrpp").eq("modo", MODO).eq("estado", "activa").eq("recibe", true).maybeSingle()).data : null;
+    const cuenta = await cuentaActiva(r.user_id, "rrpp");
+    const { data: previa } = await admin.from("ticket_repartos").select("id, estado, creado_en").eq("clave", clave).maybeSingle();
+    // Lleva demasiado esperando (sin monedero o con errores): se le pasa al organizador, que se lo paga él
+    const vieja = previa && ["sin_monedero", "error"].includes(previa.estado) && Date.now() - new Date(previa.creado_en).getTime() > DIAS_RETENCION * 864e5;
+    if (r.neto > 0 && vieja && (!cuenta || previa.estado === "error")) {
+      await admin.from("ticket_repartos").update({ estado: "liberado", detalle, error: null, enviado_en: new Date().toISOString() }).eq("id", previa.id);
+      const lib = await pagarOrganizador(`${MODO}:${evento}:liberado:${r.rrpp_id}`, evento, calc.owner_id, r.neto, { motivo: "rrpp_sin_monedero", rrpp: r.nombre, rrpp_id: r.rrpp_id }, capacidad);
+      res.push({ rrpp: r.nombre, estado: "liberado", al_organizador: lib.estado });
+      continue;
+    }
     const estado = r.neto <= 0 ? "nada" : cuenta ? "preparado" : "sin_monedero";
-    const { fila: f, cerrada } = await fila(`${MODO}:${evento}:rrpp:${r.rrpp_id}`, { evento_id: evento, owner_id: calc.owner_id, modo: MODO, beneficiario: "rrpp", rrpp_id: r.rrpp_id, user_id: r.user_id, cuenta_id: cuenta?.id ?? null, importe: r.neto, detalle, estado });
+    const { fila: f, cerrada } = await fila(clave, { evento_id: evento, owner_id: calc.owner_id, modo: MODO, beneficiario: "rrpp", rrpp_id: r.rrpp_id, user_id: r.user_id, cuenta_id: cuenta?.id ?? null, importe: r.neto, detalle, estado });
     if (cerrada || estado !== "preparado") { res.push({ rrpp: r.nombre, estado: f.estado, importe: f.importe }); continue; }
     try {
       const tr = await transferir(f, cuenta.stripe_id, r.neto, capacidad, evento);
@@ -280,25 +413,25 @@ async function repartirEvento(evento: string, forzar = false) {
       res.push({ rrpp: r.nombre, estado: "error", error: (e as Error).message });
     }
   }
-  // El organizador cobra cuando los RRPP con monedero ya tienen lo suyo
-  const { data: rr } = await admin.from("ticket_repartos").select("estado, importe").eq("evento_id", evento).eq("modo", MODO).eq("beneficiario", "rrpp");
-  if ((rr || []).some((x) => ["preparado", "error"].includes(x.estado))) return { evento, rrpp: res, organizador: "espera" };
-  const aRRPP = (rr || []).filter((x) => x.estado === "enviado").reduce((s, x) => s + cents(x.importe), 0);
-  const importe = eur(cents(calc.cobrado) - aRRPP);
-  const sinMonedero = (rr || []).filter((x) => x.estado === "sin_monedero").reduce((s, x) => s + cents(x.importe), 0);
-  const cuentaOrg = (await admin.from("ticket_pago_cuentas").select("*").eq("user_id", calc.owner_id).eq("tipo", "organizador").eq("modo", MODO).eq("estado", "activa").eq("recibe", true).maybeSingle()).data;
-  const estado = importe <= 0 ? "nada" : cuentaOrg ? "preparado" : "sin_monedero";
-  const { fila: f, cerrada } = await fila(`${MODO}:${evento}:organizador`, { evento_id: evento, owner_id: calc.owner_id, modo: MODO, beneficiario: "organizador", user_id: calc.owner_id, cuenta_id: cuentaOrg?.id ?? null, importe,
-    detalle: { cobrado: calc.cobrado, a_rrpp: eur(aRRPP), rrpp_sin_monedero: eur(sinMonedero) }, estado });
-  if (cerrada || estado !== "preparado") return { evento, rrpp: res, organizador: f.estado };
+
+  // 3) Liberaciones anteriores que aún no se pudieron mandar (el organizador no tenía monedero, errores…)
+  const { data: libs } = await admin.from("ticket_repartos").select("clave, importe, detalle").eq("evento_id", evento).eq("modo", MODO).eq("beneficiario", "organizador").like("clave", `${MODO}:${evento}:liberado:%`).in("estado", ["sin_monedero", "error"]);
+  for (const l of libs || []) await pagarOrganizador(l.clave, evento, calc.owner_id, Number(l.importe), l.detalle || {}, capacidad);
+
+  // 4) Factura de la comisión (una vez por evento; espera si faltan datos fiscales)
+  return { evento, organizador: org, rrpp: res, factura: await facturar(evento) };
+}
+
+// Factura de la comisión de TIXFAST al organizador (se le copia en Facturación › Gastos).
+// Antes se completa lo que cobró Stripe en cada pago del evento, para el informe de márgenes.
+async function facturar(evento: string) {
   try {
-    const tr = await transferir(f, cuentaOrg.stripe_id, importe, capacidad, evento);
-    await admin.from("ticket_repartos").update({ estado: "enviado", transferencias: tr, enviado_en: new Date().toISOString() }).eq("id", f.id);
-    return { evento, rrpp: res, organizador: "enviado", importe };
-  } catch (e) {
-    await admin.from("ticket_repartos").update({ estado: "error", error: String((e as Error).message).slice(0, 300) }).eq("id", f.id);
-    return { evento, rrpp: res, organizador: "error", error: (e as Error).message };
-  }
+    const { data: sinCoste } = await admin.from("ticket_pagos").select("pedido_id, cargo_id").eq("evento_id", evento).eq("modo", MODO).eq("estado", "pagado").is("coste_stripe", null).limit(100);
+    for (const g of sinCoste || []) await guardarCosteStripe(g.pedido_id, g.cargo_id);
+    const { data, error } = await admin.rpc("plataforma_facturar_evento", { p_evento: evento, p_modo: MODO });
+    if (error) throw error;
+    return data;
+  } catch (e) { return { ok: false, error: (e as Error).message }; }
 }
 
 async function repartir(b: any) {
@@ -322,6 +455,14 @@ async function repartir(b: any) {
   for (const ev of eventos.slice(0, 20)) {
     try { salida.eventos.push(await repartirEvento(ev, !!b.ahora)); } catch (e) { salida.eventos.push({ evento: ev, error: (e as Error).message }); }
   }
+  // 3) Recuperaciones pagadas cuyo aviso no llegó, y limpieza (sin pagar a las 2 h; datos personales fuera a los 90 días)
+  try {
+    const { data: recs } = await admin.from("ticket_web_recuperaciones").select("acceso, sesion_id").eq("estado", "pendiente").not("sesion_id", "is", null).lt("creado_en", new Date(Date.now() - 10 * 60e3).toISOString()).limit(20);
+    for (const r of recs || []) { try { const s = await stripe("GET", `checkout/sessions/${r.sesion_id}`, { expand: ["payment_intent"] }); if (s.payment_status === "paid") await reenviarRecuperacion(r.acceso, s); } catch { /* siguiente */ } }
+    await admin.rpc("web_recuperar_limpiar");
+  } catch { /* sin migración aún */ }
+  // 4) Facturas que esperaban datos fiscales (de TIXFAST o del organizador)
+  try { const { data } = await admin.rpc("plataforma_facturas_reintentar"); salida.facturas_emitidas = data || 0; } catch { /* sin migración aún */ }
   return json({ ok: true, ...salida });
 }
 
@@ -329,10 +470,19 @@ async function preparar(b: any) {
   const destino = `${URL_SB}/functions/v1/pagos-stripe`;
   const hecho: Record<string, string> = {};
   for (const [nombre, conectadas, eventos] of [
-    ["webhook_plataforma", false, ["checkout.session.completed", "checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed", "checkout.session.expired"]],
+    ["webhook_plataforma", false, ["checkout.session.completed", "checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed", "checkout.session.expired", "charge.refunded"]],
     ["webhook_connect", true, ["account.updated", "payout.paid", "payout.failed", "payout.canceled"]],
   ] as [string, boolean, string[]][]) {
-    if (!b.forzar && await config(nombre)) { hecho[nombre] = "ya estaba"; continue; }
+    const ya = await config(nombre);
+    if (ya && !b.forzar) {
+      // Ya existe: se asegura de que escucha todos los avisos (p. ej. las devoluciones, añadidas después)
+      try {
+        const lista = await stripe("GET", "webhook_endpoints", { limit: 100 });
+        const w = (lista.data || []).find((x: any) => x.url === destino && (x.description || "").includes(nombre));
+        if (w && eventos.some((e) => !(w.enabled_events || []).includes(e))) { await stripe("POST", `webhook_endpoints/${w.id}`, { enabled_events: eventos }); hecho[nombre] = "actualizado"; continue; }
+      } catch { /* se deja como estaba */ }
+      hecho[nombre] = "ya estaba"; continue;
+    }
     const w = await stripe("POST", "webhook_endpoints", { url: destino, enabled_events: eventos, connect: conectadas ? "true" : undefined, description: `TIXFAST · ${nombre}` });
     await admin.from("ticket_pago_config").upsert({ clave: nombre, valor: w.secret, actualizado_en: new Date().toISOString() });
     hecho[nombre] = w.id;
@@ -350,6 +500,8 @@ Deno.serve(async (req) => {
     switch (b.accion) {
       case "checkout": return await checkout(b);
       case "confirmar": return await confirmar(b);
+      case "recuperar_checkout": return await recuperarCheckout(b);
+      case "recuperar_confirmar": return await recuperarConfirmar(b);
       case "alta": return await alta(req, b);
       case "monedero": return await monedero(req, b);
       case "retirar": return await retirar(req, b);

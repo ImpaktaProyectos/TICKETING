@@ -88,6 +88,14 @@
     {
       "source": "/rp/:acceso*",
       "destination": "/publico.html"
+    },
+    {
+      "source": "/cambio",
+      "destination": "/publico.html"
+    },
+    {
+      "source": "/cambio/:acceso*",
+      "destination": "/publico.html"
     }
   ]
 }

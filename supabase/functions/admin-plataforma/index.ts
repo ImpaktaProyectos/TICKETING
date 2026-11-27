@@ -7,6 +7,9 @@
 //   campana        { segmento, asunto, texto, boton, prueba } → correo a un grupo (o solo a ti, de prueba)
 //   plan_stripe    { plan }                       → crea o actualiza en Stripe el producto y el precio del plan
 //   estado_stripe                                 → ¿hay Stripe conectado? ¿en pruebas o real?
+//   comisiones { desde }                          → comisión pactada, datos fiscales de TIXFAST, informe (comisión frente a Stripe) y facturas
+//   comisiones_guardar { ajustes }                → guarda la comisión general, el mínimo, la calculadora de Stripe y los datos fiscales
+//   comision_cuenta { cuenta, pct, min }          → pacto distinto con un organizador (vacío = el general)
 // Solo para administradores de TIXFAST (tabla ticket_superadmins). Todo queda en ticket_admin_registro.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import { plantilla, enviar, sitio, bajaUrl } from "../_shared/correos.ts";
@@ -68,10 +71,52 @@ Deno.serve(async (req) => {
       await admin.from("ticket_admin_registro").insert({ admin_id: u.user.id, accion: "campana", detalle: { segmento: b.segmento, asunto, enviados, fallos } });
       return json({ ok: true, enviados, fallos, quedan: Math.max(0, (lista || []).length - 300) });
     }
+    // Comisión de TIXFAST y facturas a los organizadores
+    if (b.accion === "comisiones") {
+      const desde = /^\d{4}-\d{2}-\d{2}$/.test(String(b.desde || "")) ? String(b.desde) : new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
+      const modo = SK.startsWith("sk_live") ? "real" : "pruebas";
+      const [{ data: aj, error: e1 }, { data: inf }, { data: fac }, { data: pactos }, { data: rec }] = await Promise.all([
+        admin.from("ticket_plataforma_ajustes").select("*").eq("id", true).maybeSingle(),
+        admin.rpc("plataforma_informe_comisiones", { p_modo: modo, p_desde: desde }),
+        admin.from("ticket_plataforma_facturas").select("id, evento_id, owner_id, modo, estado, entradas, total, base, cuota_iva, codigo, fecha, receptor, creado_en").order("creado_en", { ascending: false }).limit(200),
+        admin.from("ticket_cuentas").select("owner_id, nombre, comision_pct, comision_min").or("comision_pct.not.is.null,comision_min.not.is.null"),
+        admin.rpc("plataforma_recuperaciones", { p_desde: desde }),
+      ]);
+      if (e1) return json({ ok: false, motivo: "sin_migracion" });
+      return json({ ok: true, modo, desde, ajustes: aj, informe: inf || [], facturas: fac || [], pactos: pactos || [], recuperaciones: rec || null });
+    }
+    if (b.accion === "comisiones_guardar") {
+      const x = b.ajustes || {};
+      const num = (v: unknown, min: number, max: number) => { const n = Number(String(v ?? "").replace(",", ".")); return Number.isFinite(n) && n >= min && n <= max ? Math.round(n * 100) / 100 : null; };
+      const txt = (v: unknown, max: number) => { const t = String(v ?? "").trim().slice(0, max); return t || null; };
+      const fila: Record<string, unknown> = { actualizado_en: new Date().toISOString() };
+      for (const [k, min, max] of [["comision_pct", 0, 50], ["comision_min", 0, 50], ["iva", 0, 30], ["stripe_pct", 0, 10], ["stripe_fijo", 0, 5], ["recuperacion_precio", 0.5, 20]] as [string, number, number][])
+        if (x[k] !== undefined) { const n = num(x[k], min, max); if (n === null) return json({ ok: false, motivo: "valores", campo: k }); fila[k] = n; }
+      for (const [k, max] of [["razon_social", 160], ["direccion", 200], ["cp", 10], ["ciudad", 80], ["provincia", 80], ["email", 160]] as [string, number][])
+        if (x[k] !== undefined) fila[k] = txt(x[k], max);
+      if (x.nif !== undefined) { const nif = String(x.nif || "").toUpperCase().replace(/[^A-Z0-9]/g, ""); if (nif && !/^[A-Z0-9]{8,12}$/.test(nif)) return json({ ok: false, motivo: "nif" }); fila.nif = nif || null; }
+      if (x.comision_efectivo !== undefined) fila.comision_efectivo = !!x.comision_efectivo;
+      if (x.serie !== undefined) { const serie = String(x.serie || "").toUpperCase(); if (!/^[A-Z]{1,4}$/.test(serie)) return json({ ok: false, motivo: "serie" }); fila.serie = serie; }
+      const { error } = await admin.from("ticket_plataforma_ajustes").update(fila).eq("id", true);
+      if (error) throw error;
+      await admin.from("ticket_admin_registro").insert({ admin_id: u.user.id, accion: "comisiones_guardar", detalle: fila });
+      let emitidas = 0;   // con los datos ya puestos, salen las que estaban esperando
+      try { const { data } = await admin.rpc("plataforma_facturas_reintentar"); emitidas = data || 0; } catch { /* nada */ }
+      return json({ ok: true, emitidas });
+    }
     const cuenta = String(b.cuenta || "");
     if (!UUID.test(cuenta)) return json({ ok: false, motivo: "cuenta" }, 400);
     const registrar = (accion: string, detalle: Record<string, unknown>) => admin.from("ticket_admin_registro").insert({ admin_id: u.user.id, cuenta_id: cuenta, accion, detalle });
 
+    if (b.accion === "comision_cuenta") {
+      const val = (v: unknown, max: number) => { if (v === null || v === undefined || String(v).trim() === "") return null; const n = Number(String(v).replace(",", ".")); return Number.isFinite(n) && n >= 0 && n <= max ? Math.round(n * 100) / 100 : NaN; };
+      const pct = val(b.pct, 50), min = val(b.min, 50);
+      if (Number.isNaN(pct) || Number.isNaN(min)) return json({ ok: false, motivo: "valores" });
+      const { error } = await admin.from("ticket_cuentas").update({ comision_pct: pct, comision_min: min }).eq("owner_id", cuenta);
+      if (error) throw error;
+      await registrar("comision_cuenta", { pct, min });
+      return json({ ok: true });
+    }
     if (b.accion === "baja_stripe") {
       if (!SK) return json({ ok: false, motivo: "sin_pasarela" });
       const { data: c } = await admin.from("ticket_cuentas").select("suscripcion_pago_id").eq("owner_id", cuenta).maybeSingle();

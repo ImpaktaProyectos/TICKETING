@@ -1,12 +1,58 @@
 // ===================== Monedero del organizador (Stripe) =====================
-// Al acabar cada evento, lo cobrado por las entradas (menos la comisión de los RRPP con monedero) llega aquí solo.
+// Al acabar cada evento llega aquí solo: entradas + gastos de gestión − comisión de TIXFAST − devoluciones − la parte de los RRPP.
+// La parte de cada RRPP se le manda a él en cuanto abre su monedero; si en 60 días no lo abre, llega aquí y se la pagas tú.
 // Desde aquí se pasa al banco. El alta (DNI/CIF y cuenta bancaria) la hace Stripe; TIXFAST no guarda esos datos.
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 import { C, Icon, Tile, Badge, money } from "./ui";
 import { pagos } from "../web/pagosApi";
 
-const ESTADO = { enviado: ["Recibido", "var(--green)"], sin_monedero: ["Esperando tu monedero", "var(--amber)"], nada: ["Nada que cobrar", "var(--muted)"], error: ["Reintentando", "var(--red)"], preparado: ["Enviando…", "var(--accent)"] };
+const ESTADO = { enviado: ["Recibido", "var(--green)"], sin_monedero: ["Esperando monedero", "var(--amber)"], nada: ["Nada que cobrar", "var(--muted)"], error: ["Reintentando", "var(--red)"],
+  preparado: ["Enviando…", "var(--accent)"], liberado: ["Se lo pagas tú", "var(--amber)"], pagado_mano: ["Pagado por ti", "var(--green)"] };
+const n = (v) => Number(v) || 0;
+
+// Una línea del historial con el desglose de cada importe (para que se entienda de dónde sale)
+function FilaReparto({ r, flash, onCambio }) {
+  const [t, col] = ESTADO[r.estado] || [r.estado, "var(--muted)"];
+  const d = r.detalle || {};
+  const [busy, setBusy] = useState(false);
+  const liberacion = r.beneficiario === "organizador" && d.motivo === "rrpp_sin_monedero";
+  const marcar = async () => {
+    setBusy(true);
+    const { data, error } = await supabase.rpc("reparto_marcar_pagado", { p_id: r.id });
+    setBusy(false);
+    if (error || !data?.ok) { flash("No se ha podido marcar", "warn"); return; }
+    flash("Marcado como pagado"); onCambio();
+  };
+  let quien = "para ti", desglose = null, nota = null;
+  if (r.beneficiario === "rrpp") {
+    quien = `RRPP ${d.nombre || ""}`;
+    desglose = `${d.entradas || 0} entradas · comisión ${money(d.comision)}${n(d.efectivo) > 0 ? ` − efectivo que cobró ${money(d.efectivo)}` : ""}`;
+    if (r.estado === "sin_monedero") nota = "Se lo guardamos hasta que abra su monedero. Si en 60 días no lo abre, te llega a ti para que se lo pagues.";
+    if (n(d.debe) > 0) nota = `Cobró en efectivo ${money(d.debe)} más de lo que le toca: te lo debe a ti.`;
+  } else if (liberacion) {
+    quien = `parte de ${d.rrpp || "un RRPP"}`;
+    nota = "No abrió su monedero en 60 días: te llega a ti y se lo pagas tú.";
+  } else {
+    desglose = [`Entradas ${money(d.cobrado)}`, n(d.gastos) > 0 && `+ gastos ${money(d.gastos)}`, n(d.comision) > 0 && `− comisión TIXFAST ${money(d.comision)}`,
+      n(d.comision_efectivo) > 0 && `− comisión del efectivo ${money(d.comision_efectivo)}`, n(d.devuelto) > 0 && `− devuelto ${money(d.devuelto)}`,
+      n(d.a_rrpp) > 0 && `− RRPP ${money(d.a_rrpp)}`].filter(Boolean).join(" ");
+    if (n(d.devoluciones) > 0) nota = `Después se devolvieron ${money(d.devoluciones)} y se descontaron de lo recibido.`;
+    if (n(d.deuda) > 0) nota = `Quedan ${money(d.deuda)} de comisión o devoluciones sin descontar: los verás en la factura de TIXFAST como pendientes.`;
+  }
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "8px 0", borderTop: "1px solid var(--line)", fontSize: 13.5 }}>
+      <div style={{ minWidth: 0 }}>
+        <b>{r.evento}</b> · {quien}
+        <div style={{ color: col, fontSize: 12, fontWeight: 800 }}>{t}</div>
+        {desglose && <div style={{ color: "var(--muted)", fontSize: 12 }}>{desglose}</div>}
+        {nota && <div style={{ color: "var(--muted)", fontSize: 12, lineHeight: 1.4 }}>{nota}</div>}
+        {r.beneficiario === "rrpp" && r.estado === "liberado" && <button onClick={marcar} disabled={busy} style={{ ...C.btnSm, marginTop: 6, minHeight: 44 }}>{busy ? "Guardando…" : "Ya se lo he pagado"}</button>}
+      </div>
+      <b style={{ flexShrink: 0 }}>{money(r.importe)}</b>
+    </div>
+  );
+}
 
 export function MonederoOrganizador({ flash }) {
   const [m, setM] = useState(undefined);
@@ -44,7 +90,7 @@ export function MonederoOrganizador({ flash }) {
         <Tile n="wallet" s={38} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 900, fontSize: 16, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>Tu monedero {m.modo === "pruebas" && <Badge c="var(--amber)">Modo pruebas</Badge>}</div>
-          <div style={{ color: "var(--muted)", fontSize: 13 }}>Al acabar cada evento llega solo lo cobrado por las entradas, menos la comisión de tus RRPP con monedero.</div>
+          <div style={{ color: "var(--muted)", fontSize: 13 }}>Al acabar cada evento llega solo: entradas + gastos de gestión, menos la comisión de TIXFAST (su factura te llega en Facturación › Gastos), las devoluciones y la parte de tus RRPP, que se les manda a ellos.</div>
         </div>
       </div>
       {!c ? <button onClick={alta} disabled={!!busy} style={C.btnPrimary}><Icon n="wallet" s={16} />{busy ? "Abriendo Stripe…" : "Activar mi monedero"}</button>
@@ -63,11 +109,7 @@ export function MonederoOrganizador({ flash }) {
         </>}
       {(m.repartos?.length > 0) && <div style={{ marginTop: 12 }}>
         <div style={{ fontWeight: 800, fontSize: 13, color: "var(--muted)", marginBottom: 4 }}>Repartos de tus eventos</div>
-        {m.repartos.map(r => { const [t, col] = ESTADO[r.estado] || [r.estado, "var(--muted)"]; return (
-          <div key={r.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "8px 0", borderTop: "1px solid var(--line)", fontSize: 13.5 }}>
-            <div style={{ minWidth: 0 }}><b>{r.evento}</b> · {r.beneficiario === "rrpp" ? `RRPP ${r.detalle?.nombre || ""}` : "para ti"}<div style={{ color: col, fontSize: 12, fontWeight: 800 }}>{t}{r.beneficiario === "rrpp" && r.estado === "sin_monedero" ? " · sin monedero: le pagas tú" : ""}</div></div>
-            <b style={{ flexShrink: 0 }}>{money(r.importe)}</b>
-          </div>); })}
+        {m.repartos.map(r => <FilaReparto key={r.id} r={r} flash={flash} onCambio={cargar} />)}
       </div>}
     </section>
   );

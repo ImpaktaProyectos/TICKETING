@@ -377,7 +377,7 @@ function Cobros({ orgs, cobros, pf, onPerfil }) {
 }
 
 /* ---------- Monedero en Stripe: cobro automático al acabar cada evento y retirada al banco ---------- */
-const ESTADO_REPARTO = { enviado: "En tu monedero", sin_monedero: "Te lo paga el organizador", nada: "Sin comisión", error: "Reintentando", preparado: "Enviando…" };
+const ESTADO_REPARTO = { enviado: "En tu monedero", sin_monedero: "Te lo guardamos: abre tu monedero y te llega solo (60 días)", nada: "Sin comisión", error: "Reintentando", preparado: "Enviando…", liberado: "Te lo paga el organizador", pagado_mano: "Te lo pagó el organizador" };
 function MonederoStripe({ avisar }) {
   const [m, setM] = useState(undefined);
   const [busy, setBusy] = useState("");
@@ -429,7 +429,7 @@ function MonederoStripe({ avisar }) {
       {(m.repartos?.length > 0 || m.retiradas?.length > 0) && <div style={{ marginTop: 12 }}>
         {m.repartos.map(r => (
           <div key={r.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "9px 0", borderTop: "1px solid var(--line)", fontSize: 14 }}>
-            <div style={{ minWidth: 0 }}><b>{r.evento}</b><div style={{ color: "var(--muted)", fontSize: 12.5, fontWeight: 700 }}>{ESTADO_REPARTO[r.estado] || r.estado}{r.detalle?.efectivo > 0 ? ` · descontado efectivo ${eur(r.detalle.efectivo)}` : ""}</div></div>
+            <div style={{ minWidth: 0 }}><b>{r.evento}</b><div style={{ color: "var(--muted)", fontSize: 12.5, fontWeight: 700 }}>{ESTADO_REPARTO[r.estado] || r.estado}</div><div style={{ color: "var(--muted)", fontSize: 12.5 }}>{r.detalle?.entradas || 0} entradas · comisión {eur(r.detalle?.comision || 0)}{r.detalle?.efectivo > 0 ? ` − efectivo que cobraste ${eur(r.detalle.efectivo)}` : ""}{r.detalle?.debe > 0 ? ` · debes ${eur(r.detalle.debe)} al organizador` : ""}</div></div>
             <b style={{ flexShrink: 0 }}>{eur(r.importe)}</b>
           </div>))}
         {m.retiradas.map(r => (
