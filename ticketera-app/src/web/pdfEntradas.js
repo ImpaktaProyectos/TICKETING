@@ -115,7 +115,7 @@ export async function pdfEntradas(d) {
     doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(17, 17, 20);
     doc.text("Enséñalo en la puerta · vale para una sola entrada", W / 2, yq, { align: "center" }); yq += 5.5;
     doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(110, 114, 122);
-    const linea2 = [`Pedido ${p.codigo}`, desde ? `Válida desde ${fechaTxt(desde.toISOString())}` : null].filter(Boolean).join(" · ");
+    const linea2 = [`Pedido ${p.codigo}`, x.acceso === "dia" && x.dia ? `Solo el ${fechaTxt(x.dia)}` : (ev.fin && ev.inicio && String(ev.fin).slice(0, 10) > String(ev.inicio).slice(0, 10)) ? "Abono: cualquier día, un solo uso" : desde ? `Válida desde ${fechaTxt(desde.toISOString())}` : null].filter(Boolean).join(" · ");
     doc.text(doc.splitTextToSize(linea2, cw - 16)[0] || "", W / 2, yq, { align: "center" }); yq += 6;
 
     // condiciones, en pequeño al pie de la tarjeta

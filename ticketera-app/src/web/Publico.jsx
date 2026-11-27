@@ -9,7 +9,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import { avisosDe } from "./avisos";
 import QrCodigo from "../qr/QrCodigo";
-import { textoQR, money, eur, fecha, hora, tema, Mensaje, Esqueleto, MIS, cap, reducido, Diapositivas, Galeria, card, btn, Chip, Aviso, Linea, Tramo, CuentaAtras, AvisosCompra, PruebaSocial, CAMPOS, ERRORES, lbl, inpP, Campo, Check, CSS_PUB, InfoPrivacidad, PRIVACIDAD_VERSION, precioConDescuento } from "./comun";
+import { textoQR, money, eur, fecha, hora, tema, Mensaje, Esqueleto, MIS, cap, reducido, Diapositivas, Galeria, card, btn, Chip, Aviso, Linea, Tramo, CuentaAtras, AvisosCompra, PruebaSocial, CAMPOS, ERRORES, lbl, inpP, Campo, Check, CSS_PUB, InfoPrivacidad, PRIVACIDAD_VERSION, precioConDescuento, validezTexto } from "./comun";
 export { textoQR } from "./comun";
 const PaginaCambio = React.lazy(() => import("./Cambio.jsx"));
 const PanelPuntoVenta = React.lazy(() => import("./PanelPuntoVenta.jsx"));
@@ -184,7 +184,7 @@ export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, pre
           <h2 style={{ fontSize: 24, margin: "0 0 12px", fontWeight: 900 }}>Entradas</h2>
           {tramos.length === 0 && <div style={card}>Aún no hay entradas a la venta.</div>}
           <PruebaSocial ev={ev} avisos={av} offset={offset} />
-          {tramos.map((t, i) => <Tramo key={t.id} t={t} sig={tramos.slice(i + 1).find(x => x.estado === "proximo")} avisos={av} n={cant[t.id] || 0} T={T}
+          {tramos.map((t, i) => <Tramo key={t.id} t={{ ...t, multi: tramos.some(y => y.acceso === "dia") }} sig={tramos.slice(i + 1).find(x => x.estado === "proximo")} avisos={av} n={cant[t.id] || 0} T={T}
             offset={offset} top={t.id === topId} onFin={onRecargar} onN={(n) => ponerN(t, n)} />)}
           {enVenta.length === 0 && tramos.length > 0 && <div style={{ ...card, marginTop: 8, fontWeight: 700 }}>Ahora mismo no hay entradas a la venta.</div>}
           {enVenta.length === 0 && tramos.length > 0 && !tramos.some(t => t.estado === "proximo") && !ev.vista_previa && <ListaEspera ev={ev} T={T} />}
@@ -698,7 +698,7 @@ function EntradasDePedido({ d, T, acceso, onCambio }) {
                     <QrCodigo texto={textoQR(x.qr_hex)} margen={2} style={{ width: 240, height: 240 }} />
                   </div>
                 </>) : <div style={{ fontWeight: 900, color: "#ff6b6b", padding: 30 }}>ENTRADA ANULADA</div>}
-              <div style={{ color: "var(--muted)", fontSize: 13, textAlign: "center" }}>{desde ? `Válida desde el ${fecha(desde.toISOString())}${ev.fin ? ` hasta las ${hora(ev.fin)} del ${fecha(ev.fin, false)}` : ""}.` : "Válida para el día del evento."} Un solo uso.</div>
+              <div style={{ color: x.acceso === "dia" ? "var(--c)" : "var(--muted)", fontWeight: x.acceso === "dia" ? 800 : 400, fontSize: 13, textAlign: "center" }}>{validezTexto(x, ev, desde) || "Válida para el día del evento. Un solo uso."}</div>
             </div>
           </div>))}
         <CambioNombrePedido ev={ev} entradas={d.entradas} T={T} />

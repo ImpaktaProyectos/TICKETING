@@ -138,6 +138,8 @@ export function Tramo({ t, sig, avisos, n, T, onN, offset = 0, top = false, onFi
         <div style={{ flex: 1, minWidth: 0 }}>
           {top && venta && <div style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "color-mix(in srgb, var(--c) 18%, transparent)", color: "var(--c)", borderRadius: 30, padding: "3px 10px", fontWeight: 900, fontSize: 12, marginBottom: 6, display: "inline-flex", alignItems: "center", gap: 5 }}><Icono n="estrella" s={12} w={2.4} />El más elegido</div>}
           <div style={{ fontWeight: 900, fontSize: 18, textDecoration: t.estado === "agotado" ? "line-through" : "none" }}>{t.nombre}</div>
+          {t.acceso === "dia" && t.dia ? <div style={{ color: "var(--c)", fontSize: 13.5, fontWeight: 800, marginTop: 2 }}>Entrada de día · {cap(fecha(t.dia, false))}</div>
+            : t.acceso === "abono" && t.multi ? <div style={{ color: "var(--c)", fontSize: 13.5, fontWeight: 800, marginTop: 2 }}>Abono · todos los días</div> : null}
           {t.descripcion && <div style={{ color: "var(--muted)", fontSize: 14, marginTop: 2 }}>{t.descripcion}</div>}
           {t.copas > 0 && <div style={{ color: "var(--muted)", fontSize: 14, marginTop: 2 }}>Incluye {t.copas} {t.copas === 1 ? "copa" : "copas"}</div>}
         </div>
@@ -358,4 +360,12 @@ export function precioConDescuento(precio, tramoId, d) {
 export function pintarTexto(piezas, cifra) {
   if (!Array.isArray(piezas)) return null;
   return <>{piezas.map((x, i) => typeof x === "string" ? <React.Fragment key={i}>{x}</React.Fragment> : <React.Fragment key={i}>{cifra(x.n)}</React.Fragment>)}</>;
+}
+
+// Texto de validez de una entrada (abono o entrada de día)
+export function validezTexto(x, ev, desde) {
+  if (x?.acceso === "dia" && x.dia) return `Válida solo el ${fecha(x.dia, false)} (de 06:00 a 08:00 del día siguiente). Un solo uso.`;
+  const varios = ev?.fin && ev?.inicio && String(ev.fin).slice(0, 10) > String(ev.inicio).slice(0, 10);
+  if (varios) return `Abono: vale cualquier día del evento, una sola vez (al entrar te ponen la pulsera).`;
+  return desde ? `Válida desde el ${fecha(desde.toISOString())}${ev?.fin ? ` hasta las ${hora(ev.fin)} del ${fecha(ev.fin, false)}` : ""}. Un solo uso.` : null;
 }

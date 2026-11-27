@@ -30,6 +30,7 @@ function explicar(r) {
     case "anulado": return { t: "TICKET ANULADO", d: "Esa venta se anuló en caja. No sirvas." };
     case "caducado": return { t: "EVENTO TERMINADO", d: `El evento terminó${r.fin ? " el " + diaHora(r.fin) : ""}. Los tickets ya no valen.` };
     case "repetido_aqui": return { t: "YA LO HAS ESCANEADO", d: `Lo validaste aquí a las ${hora(r.t)}. Si te lo enseñan otra vez, es el mismo ticket: no vuelvas a servir.` };
+    case "otro_dia": return { t: "ENTRADA DE OTRO DÍA", d: `Esta entrada es solo para el ${r.dia ? new Date(r.dia + "T12:00").toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" }) : "otro día"}. Hoy no puede entrar con ella.` };
     case "temprano": return { t: "AÚN NO ES LA HORA", d: `Esta entrada vale desde el ${diaHora(r.desde)}.` };
     case "reemitida": return { t: "QR SUSTITUIDO", d: "Esta entrada se volvió a emitir y este QR ya no vale. Pide al titular el QR nuevo." };
     case "prueba_ok": return { t: "ENTRADA DE PRUEBA", d: "Queda validada, pero es de prueba: no vale para entrar al evento." };
@@ -129,6 +130,7 @@ export default function Validador({ ev, punto, events = [], sales = [], onExit }
       const ini = e.startsAt ? new Date(e.startsAt).getTime() : null;   // hora local del evento
       if (ini && Date.now() < ini - (W.horas ?? 24) * 3600000) return { tipo: "mal", motivo: "temprano", desde: new Date(ini - (W.horas ?? 24) * 3600000).toISOString(), ...extra };
       if (e.endsAt && Date.now() > new Date(e.endsAt).getTime()) return { tipo: "mal", motivo: "caducado", fin: e.endsAt, ...extra };
+      if (w?.d && !Q.diaVale(w.d)) return { tipo: "mal", motivo: "otro_dia", dia: w.d, ...extra };   // entrada de día: solo su jornada
       const idw = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
       Q.encolarCanje(e.id, { id: idw, hex: tk.hex, t: Date.now(), punto: punto.id, nombre: extra.nombre || "" });
       Q.marcarUsado(e.id, tk.clave, { barra: punto.name, disp: "este móvil", local: true });

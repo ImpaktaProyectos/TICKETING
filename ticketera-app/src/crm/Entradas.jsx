@@ -507,7 +507,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
     </div>,
 
     /* ---------- 3 · Entradas ---------- */
-    <Tramos key="entradas" ev={ev} d={d} setD={setD} ficha={f} setFicha={setFicha} flash={flash} isMobile={isMobile} inicio={evLocal.inicio} />,
+    <Tramos key="entradas" ev={ev} d={d} setD={setD} ficha={f} setFicha={setFicha} flash={flash} isMobile={isMobile} inicio={evLocal.inicio} fin={evLocal.fin} />,
 
     /* ---------- 4 · Diseño ---------- */
     <div key="diseno" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -910,7 +910,7 @@ const PLANTILLAS = [
   { t: "Anticipada + taquilla", sub: "Más barata si compras antes", i: "trend", tramos: [{ nombre: "Anticipada", precio: 10, cantidad: 200 }, { nombre: "Taquilla", precio: 15, cantidad: null }] },
   { t: "3 tandas que suben", sub: "Cuando se agota una, sube el precio", i: "bolt", tramos: [{ nombre: "1ª tanda", precio: 8, cantidad: 100 }, { nombre: "2ª tanda", precio: 10, cantidad: 150 }, { nombre: "3ª tanda", precio: 12, cantidad: 200 }] },
 ];
-function Tramos({ ev, d, setD, ficha, setFicha, flash, isMobile, inicio }) {
+function Tramos({ ev, d, setD, ficha, setFicha, flash, isMobile, inicio, fin }) {
   const tramos = d.tramos;
   const timers = useRef({});
   const [borrarId, setBorrarId] = useState(null);
@@ -942,6 +942,17 @@ function Tramos({ ev, d, setD, ficha, setFicha, flash, isMobile, inicio }) {
     const conOrden = ts.map((t, k) => ({ ...t, orden: k }));
     setD(x => ({ ...x, tramos: conOrden })); conOrden.forEach(guardar);
   };
+  // Días del evento (para las entradas de día): del día de inicio al día en que termina
+  const diasEvento = (() => {
+    const a = (inicio || "").slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(a)) return [];
+    let b = (fin || "").slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(b) || b < a) b = a;
+    // Si termina de madrugada (antes de las 10:00), ese último día es la noche anterior
+    if (b > a && fin && Number((fin || "").slice(11, 13)) < 10) { const x = new Date(b + "T12:00"); x.setDate(x.getDate() - 1); b = x.toISOString().slice(0, 10); }
+    const out = []; for (let d = new Date(a + "T12:00"); d.toISOString().slice(0, 10) <= b && out.length < 31; d.setDate(d.getDate() + 1)) out.push(d.toISOString().slice(0, 10));
+    return out;
+  })();
+  const variosDias = diasEvento.length > 1;
+  const diaTxt = (d) => { const x = new Date(d + "T12:00"); return isNaN(x) ? d : x.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" }); };
   const total = tramos.reduce((s, t) => s + (t.vendidas || 0), 0), aforo = tramos.every(t => t.cantidad != null) ? tramos.reduce((s, t) => s + t.cantidad, 0) : null;
   const bt = { ...C.btnSm, width: isMobile ? 40 : 34, height: isMobile ? 40 : 34, padding: 0, justifyContent: "center" };
   return (
@@ -984,6 +995,18 @@ function Tramos({ ev, d, setD, ficha, setFicha, flash, isMobile, inicio }) {
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(3,minmax(0,1fr))", gap: 10 }}>
               <Mini l="Precio" suf="€"><input inputMode="decimal" value={t.precio} onChange={e => set(t.id, { precio: aNum(limpioNum(e.target.value, true)) ?? 0 })} style={{ ...inp, fontSize: 18 }} /></Mini>
               <Mini l="Cantidad" sub="Vacío = sin límite"><input inputMode="numeric" value={t.cantidad ?? ""} placeholder="∞" onChange={e => { const v = limpioNum(e.target.value); set(t.id, { cantidad: v === "" ? null : Math.max(+v, t.vendidas) }); }} style={{ ...inp, fontSize: 18 }} /></Mini>
+              {(variosDias || t.acceso === "dia") && <div style={{ gridColumn: "1 / -1" }}>
+                <Seg full valor={t.acceso === "dia" ? "dia" : "abono"} onChange={(v) => set(t.id, v === "dia" ? { acceso: "dia", dia: t.dia && diasEvento.includes(t.dia) ? t.dia : diasEvento[0] || t.dia } : { acceso: "abono", dia: null })}
+                  opciones={[{ k: "abono", t: "Abono · todos los días" }, { k: "dia", t: "Entrada de día" }]} />
+                {t.acceso === "dia" ? (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                    {(diasEvento.length ? diasEvento : [t.dia].filter(Boolean)).map(dd => <button key={dd} type="button" onClick={() => set(t.id, { acceso: "dia", dia: dd })} aria-pressed={t.dia === dd}
+                      style={{ ...C.btnSm, minHeight: 44, borderColor: t.dia === dd ? "var(--accent)" : "var(--line)", background: t.dia === dd ? "color-mix(in srgb, var(--accent) 12%, var(--surface2))" : "var(--surface2)", textTransform: "capitalize" }}>{diaTxt(dd)}</button>)}
+                  </div>) : null}
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6, lineHeight: 1.4 }}>{t.acceso === "dia"
+                  ? `Solo entra el ${t.dia ? diaTxt(t.dia) : "día elegido"} (de 06:00 a 08:00 del día siguiente). Una sola vez.`
+                  : "Vale para cualquier día del evento, pero una sola vez: al entrar se le pone la pulsera."}</div>
+              </div>}
               <div style={{ gridColumn: isMobile ? "1 / -1" : "auto" }}><Mini l="Descripción corta"><input value={t.descripcion || ""} maxLength={200} placeholder="Ej. Incluye una copa" onChange={e => set(t.id, { descripcion: e.target.value })} style={inp} /></Mini></div>
             </div>
             {mas && <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10, marginTop: 12, paddingTop: 12, borderTop: "1px dashed var(--line)" }}>
@@ -1039,7 +1062,7 @@ function Ventas({ ev, flash, isMobile }) {
   const canjeDe = useMemo(() => { const m = {}; (v?.canjes || []).forEach(c => { if (!m[c.venta_uuid] || c.canjeado_en > m[c.venta_uuid].canjeado_en) m[c.venta_uuid] = c; }); return m; }, [v]);
   const dentro = validas.filter(e => canjeDe[e.id]).length;
   const [titular, setTitular] = useState(null);   // entrada a reemitir / cambiar titular
-  const MOTIVO = { ya_canjeado: "Copia (ya había entrado)", anulado: "Entrada anulada", reemitida: "QR sustituido", temprano: "Antes de la hora", caducado: "Evento terminado", falso: "QR falso", otro_evento: "De otro evento", no_encontrado: "No encontrada", ilegible: "No es de TIXFAST" };
+  const MOTIVO = { otro_dia: "Entrada de otro día", ya_canjeado: "Copia (ya había entrado)", anulado: "Entrada anulada", reemitida: "QR sustituido", temprano: "Antes de la hora", caducado: "Evento terminado", falso: "QR falso", otro_evento: "De otro evento", no_encontrado: "No encontrada", ilegible: "No es de TIXFAST" };
   const csv = () => {
     const cel = (x) => { let s = String(x ?? "").replace(/[;\r\n]+/g, " "); if (/^[=+\-@\t]/.test(s)) s = "'" + s; return s; };
     const filas = [["Nº", "Asistente", "DNI asistente", "Tramo", "Precio", "Estado", "Prueba", "Pedido", "Comprador", "Correo", "Fecha"], ...lista.map(e => { const p = pedidoDe[e.pedido_id] || {}; return [e.numero, e.asistente, e.dni || "", e.tramo_nombre, e.precio, e.estado, e.prueba ? "sí" : "no", p.codigo, p.nombre, p.email, new Date(e.creado_en).toLocaleString("es-ES")]; })];

@@ -115,13 +115,25 @@ export async function descargarWeb(eventoId, { forzar = false } = {}) {
   if (!forzar && previo?.t && Date.now() - previo.t < CADA_WEB_MS) return Object.keys(previo.entradas || {}).length;
   const f = await supabase.from("ticket_web_eventos").select("qr_horas_antes").eq("evento_id", eventoId).maybeSingle();
   if (f.error) throw f.error;
+  // Entradas de día: el día de cada tipo de entrada
+  const tr = await supabase.from("ticket_web_tramos").select("id, acceso, dia").eq("evento_id", eventoId);
+  const diaDe = Object.fromEntries((tr.data || []).filter(t => t.acceso === "dia" && t.dia).map(t => [t.id, t.dia]));
   const entradas = {}; const page = 1000;
   for (let from = 0; ; from += page) {
-    const { data, error } = await supabase.from("ticket_web_entradas").select("id, emision, estado, asistente, tramo_nombre, numero, prueba").eq("evento_id", eventoId).order("numero").range(from, from + page - 1);
+    const { data, error } = await supabase.from("ticket_web_entradas").select("id, emision, estado, asistente, tramo_nombre, numero, prueba, tramo_id").eq("evento_id", eventoId).order("numero").range(from, from + page - 1);
     if (error) throw error;
-    (data || []).forEach(e => { entradas[e.id] = { e: e.emision, a: e.estado === "anulada" ? 1 : 0, n: e.asistente, t: e.tramo_nombre, num: e.numero, p: e.prueba ? 1 : 0 }; });
+    (data || []).forEach(e => { entradas[e.id] = { e: e.emision, a: e.estado === "anulada" ? 1 : 0, n: e.asistente, t: e.tramo_nombre, num: e.numero, p: e.prueba ? 1 : 0, ...(diaDe[e.tramo_id] ? { d: diaDe[e.tramo_id] } : {}) }; });
     if (!data || data.length < page) break;
   }
   guardar(kWeb(eventoId), { horas: f.data?.qr_horas_antes ?? 24, entradas, t: Date.now() });
   return Object.keys(entradas).length;
+}
+
+// ¿Vale ahora una entrada de día? Igual que el servidor: de las 06:00 de ese día a las 08:00 del siguiente (hora de España)
+export function diaVale(dia, ahora = new Date()) {
+  const partes = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hour12: false }).formatToParts(ahora);
+  const v = Object.fromEntries(partes.map(p => [p.type, p.value]));
+  const hoy = `${v.year}-${v.month}-${v.day}`, h = Number(v.hour) % 24;
+  const x = new Date(dia + "T12:00:00Z"); x.setUTCDate(x.getUTCDate() + 1); const siguiente = x.toISOString().slice(0, 10);
+  return (hoy === dia && h >= 6) || (hoy === siguiente && h < 8);
 }

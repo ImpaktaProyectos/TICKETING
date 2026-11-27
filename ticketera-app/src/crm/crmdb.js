@@ -486,7 +486,8 @@ export async function webCambiarSlug(eventoId, slug) {
 export async function webGuardarEvento(eventoId, patch) { ok(await supabase.from("ticket_eventos").update(patch).eq("id", eventoId)); }
 export async function webGuardarTramo(t) {
   const fila = { evento_id: t.evento_id, nombre: t.nombre, descripcion: t.descripcion || null, precio: t.precio, cantidad: t.cantidad, orden: t.orden,
-    venta_inicio: t.venta_inicio || null, venta_fin: t.venta_fin || null, max_por_compra: t.max_por_compra, visible: t.visible, copas: t.copas };
+    venta_inicio: t.venta_inicio || null, venta_fin: t.venta_fin || null, max_por_compra: t.max_por_compra, visible: t.visible, copas: t.copas,
+    acceso: t.acceso === "dia" && t.dia ? "dia" : "abono", dia: t.acceso === "dia" && t.dia ? t.dia : null };
   if (t.id) { ok(await supabase.from("ticket_web_tramos").update(fila).eq("id", t.id)); return t.id; }
   return ok(await supabase.from("ticket_web_tramos").insert(fila).select("id").single()).id;
 }
