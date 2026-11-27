@@ -2,6 +2,7 @@
 // Comprueba la firma de cada aviso con los secretos guardados por «pagos › preparar» y:
 //   · pago completado → emite las entradas (una sola vez) y guarda lo que cobró Stripe
 //   · pago caducado o fallido → suelta la reserva
+//   · recuperación de entradas pagada → la función «pagos» reenvía las entradas al correo de la compra
 //   · devolución (total o parcial) → la apunta, anula las entradas si es total y, si el evento ya se repartió,
 //     recupera lo devuelto de lo que se le mandó al organizador (lo que no se pueda, queda como deuda)
 //   · cambio en un monedero (alta) → actualiza su estado
@@ -76,6 +77,12 @@ Deno.serve(async (req) => {
     switch (ev.type) {
       case "checkout.session.completed":
       case "checkout.session.async_payment_succeeded": {
+        // Recuperación de entradas: la hace la función «pagos» (busca y reenvía al correo de la compra)
+        if (o?.metadata?.tixfast === "recuperacion") {
+          if (o.payment_status === "paid" && o.metadata.recuperacion) await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/pagos`, { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ accion: "recuperar_confirmar", acceso: o.metadata.recuperacion }) });
+          break;
+        }
         const pedido = o?.metadata?.pedido;
         if (!pedido || o.payment_status !== "paid") break;
         const pi = typeof o.payment_intent === "string" ? o.payment_intent : o.payment_intent?.id;

@@ -75,21 +75,22 @@ Deno.serve(async (req) => {
     if (b.accion === "comisiones") {
       const desde = /^\d{4}-\d{2}-\d{2}$/.test(String(b.desde || "")) ? String(b.desde) : new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
       const modo = SK.startsWith("sk_live") ? "real" : "pruebas";
-      const [{ data: aj, error: e1 }, { data: inf }, { data: fac }, { data: pactos }] = await Promise.all([
+      const [{ data: aj, error: e1 }, { data: inf }, { data: fac }, { data: pactos }, { data: rec }] = await Promise.all([
         admin.from("ticket_plataforma_ajustes").select("*").eq("id", true).maybeSingle(),
         admin.rpc("plataforma_informe_comisiones", { p_modo: modo, p_desde: desde }),
         admin.from("ticket_plataforma_facturas").select("id, evento_id, owner_id, modo, estado, entradas, total, base, cuota_iva, codigo, fecha, receptor, creado_en").order("creado_en", { ascending: false }).limit(200),
         admin.from("ticket_cuentas").select("owner_id, nombre, comision_pct, comision_min").or("comision_pct.not.is.null,comision_min.not.is.null"),
+        admin.rpc("plataforma_recuperaciones", { p_desde: desde }),
       ]);
       if (e1) return json({ ok: false, motivo: "sin_migracion" });
-      return json({ ok: true, modo, desde, ajustes: aj, informe: inf || [], facturas: fac || [], pactos: pactos || [] });
+      return json({ ok: true, modo, desde, ajustes: aj, informe: inf || [], facturas: fac || [], pactos: pactos || [], recuperaciones: rec || null });
     }
     if (b.accion === "comisiones_guardar") {
       const x = b.ajustes || {};
       const num = (v: unknown, min: number, max: number) => { const n = Number(String(v ?? "").replace(",", ".")); return Number.isFinite(n) && n >= min && n <= max ? Math.round(n * 100) / 100 : null; };
       const txt = (v: unknown, max: number) => { const t = String(v ?? "").trim().slice(0, max); return t || null; };
       const fila: Record<string, unknown> = { actualizado_en: new Date().toISOString() };
-      for (const [k, min, max] of [["comision_pct", 0, 50], ["comision_min", 0, 50], ["iva", 0, 30], ["stripe_pct", 0, 10], ["stripe_fijo", 0, 5]] as [string, number, number][])
+      for (const [k, min, max] of [["comision_pct", 0, 50], ["comision_min", 0, 50], ["iva", 0, 30], ["stripe_pct", 0, 10], ["stripe_fijo", 0, 5], ["recuperacion_precio", 0.5, 20]] as [string, number, number][])
         if (x[k] !== undefined) { const n = num(x[k], min, max); if (n === null) return json({ ok: false, motivo: "valores", campo: k }); fila[k] = n; }
       for (const [k, max] of [["razon_social", 160], ["direccion", 200], ["cp", 10], ["ciudad", 80], ["provincia", 80], ["email", 160]] as [string, number][])
         if (x[k] !== undefined) fila[k] = txt(x[k], max);

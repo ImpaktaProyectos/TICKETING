@@ -8,6 +8,8 @@
 //   repartir   (tarea programada, con clave) → suelta reservas caducadas, reparte los eventos acabados (el organizador
 //                                               sin esperar; los RRPP en cuanto tengan monedero) y emite la factura de la comisión
 //   preparar   (con clave)    → da de alta en Stripe los avisos (webhooks) y guarda sus secretos
+//   recuperar_checkout / recuperar_confirmar (públicos) → cobro de 1 € del servicio de recuperación de entradas (para TIXFAST)
+//                              y reenvío de las entradas SOLO al correo de la compra
 // La clave secreta de Stripe solo vive aquí (STRIPE_SECRET_KEY). Cada orden de dinero lleva clave única.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
@@ -161,6 +163,62 @@ async function checkout(b: any) {
   }, { clave: `checkout-${g.pedido_id}-${Math.floor(Date.now() / 600000)}` });
   await admin.from("ticket_pagos").update({ sesion_id: s.id }).eq("pedido_id", g.pedido_id);
   return json({ ok: true, url: s.url });
+}
+
+// ---------- Recuperación de entradas perdidas (servicio de TIXFAST) ----------
+// El dinero se queda en TIXFAST (no entra en el reparto de ningún evento). Tras pagar, el servidor busca las entradas y
+// las reenvía al correo con el que se compraron, nunca a otro. A quien lo pide no se le dice si había entradas.
+async function reenviarRecuperacion(acceso: string, s: any) {
+  const pi = typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id ?? null;
+  const piObj = typeof s.payment_intent === "object" && s.payment_intent ? s.payment_intent : pi ? await stripe("GET", `payment_intents/${pi}`) : null;
+  const cargo = typeof piObj?.latest_charge === "string" ? piObj.latest_charge : piObj?.latest_charge?.id ?? null;
+  const { data, error } = await admin.rpc("web_recuperar_pagado", { p_acceso: acceso, p_sesion: s.id, p_pi: pi, p_cargo: cargo, p_importe: eur(s.amount_total) });
+  if (error) throw error;
+  if (!data?.ok || data.ya) return data;
+  let enviados = 0, fallidos = 0;
+  const sitioOk = /^https:\/\/(somostixfast\.vercel\.app|([a-z0-9-]+\.)*tixfast\.app)$/i;
+  const origen = sitioOk.test((Deno.env.get("SITE_URL") || "").replace(/\/$/, "")) ? (Deno.env.get("SITE_URL") || "").replace(/\/$/, "") : "https://somostixfast.vercel.app";
+  for (const a of (data.accesos || []).slice(0, 20)) {
+    try {
+      const r = await fetch(`${URL_SB}/functions/v1/web-enviar-entradas`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_ANON_KEY") || ""}`, apikey: Deno.env.get("SUPABASE_ANON_KEY") || "" },
+        body: JSON.stringify({ acceso: a, origen }) });
+      const j = await r.json().catch(() => ({}));
+      if (j?.ok) enviados++; else fallidos++;
+    } catch { fallidos++; }
+  }
+  await admin.rpc("web_recuperar_enviado", { p_id: data.id, p_enviados: enviados, p_fallidos: fallidos });
+  return { ok: true };
+}
+async function recuperarCheckout(b: any) {
+  const origen = origenValido(b.origen);
+  if (!origen) return json({ ok: false, motivo: "origen" });
+  const acceso = String(b.acceso || "");
+  if (!/^[0-9a-f-]{36}$/i.test(acceso)) return json({ ok: false, motivo: "no_existe" });
+  const { data: r } = await admin.from("ticket_web_recuperaciones").select("id, acceso, estado, importe, sesion_id, creado_en").eq("acceso", acceso).maybeSingle();
+  if (!r) return json({ ok: false, motivo: "no_existe" });
+  if (r.estado !== "pendiente") return json({ ok: true, pagado: r.estado !== "caducado", caducado: r.estado === "caducado" });
+  if (Date.now() - new Date(r.creado_en).getTime() > 100 * 60e3) return json({ ok: false, motivo: "caducado" });
+  if (r.sesion_id) { try { const s0 = await stripe("GET", `checkout/sessions/${r.sesion_id}`); if (s0.status === "open" && s0.url) return json({ ok: true, url: s0.url }); } catch { /* otra */ } }
+  const s = await stripe("POST", "checkout/sessions", {
+    mode: "payment", locale: "es", client_reference_id: r.id, expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
+    line_items: [{ quantity: 1, price_data: { currency: "eur", unit_amount: cents(r.importe), product_data: { name: "Recuperación de entradas · TIXFAST", description: "Reenviamos tus entradas al correo de la compra, si hay alguna con esos datos. Se cobra aunque no se encuentre ninguna." } } }],
+    metadata: { tixfast: "recuperacion", recuperacion: r.acceso },
+    payment_intent_data: { description: "Recuperación de entradas · TIXFAST", metadata: { tixfast: "recuperacion" } },
+    success_url: `${origen}/cambio/recuperar/${r.acceso}?pago={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origen}/cambio?recuperar=cancelado`,
+  }, { clave: `recuperar-${r.id}` });
+  await admin.from("ticket_web_recuperaciones").update({ sesion_id: s.id, modo: MODO }).eq("id", r.id);
+  return json({ ok: true, url: s.url });
+}
+async function recuperarConfirmar(b: any) {
+  const acceso = String(b.acceso || "");
+  if (!/^[0-9a-f-]{36}$/i.test(acceso)) return json({ ok: false, motivo: "no_existe" });
+  const { data: r } = await admin.from("ticket_web_recuperaciones").select("estado, sesion_id").eq("acceso", acceso).maybeSingle();
+  if (!r) return json({ ok: false, motivo: "no_existe" });
+  if (r.estado !== "pendiente" || !r.sesion_id) return json({ ok: true, estado: r.estado === "pendiente" ? "pendiente" : r.estado === "caducado" ? "caducado" : "hecho" });
+  const s = await stripe("GET", `checkout/sessions/${r.sesion_id}`, { expand: ["payment_intent"] });
+  if (s.payment_status === "paid") { await reenviarRecuperacion(acceso, s); return json({ ok: true, estado: "hecho" }); }
+  return json({ ok: true, estado: s.status === "expired" ? "caducado" : "pendiente" });
 }
 
 async function confirmar(b: any) {
@@ -397,7 +455,13 @@ async function repartir(b: any) {
   for (const ev of eventos.slice(0, 20)) {
     try { salida.eventos.push(await repartirEvento(ev, !!b.ahora)); } catch (e) { salida.eventos.push({ evento: ev, error: (e as Error).message }); }
   }
-  // 3) Facturas que esperaban datos fiscales (de TIXFAST o del organizador)
+  // 3) Recuperaciones pagadas cuyo aviso no llegó, y limpieza (sin pagar a las 2 h; datos personales fuera a los 90 días)
+  try {
+    const { data: recs } = await admin.from("ticket_web_recuperaciones").select("acceso, sesion_id").eq("estado", "pendiente").not("sesion_id", "is", null).lt("creado_en", new Date(Date.now() - 10 * 60e3).toISOString()).limit(20);
+    for (const r of recs || []) { try { const s = await stripe("GET", `checkout/sessions/${r.sesion_id}`, { expand: ["payment_intent"] }); if (s.payment_status === "paid") await reenviarRecuperacion(r.acceso, s); } catch { /* siguiente */ } }
+    await admin.rpc("web_recuperar_limpiar");
+  } catch { /* sin migración aún */ }
+  // 4) Facturas que esperaban datos fiscales (de TIXFAST o del organizador)
   try { const { data } = await admin.rpc("plataforma_facturas_reintentar"); salida.facturas_emitidas = data || 0; } catch { /* sin migración aún */ }
   return json({ ok: true, ...salida });
 }
@@ -436,6 +500,8 @@ Deno.serve(async (req) => {
     switch (b.accion) {
       case "checkout": return await checkout(b);
       case "confirmar": return await confirmar(b);
+      case "recuperar_checkout": return await recuperarCheckout(b);
+      case "recuperar_confirmar": return await recuperarConfirmar(b);
       case "alta": return await alta(req, b);
       case "monedero": return await monedero(req, b);
       case "retirar": return await retirar(req, b);

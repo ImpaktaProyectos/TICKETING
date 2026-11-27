@@ -65,13 +65,26 @@ async function leerArchivo(file) {
   return probar(file);
 }
 
-export default function PaginaCambio({ acceso }) {
-  useEffect(() => { document.title = "TIXFAST · Cambio de nombre"; }, []);
-  return acceso ? <Resultado acceso={acceso} /> : <Solicitud />;
+export default function PaginaCambio({ acceso, recuperar }) {
+  const [pestana, setPestana] = useState(() => { try { return new URL(window.location.href).searchParams.has("recuperar") ? "perdida" : "cambio"; } catch { return "cambio"; } });
+  useEffect(() => { document.title = "TIXFAST · Cambio de nombre y entradas perdidas"; }, []);
+  if (recuperar) return <ResultadoRecuperar acceso={recuperar} />;
+  if (acceso) return <Resultado acceso={acceso} />;
+  return (
+    <Marco>
+      <div role="tablist" aria-label="Qué necesitas" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 14, padding: 4, marginBottom: 14 }}>
+        {[["cambio", "Pasar mi entrada"], ["perdida", "He perdido mi entrada"]].map(([k, t]) => (
+          <button key={k} role="tab" aria-selected={pestana === k} onClick={() => setPestana(k)} style={{ minHeight: 44, borderRadius: 10, border: "none", cursor: "pointer", fontWeight: 800, fontSize: 14.5, fontFamily: "inherit",
+            background: pestana === k ? "var(--c)" : "transparent", color: pestana === k ? T.tinta : "var(--text)" }}>{t}</button>))}
+      </div>
+      {pestana === "cambio" ? <Solicitud dentro /> : <Recuperar />}
+    </Marco>
+  );
 }
 
 /* ---------- 1) Subir la entrada · 2) Datos de la persona nueva · 3) Pagar ---------- */
-function Solicitud() {
+function Solicitud({ dentro }) {
+  const Caja = dentro ? React.Fragment : Marco;
   const [hex, setHex] = useState("");
   const [info, setInfo] = useState(null);       // respuesta de web_cambio_consultar
   const [busy, setBusy] = useState("");
@@ -127,7 +140,7 @@ function Solicitud() {
   };
 
   if (!info) return (
-    <Marco>
+    <Caja>
       {cancelado && <div style={{ ...card, marginBottom: 12, borderColor: "var(--c)", fontWeight: 700 }}>Has cancelado el pago: el nombre no ha cambiado. Puedes volver a intentarlo.</div>}
       <section style={card}>
         <div style={{ fontWeight: 900, fontSize: 18 }}>¿No puedes ir? Pásale tu entrada a otra persona</div>
@@ -142,14 +155,14 @@ function Solicitud() {
         {camara && <Camara onTexto={(t) => { if (!busy && leerToken(t)) consultar(t); }} />}
         {err && <div role="alert" style={{ color: "#ff6b6b", fontWeight: 700, marginTop: 12, lineHeight: 1.4 }}>{err}</div>}
       </section>
-      <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 14, lineHeight: 1.5 }}>Tu entrada está en el correo de la compra o en «Mis entradas». Si la tienes en otro móvil, haz una captura de pantalla del QR y súbela.</div>
-    </Marco>
+      <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 14, lineHeight: 1.5 }}>Tu entrada está en el correo de la compra o en «Mis entradas». Si la tienes en otro móvil, haz una captura de pantalla del QR y súbela. ¿No la encuentras? Usa «He perdido mi entrada».</div>
+    </Caja>
   );
 
   const ev = info.evento || {}, x = info.entrada || {};
   const precio = Number(info.precio) || 0;
   return (
-    <Marco>
+    <Caja>
       <section style={{ ...card, display: "flex", gap: 14, alignItems: "center" }}>
         {ev.flyer && <img src={ev.flyer} alt="" width="64" height="80" style={{ objectFit: "cover", borderRadius: 10, flexShrink: 0 }} />}
         <div style={{ minWidth: 0 }}>
@@ -182,7 +195,7 @@ function Solicitud() {
           <button type="button" onClick={() => { setInfo(null); setHex(""); setErr(""); }} style={{ ...btn("transparent", "var(--muted)"), width: "100%", marginTop: 6, minHeight: 44, fontWeight: 700, fontSize: 14 }}>Usar otra entrada</button>
         </form>
       )}
-    </Marco>
+    </Caja>
   );
 }
 
@@ -252,6 +265,97 @@ function Resultado({ acceso }) {
           {envio === "no" && <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 8 }}>No se ha podido enviar el correo ahora. Guarda este enlace o pulsa «Ver la entrada nueva».</div>}
         </>}
         {!hecho && d.estado !== "pendiente" && <a href="/cambio" style={{ ...btn("var(--card2)", "var(--text)"), width: "100%", marginTop: 14, border: "1px solid var(--line)", textDecoration: "none" }}>Volver a intentarlo</a>}
+      </section>
+    </Marco>
+  );
+}
+
+/* ---------- Entradas perdidas: servicio de recuperación (1 €, para TIXFAST) ----------
+   Seguridad: las entradas SOLO se reenvían al correo con el que se compraron (nunca se enseñan aquí ni van a otro
+   correo), la respuesta es siempre la misma haya o no entradas, se piden dos datos y hay límites de intentos. */
+const MOTIVO_REC = {
+  email: "Escribe el correo con el que compraste las entradas.",
+  segundo_dato: "Escribe también tu nombre y apellidos o tu teléfono, tal y como los pusiste al comprar.",
+  datos: "Revisa los datos: alguno es demasiado largo.",
+  limite_correo: "Ya se han pedido 3 recuperaciones para este correo hoy. Revisa tu correo (también la carpeta de spam) o vuelve mañana.",
+  demasiados_intentos: "Demasiados intentos desde esta conexión. Vuelve a probar más tarde.",
+};
+function Recuperar() {
+  const [d, setD] = useState({ email: "", nombre: "", telefono: "", web: "" });
+  const [acepto, setAcepto] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const cancelado = (() => { try { return new URL(window.location.href).searchParams.get("recuperar") === "cancelado"; } catch { return false; } })();
+  const enviar = async (e) => {
+    e.preventDefault(); setErr("");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.email.trim())) return setErr(MOTIVO_REC.email);
+    if (d.nombre.trim().length < 2 && d.telefono.replace(/\D/g, "").length < 9) return setErr(MOTIVO_REC.segundo_dato);
+    if (!acepto) return setErr("Marca la casilla para confirmar que lo has entendido.");
+    setBusy(true);
+    try {
+      const { data, error } = await supabase.rpc("web_recuperar_pedir", { p_datos: { email: d.email.trim(), nombre: d.nombre.trim(), telefono: d.telefono.trim(), web: d.web } });
+      if (error) throw error;
+      if (!data?.ok) { setErr(MOTIVO_REC[data?.motivo] || "No se ha podido completar. Vuelve a intentarlo."); setBusy(false); return; }
+      const r = await pagos(supabase, "recuperar_checkout", { acceso: data.acceso });
+      if (r?.url) { window.location.assign(r.url); return; }
+      setErr(r?.motivo === "sin_pasarela" ? "El pago online aún no está disponible. Inténtalo más tarde." : "No se ha podido abrir el pago. Vuelve a intentarlo.");
+    } catch { setErr(navigator.onLine ? "No se ha podido completar. Vuelve a intentarlo." : "Sin conexión."); }
+    setBusy(false);
+  };
+  return (
+    <>
+      {cancelado && <div style={{ ...card, marginBottom: 12, borderColor: "var(--c)", fontWeight: 700 }}>Has cancelado el pago: no se ha cobrado nada.</div>}
+      <form onSubmit={enviar} style={card}>
+        <div style={{ fontWeight: 900, fontSize: 18 }}>¿Has perdido tu entrada?</div>
+        <div style={{ color: "var(--muted)", marginTop: 6, lineHeight: 1.5, fontSize: 14.5 }}>Buscamos tus entradas y te las volvemos a enviar <b style={{ color: "var(--text)" }}>al correo con el que las compraste</b>. Por seguridad nunca se enseñan aquí ni se mandan a otro correo.</div>
+        <div style={{ marginTop: 14 }}>
+          <Campo l="Correo de la compra" type="email" v={d.email} on={(v) => setD({ ...d, email: v })} ac="email" im="email" />
+          <Campo l="Nombre y apellidos" v={d.nombre} on={(v) => setD({ ...d, nombre: v })} ac="name" sub="Como los pusiste al comprar. Si no te acuerdas, escribe tu teléfono." />
+          <Campo l="Teléfono (si lo diste al comprar)" type="tel" v={d.telefono} on={(v) => setD({ ...d, telefono: v })} ac="tel" im="tel" />
+          {/* Casilla trampa: invisible para las personas; si la rellena un programa, la solicitud no sigue */}
+          <input tabIndex={-1} autoComplete="off" aria-hidden="true" value={d.web} onChange={e => setD({ ...d, web: e.target.value })} style={{ position: "absolute", left: -9999, width: 1, height: 1, opacity: 0 }} />
+        </div>
+        <div style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 12, padding: 12, margin: "4px 0 12px", fontSize: 14.5, display: "flex", justifyContent: "space-between", gap: 10 }}>
+          <span>Servicio de recuperación</span><b>{eur(1)}</b>
+        </div>
+        <Check v={acepto} on={setAcepto}>Entiendo que se cobra {eur(1)} aunque no se encuentre ninguna entrada con estos datos, y que las entradas solo se envían al correo de la compra.</Check>
+        {err && <div role="alert" style={{ color: "#ff6b6b", fontWeight: 700, marginTop: 12, lineHeight: 1.4 }}>{err}</div>}
+        <button type="submit" disabled={busy} style={{ ...btn("var(--c)", T.tinta), width: "100%", marginTop: 14, minHeight: 54, opacity: busy ? .6 : 1 }}>{busy ? "Abriendo el pago seguro…" : `Pagar ${eur(1)} y buscar mis entradas`}</button>
+      </form>
+      <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 14, lineHeight: 1.5 }}>¿Ya no tienes acceso a ese correo? Ve al evento con tu DNI: en la puerta pueden buscar tu entrada por tu nombre.</div>
+    </>
+  );
+}
+
+// Vuelta del pago: siempre el mismo mensaje (nunca se dice si había entradas)
+function ResultadoRecuperar({ acceso }) {
+  const [estado, setEstado] = useState(undefined);
+  useEffect(() => {
+    let vivo = true, n = 0;
+    (async () => {
+      try { await pagos(supabase, "recuperar_confirmar", { acceso }); } catch {}
+      while (vivo && n++ < 12) {
+        let e = null;
+        try { const { data } = await supabase.rpc("web_recuperar_estado", { p_acceso: acceso }); e = data?.ok ? data.estado : null; } catch {}
+        if (!vivo) return;
+        setEstado(e);
+        if (e !== "pendiente") break;
+        await new Promise(r => setTimeout(r, 2500));
+      }
+    })();
+    return () => { vivo = false; };
+  }, [acceso]);
+  if (estado === undefined) return <Mensaje titulo="Comprobando el pago…" />;
+  return (
+    <Marco>
+      <section style={card}>
+        <div style={{ fontWeight: 900, fontSize: 20 }}>{estado === "hecho" ? "Solicitud completada" : estado === "pendiente" ? "Esperando el pago…" : "No se completó el pago"}</div>
+        <div style={{ color: "var(--muted)", marginTop: 8, lineHeight: 1.55 }}>
+          {estado === "hecho" ? <>Si hay entradas con esos datos, ya las hemos enviado <b style={{ color: "var(--text)" }}>al correo de la compra</b>. Revisa también la carpeta de spam. Si en 15 minutos no te llega nada, es que los datos no coinciden con ninguna compra: prueba con otro correo, o ve al evento con tu DNI.</>
+            : estado === "pendiente" ? "En cuanto se confirme el pago buscaremos tus entradas. No cierres esta página."
+            : "No se ha cobrado nada. Puedes volver a intentarlo."}
+        </div>
+        {estado !== "pendiente" && <a href="/cambio?recuperar" style={{ ...btn("var(--card2)", "var(--text)"), width: "100%", marginTop: 14, border: "1px solid var(--line)", textDecoration: "none" }}>Volver</a>}
       </section>
     </Marco>
   );

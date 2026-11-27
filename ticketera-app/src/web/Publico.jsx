@@ -31,8 +31,9 @@ export default function Publico() {
   const unirse = ruta.match(/^\/rp\/unirse\/([0-9a-f-]{36})\/?$/i);
   if (unirse || /^\/rp\/?$/.test(ruta)) return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><CuentaRRPP token={unirse ? unirse[1].toLowerCase() : null} /></React.Suspense>;
   // Cambio de nombre de una entrada: /cambio (subir la entrada) y /cambio/<acceso> (vuelta del pago)
-  const cambio = ruta.match(/^\/cambio(?:\/([0-9a-f-]{36}))?\/?$/i);
-  if (cambio) return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><PaginaCambio acceso={cambio[1] ? cambio[1].toLowerCase() : null} /></React.Suspense>;
+  // y entradas perdidas: /cambio/recuperar/<acceso> (vuelta del pago de la recuperación)
+  const cambio = ruta.match(/^\/cambio(?:\/(recuperar\/)?([0-9a-f-]{36}))?\/?$/i);
+  if (cambio) return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><PaginaCambio acceso={cambio[2] && !cambio[1] ? cambio[2].toLowerCase() : null} recuperar={cambio[2] && cambio[1] ? cambio[2].toLowerCase() : null} /></React.Suspense>;
   const m = ruta.match(/^\/(e|o|mis-entradas|compra|r|b|p|rp)\/([^/?#]+)/);
   if (!m) return <Mensaje titulo="Página no encontrada" />;
   const v = decodeURIComponent(m[2]);
@@ -183,6 +184,13 @@ export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, pre
       <b>¿Vienen menores de {ev.autorizacion_edad || 16} años?</b>
       <div style={{ color: "var(--muted)", marginTop: 4, lineHeight: 1.45 }}>Descarga la autorización, imprímela, rellénala y tráela firmada el día del evento.</div>
       <a href={ev.autorizacion_url} target="_blank" rel="noopener noreferrer" style={{ ...btn("var(--card2)", "var(--text)"), display: "inline-flex", marginTop: 10, textDecoration: "none", border: "1px solid var(--line)" }}>Descargar autorización (PDF)</a>
+    </section>}
+    {!previa && <section style={{ ...card, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
+      <span style={{ color: "var(--muted)", fontSize: 14, lineHeight: 1.45, flex: "1 1 200px" }}>¿Ya tienes entrada y no puedes ir, o la has perdido?</span>
+      <span style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {ev.cambio_nombre !== false && <a href="/cambio" style={{ ...btn("var(--card2)", "var(--text)"), padding: "10px 14px", fontSize: 14, textDecoration: "none", border: "1px solid var(--line)", minHeight: 44 }}>Cambiar el nombre</a>}
+        <a href="/cambio?recuperar" style={{ ...btn("var(--card2)", "var(--text)"), padding: "10px 14px", fontSize: 14, textDecoration: "none", border: "1px solid var(--line)", minHeight: 44 }}>Recuperar mi entrada</a>
+      </span>
     </section>}
   </>;
   const cabecera = (sobreFoto) => (

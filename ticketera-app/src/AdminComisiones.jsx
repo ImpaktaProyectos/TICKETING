@@ -134,6 +134,19 @@ export function Comisiones({ avisar }) {
 
     <button onClick={guardar} disabled={busy} style={{ ...K.primario, opacity: busy ? .6 : 1 }}>{busy ? "Guardando…" : "Guardar comisión y datos"}</button>
 
+    <section style={K.card}>
+      <div style={K.titulo}>Recuperación de entradas perdidas (90 días)</div>
+      <div style={K.sub}>Servicio de TIXFAST en /cambio: el cliente paga y le reenviamos sus entradas solo al correo de la compra. Se cobra siempre, haya o no entradas.</div>
+      <div style={{ maxWidth: 220, marginBottom: 10 }}><Campo l="Precio del servicio (€, IVA incl.)"><input inputMode="decimal" value={a.recuperacion_precio ?? ""} onChange={e => set("recuperacion_precio", e.target.value)} style={K.input} /></Campo></div>
+      {d.recuperaciones && <div style={{ fontSize: 14 }}>
+        <Fila t="Solicitudes pagadas" v={d.recuperaciones.pagadas} />
+        <Fila t="Cobrado" v={eur(d.recuperaciones.cobrado)} fuerte />
+        <Fila t="Con entradas encontradas / sin entradas" v={`${d.recuperaciones.con_entradas} / ${d.recuperaciones.sin_entradas}`} />
+        {Number(d.recuperaciones.fallos_envio) > 0 && <Fila t="Correos que no se pudieron enviar" v={d.recuperaciones.fallos_envio} c="var(--amber)" />}
+      </div>}
+      <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 6 }}>El precio se guarda con el botón «Guardar comisión y datos».</div>
+    </section>
+
     <Pactos avisar={avisar} pactos={d.pactos || []} general={T} onCambio={cargar} />
 
     <section style={K.card}>
