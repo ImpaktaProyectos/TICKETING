@@ -68,7 +68,7 @@ function Conexiones({ ev, events, conexion, vinculos, busy, onGuardarClave, onPr
 
   return (<>
     <section style={C.panel}>
-      <Head i="globe" c="#a855f7" t="Fourvenues" sub="Las entradas vendidas online entran solas en Ingresos."
+      <Head i="globe" c="#a855f7" t="Ticketera externa" sub="Conecta tu ticketera con su clave (API): las entradas que venda entran solas en Ingresos."
         right={est ? <Badge c={est.c}><Icon n={est.i} s={11} w={2.4} />{est.t}</Badge> : <Badge>Sin conectar</Badge>} />
       {conexion && !editar && (
         <div>
@@ -92,9 +92,9 @@ function Conexiones({ ev, events, conexion, vinculos, busy, onGuardarClave, onPr
         <div>
           <Field l="Entorno">
             <Seg full valor={entorno} onChange={setEntorno} opciones={[{ k: "prueba", t: "Pruebas", i: "edit" }, { k: "real", t: "Real", i: "check", c: "var(--green)", ink: "#04241b" }]} />
-            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{entorno === "prueba" ? "Datos de prueba de Fourvenues (sin ventas reales). Empieza por aquí." : "Ventas reales de tus eventos."}</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>{entorno === "prueba" ? "Datos de prueba de la ticketera (sin ventas reales). Empieza por aquí." : "Ventas reales de tus eventos."}</div>
           </Field>
-          <Field l={conexion ? "Nueva clave (déjala vacía para mantener la actual)" : "Clave de Fourvenues (API key)"}>
+          <Field l={conexion ? "Nueva clave (déjala vacía para mantener la actual)" : "Clave de la ticketera (API key)"}>
             <div style={{ position: "relative" }}>
               <input type={ver ? "text" : "password"} value={clave} onChange={e => setClave(e.target.value.slice(0, 500))} placeholder="Pega aquí la clave" autoComplete="off" spellCheck={false} style={{ ...C.input, paddingRight: 46, fontFamily: "monospace" }} />
               <button type="button" onClick={() => setVer(v => !v)} aria-label={ver ? "Ocultar" : "Ver"} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", width: 34, height: 34, borderRadius: 8, border: "none", background: "transparent", color: "var(--muted)", cursor: "pointer", display: "grid", placeItems: "center" }}><Icon n={ver ? "eyeOff" : "eye"} s={18} /></button>
@@ -110,9 +110,9 @@ function Conexiones({ ev, events, conexion, vinculos, busy, onGuardarClave, onPr
       {!conexion && (
         <div style={{ marginTop: 16, padding: 12, borderRadius: 12, background: "var(--surface2)", border: "1px solid var(--line)" }}>
           <div style={{ fontWeight: 800, marginBottom: 6 }}>¿Aún no tienes la clave?</div>
-          <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>Fourvenues la da por email a cada organizador. Te dejo el mensaje escrito: solo rellena el nombre de tu sala y el email de tu cuenta. Mientras llega, puedes importar las ventas con un CSV.</div>
+          <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>La ticketera te la da al pedírsela (normalmente por email). Te dejo el mensaje escrito: solo rellena el nombre de tu sala y el email de tu cuenta. Mientras llega, puedes importar las ventas con un CSV.</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-            <a href={MAIL_FV} style={{ ...C.btnGhost, textDecoration: "none" }}><Icon n="mail" s={16} />Pedir la clave a Fourvenues</a>
+            <a href={MAIL_FV} style={{ ...C.btnGhost, textDecoration: "none" }}><Icon n="mail" s={16} />Pedir la clave a la ticketera</a>
             <button onClick={onImportar} style={C.btnGhost}><Icon n="upload" s={16} />Importar CSV</button>
           </div>
         </div>
@@ -121,7 +121,7 @@ function Conexiones({ ev, events, conexion, vinculos, busy, onGuardarClave, onPr
 
     {conexion && (
       <section style={C.panel}>
-        <Head i="link" t="Eventos vinculados" sub="Une cada evento de TIXFAST con su evento en Fourvenues. Se actualiza solo al abrir el CRM." />
+        <Head i="link" t="Eventos vinculados" sub="Une cada evento de TIXFAST con su evento en la ticketera externa. Se actualiza solo al abrir el CRM." />
         {events.map(e => { const v = vinculos.find(x => x.eventoId === e.id); return (
           <div key={e.id} style={{ ...C.row, flexWrap: isMobile ? "wrap" : "nowrap" }}>
             <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: isMobile ? "1 1 100%" : 1 }}>
@@ -160,10 +160,10 @@ function VincularSheet({ evento, busy, onCargar, onClose, onVincular }) {
   useEffect(() => { cargar(); }, []);
   return (
     <Sheet title={`Vincular ${evento.name}`} onClose={onClose}>
-      <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>Elige su evento en Fourvenues.</div>
-      {cargando && <div style={{ color: "var(--muted)", padding: 16, textAlign: "center" }}>Cargando eventos de Fourvenues…</div>}
+      <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>Elige su evento en la ticketera externa.</div>
+      {cargando && <div style={{ color: "var(--muted)", padding: 16, textAlign: "center" }}>Cargando eventos de la ticketera…</div>}
       {error && <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--amber)", fontWeight: 700, fontSize: 13, marginBottom: 10 }}><Icon n="alert" s={16} />{error}</div>}
-      {lista && lista.length === 0 && <div style={C.empty}>Fourvenues no devuelve eventos con esta clave.</div>}
+      {lista && lista.length === 0 && <div style={C.empty}>La ticketera no devuelve eventos con esta clave.</div>}
       {(lista || []).map(x => (
         <button key={x.id} disabled={busy} onClick={() => onVincular(x.id, x.nombre)} style={C.listBtn}>
           <Tile n="ticket" c="#a855f7" s={34} />
@@ -171,7 +171,7 @@ function VincularSheet({ evento, busy, onCargar, onClose, onVincular }) {
           <Icon n="right" s={18} c="var(--muted)" />
         </button>))}
       <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
-        <Field l="O escribe el ID del evento en Fourvenues" mb={8}><input value={manual} maxLength={100} onChange={e => setManual(e.target.value)} placeholder="ID del evento" style={{ ...C.input, fontFamily: "monospace" }} /></Field>
+        <Field l="O escribe el ID del evento en la ticketera" mb={8}><input value={manual} maxLength={100} onChange={e => setManual(e.target.value)} placeholder="ID del evento" style={{ ...C.input, fontFamily: "monospace" }} /></Field>
         <button disabled={busy || !manual.trim()} onClick={() => onVincular(manual.trim(), null)} style={{ ...C.btnGhost, opacity: manual.trim() ? 1 : .45 }}><Icon n="link" s={16} />Vincular con este ID</button>
       </div>
     </Sheet>

@@ -16,6 +16,7 @@ import { Descuentos } from "./Descuentos.jsx";
 import { MonederoOrganizador } from "./Monedero.jsx";
 import { GastosGestion } from "./GastosGestion.jsx";
 import { CambiosNombre } from "./CambiosNombre.jsx";
+import { PuntosVenta } from "./PuntosVenta.jsx";
 import { reducirImagen } from "../imagenes";
 
 const urlVenta = (slug) => `${window.location.origin}/e/${slug}`;
@@ -136,17 +137,18 @@ export function Entradas(props) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div role="tablist" aria-label="Entradas" className="scroll-x" style={{ display: "flex", gap: 4, background: "var(--surface2)", border: "1px solid var(--line)", borderRadius: 14, padding: 4, alignSelf: "flex-start", maxWidth: "100%", overflowX: "auto" }}>
-        {[["eventos", "Eventos", "ticket"], ["invitaciones", "Invitaciones", "mail"], ["descuentos", "Descuentos", "percent"], ["orgs", "Organizaciones", "globe"]].map(([k, t, i]) => (
+        {[["eventos", "Eventos", "ticket"], ["pv", "Puntos de venta", "building"], ["invitaciones", "Invitaciones", "mail"], ["descuentos", "Descuentos", "percent"], ["orgs", "Organizaciones", "globe"]].map(([k, t, i]) => (
           <button key={k} role="tab" aria-selected={modo === k} onClick={() => cambiar(k)} style={{ display: "inline-flex", alignItems: "center", gap: 8, minHeight: 44, padding: "0 14px", borderRadius: 10, border: "none", fontWeight: 600, fontSize: 14.5, cursor: "pointer", flexShrink: 0, background: modo === k ? "var(--accent)" : "transparent", color: modo === k ? "#fff" : "var(--text)" }}><Icon n={i} s={16} />{t}</button>))}
       </div>
       {modo === "orgs" ? <Organizaciones flash={props.flash} />
         : modo === "invitaciones" ? <Invitaciones ev={props.ev} events={props.events} flash={props.flash} />
         : modo === "descuentos" ? <Descuentos ev={props.ev} events={props.events} flash={props.flash} />
-        : <EntradasEventos {...props} />}
+        : modo === "pv" ? <PuntosVenta ev={props.ev} flash={props.flash} />
+        : <EntradasEventos {...props} onPuntosVenta={() => { cambiar("pv"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />}
     </div>
   );
 }
-function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, onVentaEntradas, onEditarIngreso, ajustes, onIrFacturacion }) {
+function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, onVentaEntradas, onEditarIngreso, ajustes, onIrFacturacion, onPuntosVenta, onTicketera }) {
   const isMobile = useIsMobile();
   const [lista, setLista] = useState(null);        // { eventoId: resumen de su venta online }
   const [d, setD] = useState(null);                // { ficha, tramos } del evento elegido
@@ -211,7 +213,7 @@ function EntradasEventos({ ev, events, onSelectEvent, flash, ingresos, barras, o
       {/* ===== Dinero de entradas de todos los canales (TIXFAST, otras ticketeras, taquilla): plegado al final ===== */}
       {!verClientes && ingresos && (
         verDinero || !d?.ficha
-          ? <DineroEntradas ingresos={ingresos} facturar={{ evNombre: ev?.name, ajustes, flash, onIrFacturacion }} titulo="Dinero de entradas · todos los canales"
+          ? <DineroEntradas ingresos={ingresos} facturar={{ evNombre: ev?.name, ajustes, flash, onIrFacturacion }} canales={{ onPuntosVenta, onTicketera }} titulo="Dinero de entradas · todos los canales"
               onAnadir={onVentaEntradas ? () => onVentaEntradas({}) : null}
               onEditar={(i) => (i.canal ? onVentaEntradas?.(i) : onEditarIngreso?.(i))}
               onClientes={d?.ficha ? () => { setVerClientes(true); window.scrollTo({ top: 0, behavior: "smooth" }); } : null} />

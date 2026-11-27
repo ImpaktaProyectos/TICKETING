@@ -1,5 +1,5 @@
 // ===================== CRM · DINERO DE ENTRADAS =====================
-// Solo entradas vendidas por ticketeras: TIXFAST online (integrada), Fourvenues, otras ticketeras (CSV)
+// Entradas vendidas fuera del TPV: TIXFAST online (integrada), ticketera externa conectada, otras ticketeras (CSV), puntos de venta
 // y las ventas apuntadas a mano con su cantidad exacta. Lo cobrado en el TPV (taquilla, reservados, señales)
 // NO entra aquí: vive en Ingresos › Ventas del TPV.
 import React, { useState, lazy, Suspense } from "react";
@@ -24,7 +24,8 @@ export function canalesEntradas(ingresos) {
   };
   (ingresos || []).filter(i => catInfo(i.categoria).g === "entradas").forEach(i => {
     if (i.origen === "tixfast") add("tixfast", { t: "TIXFAST online", d: "Venta online · al momento", i: "globe", c: COLOR.tixfast, auto: true }, i);
-    else if (i.origen === "api") add("fourvenues", { t: "Fourvenues", d: "Sincronizado", i: "link", c: COLOR.fourvenues, auto: true }, i);
+    else if (i.origen === "api") add("fourvenues", { t: "Ticketera externa", d: "Conectada · se actualiza sola", i: "link", c: COLOR.fourvenues, auto: true }, i);
+    else if (i.origen === "pv") add("pv:" + String(i.canal || "").toLowerCase(), { t: i.canal || "Punto de venta", d: "Punto de venta", i: "building", c: "#22d3a6", auto: true, pv: true }, i);
     else if (i.origen === "csv") { const t = String(i.concepto || "").split(" · ")[0] || "CSV"; add("csv:" + t.toLowerCase(), { t, d: "Importado de CSV", i: "upload", c: COLOR.csv, auto: true }, i); }
     else add("m:" + i.id, { t: i.canal || i.concepto || i.categoria, d: (i.canal ? "Apuntado a mano" : i.categoria) + (i.fecha ? ` · ${new Date(i.fecha + "T12:00").toLocaleDateString("es-ES", { day: "numeric", month: "short" })}` : "") + (i.cobradoPor && !i.entregado ? " · lo tiene un socio" : ""), i: i.canal ? "ticket" : catInfo(i.categoria).i, c: null, manual: true }, i);
   });
@@ -37,9 +38,10 @@ export function canalesEntradas(ingresos) {
 
 /* ---------- Tarjeta grande: el dinero de entradas siempre a la vista ---------- */
 const FacturarEntradas = lazy(() => import("./FacturarEntradas"));
-export function DineroEntradas({ ingresos, onAnadir, onEditar, onClientes, acciones, nota, titulo = "Dinero de entradas", facturar }) {
+export function DineroEntradas({ ingresos, onAnadir, onEditar, onClientes, acciones, nota, titulo = "Dinero de entradas", facturar, canales }) {
   const isMobile = useIsMobile();
   const [verFacturar, setVerFacturar] = useState(false);
+  const [elegir, setElegir] = useState(false);   // «Añadir ventas»: físico, puntos de venta o ticketera externa
   const D = canalesEntradas(ingresos);
   const conUds = D.lista.filter(c => c.udsSabidas && c.uds > 0);   // la media solo con los canales que dicen cuántas entradas
   const medio = conUds.length ? conUds.reduce((t, c) => t + c.importe, 0) / conUds.reduce((t, c) => t + c.uds, 0) : null;
@@ -58,7 +60,7 @@ export function DineroEntradas({ ingresos, onAnadir, onEditar, onClientes, accio
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {acciones}
           {facturar && D.total > 0 && <button onClick={() => setVerFacturar(true)} style={C.btnGhost}><Icon n="file" s={16} />Facturar</button>}
-          {onAnadir && <button onClick={onAnadir} style={{ ...C.btnPrimary, ...(isMobile ? { flex: "1 1 auto" } : {}) }}><Icon n="plus" s={17} w={2.4} />Añadir ventas</button>}
+          {onAnadir && <button onClick={() => (canales && (canales.onPuntosVenta || canales.onTicketera) ? setElegir(true) : onAnadir())} style={{ ...C.btnPrimary, ...(isMobile ? { flex: "1 1 auto" } : {}) }}><Icon n="plus" s={17} w={2.4} />Añadir ventas</button>}
         </div>
       </div>
 
@@ -87,9 +89,20 @@ export function DineroEntradas({ ingresos, onAnadir, onEditar, onClientes, accio
           })}
         </div>
       </>) : (
-        <div style={{ ...C.empty, marginTop: 14 }}>Aún no hay dinero de entradas en este evento. Llega solo desde TIXFAST y Fourvenues; las demás ticketeras, o una cantidad exacta de entradas, se añaden con «Añadir ventas».</div>
+        <div style={{ ...C.empty, marginTop: 14 }}>Aún no hay dinero de entradas en este evento. Llega solo desde TIXFAST, la ticketera externa conectada y los puntos de venta; las demás ticketeras, o una cantidad exacta de entradas, se añaden con «Añadir ventas».</div>
       )}
       {verFacturar && <Suspense fallback={null}><FacturarEntradas ingresos={ingresos} evNombre={facturar.evNombre} ajustes={facturar.ajustes} flash={facturar.flash} onIrFacturacion={facturar.onIrFacturacion} onClose={() => setVerFacturar(false)} /></Suspense>}
+      {elegir && <Sheet title="Añadir ventas de entradas" onClose={() => setElegir(false)}>
+      <div style={{ fontSize: 14, color: "var(--muted)", marginBottom: 12 }}>¿Por dónde se han vendido?</div>
+      {[["fisico", "cash", "Físico", "Taquilla, venta en mano o cualquier venta que apuntes tú.", () => onAnadir()],
+        ["pv", "building", "Puntos de venta", "Tiendas o bares a los que dejas entradas: entregas, numeración, comisión y lo que te deben.", canales?.onPuntosVenta],
+        ["api", "link", "Ticketera externa", "Conecta otra ticketera con su clave (API) y las ventas entran solas.", canales?.onTicketera]].filter(x => x[4]).map(([k, ic, t, d, fn]) => (
+        <button key={k} onClick={() => { setElegir(false); fn(); }} style={{ ...C.listBtn, width: "100%", border: "1px solid var(--line)", borderRadius: 14, padding: 14, marginBottom: 10, minHeight: 64 }}>
+          <Tile n={ic} s={38} />
+          <span style={{ flex: 1, minWidth: 0, textAlign: "left" }}><span style={{ display: "block", fontWeight: 800, fontSize: 16 }}>{t}</span><span style={{ display: "block", fontSize: 13, color: "var(--muted)", lineHeight: 1.4 }}>{d}</span></span>
+          <Icon n="right" s={16} c="var(--muted)" />
+        </button>))}
+    </Sheet>}
     </section>
   );
 }

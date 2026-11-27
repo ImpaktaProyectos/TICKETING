@@ -91,7 +91,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
     setSincronizando(true);
     try {
       const r = await crm.ticketera("sincronizar", { evento_id: eventoId, categoria: TICKETERA_CAT });
-      if (!silencioso) flash(`Fourvenues: ${r.entradas} entradas · ${money(r.total)}`);
+      if (!silencioso) flash(`Ticketera externa: ${r.entradas} entradas · ${money(r.total)}`);
       await cargar(); return true;
     } catch (e) { if (!silencioso) flash(e.message || "No se ha podido sincronizar", "warn"); await cargar(); return false; }
     finally { setSincronizando(false); }
@@ -238,6 +238,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
               conexion={data.conexion} vinculo={vinculo} sincronizando={sincronizando}
               onSync={() => sincronizar(ev.id)} onImportar={() => setImportar(true)} onAjustes={() => abrirAjustes("conexiones")}
               onNuevo={() => setEditIng({})} onEditar={(i) => setEditIng(i)} onVentaEntradas={(i) => setEditVenta(i)} ajustes={data.ajustes} flash={flash} onIrFacturacion={() => setTab("facturacion")}
+              onPuntosVenta={() => { try { localStorage.setItem("tixfast_entradas_modo", "pv"); } catch {} setTab("entradas"); }}
               onFuente={(pid, f) => run(() => crm.setFuentePunto(pid, f), "Tipo de ingreso actualizado")}
               onEntregar={(socioId) => run(() => crm.setEntregado(ingresos.filter(i => i.cobradoPor === socioId && !i.entregado && i.estado === "cobrado").map(i => i.id), true), "Marcado como entregado")} />
           )}
@@ -251,7 +252,7 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
               onCopiar={(desde) => run(async () => { const nn = await crm.copiarPresupuesto(desde.id, ev.id); if (!nn) throw new Error("vacío"); }, `Presupuesto de ${desde.name} copiado`)} />
           )}
           {data && tab === "entradas" && (
-            <Entradas ajustes={data.ajustes} onIrFacturacion={() => setTab("facturacion")} ev={ev} events={events} onSelectEvent={onSelectEvent} flash={flash} ingresos={ingresos} barras={barras} onVentaEntradas={(i) => setEditVenta(i)} onEditarIngreso={(i) => setEditIng(i)} />
+            <Entradas ajustes={data.ajustes} onIrFacturacion={() => setTab("facturacion")} onTicketera={() => abrirAjustes("conexiones")} ev={ev} events={events} onSelectEvent={onSelectEvent} flash={flash} ingresos={ingresos} barras={barras} onVentaEntradas={(i) => setEditVenta(i)} onEditarIngreso={(i) => setEditIng(i)} />
           )}
           {data && tab === "prevision" && (
             <Prevision ev={ev} events={events} ingresos={ingresos} gastos={gastosEv} G={G} F={F} ajustes={data.ajustes || {}}
@@ -282,11 +283,11 @@ export default function CRM({ events, sales, gastosCaja = [], ev, onSelectEvent,
               onGuardarClave={async (entorno, clave) => {
                 const ok = await run(async () => { try { await crm.guardarConexion(entorno, clave); } catch (e) { throw aviso("No se ha podido guardar la clave. Revisa que esté completa."); } });
                 if (!ok) return false;
-                try { await crm.ticketera("probar"); flash("Conectado con Fourvenues"); } catch (e) { flash(e.message, "warn"); }
+                try { await crm.ticketera("probar"); flash("Ticketera externa conectada"); } catch (e) { flash(e.message, "warn"); }
                 await cargar(); return true;
               }}
               onProbar={() => run(async () => { try { await crm.ticketera("probar"); } catch (e) { throw aviso(e.message); } }, "La conexión funciona")}
-              onDesconectar={() => run(() => crm.borrarConexion(), "Fourvenues desconectado")}
+              onDesconectar={() => run(() => crm.borrarConexion(), "Ticketera externa desconectada")}
               onCargarEventos={async () => (await crm.ticketera("eventos")).eventos}
               onVincular={async (eventoId, extId, extNombre) => { const ok = await run(() => crm.vincular(eventoId, extId, extNombre), "Evento vinculado"); if (ok) sincronizar(eventoId); return ok; }}
               onDesvincular={(eventoId) => run(() => crm.desvincular(eventoId), "Vínculo quitado")}
