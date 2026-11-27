@@ -108,6 +108,11 @@ function Solicitud({ dentro }) {
     } catch { setErr(navigator.onLine ? "No se ha podido comprobar la entrada. Vuelve a intentarlo." : "Sin conexión."); }
     setBusy("");
   };
+  // Viene de «Mis entradas» con la entrada ya elegida: no hace falta subirla ni escanearla
+  useEffect(() => {
+    let t = null; try { t = sessionStorage.getItem("tixfast_cambio_qr"); sessionStorage.removeItem("tixfast_cambio_qr"); } catch { /* nada */ }
+    if (t) consultar(t);
+  }, []);
   const subir = async (file) => {
     if (!file) return;
     setErr(""); setBusy("leer");

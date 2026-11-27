@@ -210,9 +210,9 @@ export function Landing({ ev, org = null, offset = 0, onRecargar = () => {}, pre
       <a href={ev.autorizacion_url} target="_blank" rel="noopener noreferrer" style={{ ...btn("var(--card2)", "var(--text)"), display: "inline-flex", marginTop: 10, textDecoration: "none", border: "1px solid var(--line)" }}>Descargar autorización (PDF)</a>
     </section>}
     {!previa && <section style={{ ...card, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
-      <span style={{ color: "var(--muted)", fontSize: 14, lineHeight: 1.45, flex: "1 1 200px" }}>¿Ya tienes entrada y no puedes ir, o la has perdido?</span>
+      <span style={{ color: "var(--muted)", fontSize: 14, lineHeight: 1.45, flex: "1 1 200px" }}>¿Ya tienes entrada y no puedes ir, o la has perdido? El cambio de nombre tiene el precio que pone el organizador y la recuperación es un servicio de pago de TIXFAST.</span>
       <span style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {ev.cambio_nombre !== false && <a href="/cambio" style={{ ...btn("var(--card2)", "var(--text)"), padding: "10px 14px", fontSize: 14, textDecoration: "none", border: "1px solid var(--line)", minHeight: 44 }}>Cambiar el nombre</a>}
+        {ev.cambio_nombre !== false && <a href="/cambio" style={{ ...btn("var(--card2)", "var(--text)"), padding: "10px 14px", fontSize: 14, textDecoration: "none", border: "1px solid var(--line)", minHeight: 44 }}>Cambio de nombre{Number(ev.cambio_precio) > 0 ? ` · ${eur(ev.cambio_precio)}` : ""}</a>}
         <a href="/cambio?recuperar" style={{ ...btn("var(--card2)", "var(--text)"), padding: "10px 14px", fontSize: 14, textDecoration: "none", border: "1px solid var(--line)", minHeight: 44 }}>Recuperar mi entrada</a>
       </span>
     </section>}
@@ -698,11 +698,10 @@ function EntradasDePedido({ d, T, acceso, onCambio }) {
                     <QrCodigo texto={textoQR(x.qr_hex)} margen={2} style={{ width: 240, height: 240 }} />
                   </div>
                 </>) : <div style={{ fontWeight: 900, color: "#ff6b6b", padding: 30 }}>ENTRADA ANULADA</div>}
-              {acceso && x.estado === "valida" && !x.prueba && <CambiarTitular acceso={acceso} x={x} T={T} onCambio={onCambio} />}
-              {x.estado === "valida" && <a href="/cambio" style={{ color: "var(--c)", fontWeight: 800, fontSize: 14, minHeight: 44, display: "inline-flex", alignItems: "center" }}>¿No puedes ir? Pasa la entrada a otra persona</a>}
               <div style={{ color: "var(--muted)", fontSize: 13, textAlign: "center" }}>{desde ? `Válida desde el ${fecha(desde.toISOString())}${ev.fin ? ` hasta las ${hora(ev.fin)} del ${fecha(ev.fin, false)}` : ""}.` : "Válida para el día del evento."} Un solo uso.</div>
             </div>
           </div>))}
+        <CambioNombrePedido ev={ev} entradas={d.entradas} T={T} />
         {(ev.edad_minima || ev.vestimenta || ev.autorizacion_url) && <div style={{ ...card, fontSize: 14, lineHeight: 1.5 }}>
           {ev.edad_minima ? <div><b>Edad mínima:</b> {ev.edad_minima} años.</div> : null}
           {ev.vestimenta ? <div><b>Vestimenta:</b> {ev.vestimenta}</div> : null}
@@ -711,37 +710,30 @@ function EntradasDePedido({ d, T, acceso, onCambio }) {
   </>);
 }
 
-// El comprador pone la entrada a nombre de otra persona: se crea un QR nuevo y el anterior deja de valer
-const MOTIVO_TITULAR = { de_pago: "En este evento el cambio de nombre tiene un precio: hazlo desde «Pasar la entrada a otra persona».", no_permitido: "El organizador de este evento no permite cambios de nombre.", nombre: "Escribe el nombre completo.", limite: "Esta entrada ya ha cambiado de titular demasiadas veces. Habla con el organizador.", usada: "Esta entrada ya se ha usado en la puerta.", empezado: "El evento ya ha empezado: ya no se puede cambiar el titular.", anulada: "Esta entrada está anulada.", demasiados_intentos: "Demasiados intentos seguidos. Espera unos minutos." };
-function CambiarTitular({ acceso, x, T, onCambio }) {
-  const [abierto, setAbierto] = useState(false);
-  const [nombre, setNombre] = useState("");
-  const [dni, setDni] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const guardar = async () => {
-    setErr(""); if (nombre.trim().length < 3) return setErr(MOTIVO_TITULAR.nombre);
-    setBusy(true);
-    try {
-      const { data, error } = await supabase.rpc("web_cambiar_titular", { p_acceso: acceso, p_numero: x.numero, p_nombre: nombre.trim(), p_dni: dni.trim() || null });
-      if (error) throw error;
-      if (!data?.ok) { setErr(MOTIVO_TITULAR[data?.motivo] || "No se ha podido cambiar."); setBusy(false); return; }
-      setAbierto(false); setNombre(""); setDni(""); onCambio && onCambio();
-    } catch { setErr("No se ha podido cambiar. Revisa tu conexión."); }
-    setBusy(false);
-  };
-  if (!abierto) return <button type="button" onClick={() => setAbierto(true)} style={{ ...btn("transparent", "var(--c)"), padding: "10px 12px", fontSize: 15, minHeight: 44 }}>Poner a nombre de otra persona</button>;
+/* ---------- «¿No puedes ir a la fiesta?»: cambio de nombre (de pago, el precio lo pone el organizador) ---------- */
+// Lleva a la página de cambio de nombre con la entrada ya elegida (sin tener que subirla ni escanearla).
+function CambioNombrePedido({ ev, entradas, T }) {
+  const validas = (entradas || []).filter(x => x.estado === "valida" && !x.prueba && x.qr_hex);
+  if (ev.cambio_nombre === false || !validas.length) return null;
+  const precio = Number(ev.cambio_precio) || 0;
+  const ir = (x) => { try { sessionStorage.setItem("tixfast_cambio_qr", textoQR(x.qr_hex)); } catch { /* sin almacenamiento: tendrá que subirla */ } window.location.assign("/cambio"); };
   return (
-    <div style={{ width: "100%", borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-      <div style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.45 }}>Se crea un QR nuevo con el nuevo nombre y <b style={{ color: "var(--text)" }}>el QR actual deja de valer</b>. Si ya la has enviado o impreso, vuelve a enviarla.</div>
-      <Campo l="Nombre y apellidos del nuevo titular" v={nombre} on={setNombre} ac="off" />
-      <Campo l="DNI / NIE (opcional)" v={dni} on={setDni} ac="off" />
-      {err && <div role="alert" style={{ color: "#ff6b6b", fontWeight: 800, fontSize: 14, marginBottom: 10 }}>{err}</div>}
-      <div style={{ display: "flex", gap: 8 }}>
-        <button type="button" onClick={() => setAbierto(false)} style={{ ...btn("var(--card2)", "var(--text)"), flex: 1, border: "1px solid var(--line)" }}>Cancelar</button>
-        <button type="button" disabled={busy} onClick={guardar} style={{ ...btn(T.d.color, T.tinta), flex: 2 }}>{busy ? "Cambiando…" : "Cambiar titular"}</button>
+    <section style={{ ...card, marginBottom: 12 }}>
+      <h2 style={{ fontSize: 19, margin: "0 0 6px", fontWeight: 900 }}>¿No puedes ir a la fiesta?</h2>
+      <div style={{ color: "var(--muted)", fontSize: 14.5, lineHeight: 1.5 }}>
+        Puedes hacer aquí el cambio de nombre de tu entrada a otra persona. Recibirá su entrada con un QR nuevo y la tuya dejará de ser válida. Las entradas no admiten devolución.
       </div>
-    </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, margin: "12px 0", padding: "10px 12px", borderRadius: 12, background: "var(--card2)", border: "1px solid var(--line)" }}>
+        <span style={{ fontWeight: 700 }}>Coste del cambio de nombre</span>
+        <b style={{ fontSize: 17 }}>{precio > 0 ? eur(precio) : "Gratis"}</b>
+      </div>
+      {validas.map(x => (
+        <button key={x.numero} onClick={() => ir(x)} style={{ ...btn("var(--c)", T.tinta), width: "100%", marginTop: 8, minHeight: 50, flexWrap: "wrap", rowGap: 2 }}>
+          Hacer el cambio de nombre{validas.length > 1 ? <span style={{ fontWeight: 700, opacity: .85 }}>· nº {String(x.numero).padStart(4, "0")} ({x.asistente})</span> : null}
+        </button>
+      ))}
+      <div style={{ color: "var(--muted)", fontSize: 12.5, marginTop: 8, lineHeight: 1.45 }}>El precio lo fija el organizador del evento. El cambio se puede hacer hasta poco antes de que empiece.</div>
+    </section>
   );
 }
 

@@ -148,6 +148,7 @@ export function TarjetaEvento({ ev, codigo, onCopiar, onCompartir, onQr, onVende
           <button onClick={onCopiar} style={{ ...btn("var(--card2)", "var(--text)"), padding: "12px 6px", fontSize: 14.5, border: "1px solid var(--line)" }}>Copiar</button>
           <button onClick={onQr} style={{ ...btn("var(--card2)", "var(--text)"), padding: "12px 6px", fontSize: 14.5, border: "1px solid var(--line)" }}>Ver QR</button>
         </div>
+        {!ev.efectivo && aLaVenta && !l && <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 10 }}>En este evento el organizador solo permite vender con tu enlace (el comprador paga online).</div>}
         {ev.efectivo && aLaVenta && !l && <button onClick={onVender} style={{ ...btn("transparent", "var(--text)"), width: "100%", marginTop: 8, border: "2px solid var(--c)" }}>💶 Vender en efectivo</button>}
         {!aLaVenta && <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 10 }}>{n ? "La venta de este evento está cerrada." : "Las entradas de este evento aún no están a la venta."}</div>}
       </> : <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 10 }}>Ya no vendes en este evento. Tus ventas y tu comisión siguen contando.</div>}

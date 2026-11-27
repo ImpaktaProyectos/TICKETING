@@ -291,6 +291,25 @@ const Miniatura = ({ url, s }) => (
   </span>
 );
 
+/* ===================== RRPP: solo por enlace o también en efectivo ===================== */
+function RrppVenta({ ev, flash }) {
+  const [ef, setEf] = useState(null);   // null = cargando
+  useEffect(() => { supabase.from("ticket_rrpp_config").select("efectivo").eq("evento_id", ev.id).maybeSingle().then(({ data }) => setEf(data ? data.efectivo !== false : true)); }, [ev.id]);
+  const poner = async (v) => {
+    const antes = ef; setEf(v);
+    const { error } = await supabase.from("ticket_rrpp_config").upsert({ evento_id: ev.id, efectivo: v, actualizado_en: new Date().toISOString() }, { onConflict: "evento_id" });
+    if (error) { setEf(antes); flash("No se ha podido guardar", "warn"); } else flash(v ? "Los RRPP pueden vender por enlace y en efectivo" : "Los RRPP solo venden por su enlace");
+  };
+  if (ef === null) return <div style={{ color: "var(--muted)", fontSize: 14 }}>Cargando…</div>;
+  return (<>
+    <Seg full valor={ef ? "ambos" : "enlace"} onChange={(v) => poner(v === "ambos")} opciones={[{ k: "enlace", t: "Solo por su enlace" }, { k: "ambos", t: "Enlace y efectivo" }]} />
+    <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 8, lineHeight: 1.45 }}>
+      {ef ? "Cada RRPP vende con su enlace (se paga online) y también en mano: cobra en efectivo y emite la entrada desde su panel. El efectivo te lo entrega al liquidar."
+          : "Cada RRPP solo vende con su enlace: el comprador paga online y la venta le cuenta al RRPP. No puede emitir entradas cobradas en mano."}
+    </div>
+  </>);
+}
+
 /* ===================== Aforo real de la sala (todos los canales) ===================== */
 export function AforoSala({ ev, ficha, setFicha, sumaTramos, isMobile }) {
   const [txt, setTxt] = useState(ficha.aforo != null ? String(ficha.aforo) : "");
@@ -604,6 +623,7 @@ function Editor({ ev, d, setD, flash, isMobile, onDuplicar, onCambio }) {
           </div>))}
         <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>Pide solo lo que necesites: cuantos menos datos, más gente termina la compra (y menos datos personales que custodiar).</div>
       </>)}
+      {tarjeta("users", "RRPP", "Dónde pueden vender tus RRPP en este evento. Las comisiones y la lista de RRPP están en Entradas › RRPP.", <RrppVenta ev={ev} flash={flash} />)}
       {tarjeta("clock", "Lanzamiento, QR y límites", "Cuenta atrás, desde cuándo vale el QR y cuántas entradas por persona.", <>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: "0 12px" }}>
           <Field l="La venta empieza (cuenta atrás)"><FechaHora valor={aLocal(f.venta_inicio)} onChange={(v) => setFicha({ venta_inicio: aIso(v) })} titulo="¿Cuándo se abre la venta?" placeholder="En cuanto publiques" /><div style={ayuda}>Si es futura, la página muestra una cuenta atrás.</div></Field>

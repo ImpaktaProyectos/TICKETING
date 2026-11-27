@@ -272,6 +272,7 @@ function Panel({ d, cargar, email }) {
   const [vender, setVender] = useState(null);
   const [qr, setQr] = useState(null);
   const [perfil, setPerfil] = useState(false);
+  const [cambiarCod, setCambiarCod] = useState(false);
   const [aviso, setAviso] = useState("");
   const avisar = (m) => { setAviso(m); setTimeout(() => setAviso(""), 2600); };
   const pf = d.perfil, orgs = d.organizadores || [];
@@ -287,7 +288,7 @@ function Panel({ d, cargar, email }) {
 
   return (
     <Marco>
-      <Cabecera titulo={`Hola, ${pf.nombre}`} sub={<>Tu código: <b style={{ color: "var(--text)", letterSpacing: 1 }}>{codigo}</b></>}
+      <Cabecera titulo={`Hola, ${pf.nombre}`} sub={<>Tu código: <b style={{ color: "var(--text)", letterSpacing: 1 }}>{codigo}</b> · <button onClick={() => setCambiarCod(true)} style={{ background: "none", border: "none", color: "var(--c)", fontWeight: 800, fontSize: "inherit", padding: "10px 2px", cursor: "pointer", fontFamily: "inherit" }}>Cambiar</button></>}
         derecha={<button onClick={() => setPerfil(true)} style={{ ...btn("var(--card2)", "var(--text)"), padding: "9px 14px", fontSize: 14, border: "1px solid var(--line)" }}>Mi perfil</button>} />
 
       <section aria-label="Monedero" style={{ ...card, marginBottom: 14 }}>
@@ -331,6 +332,7 @@ function Panel({ d, cargar, email }) {
 
       {vista === "cobros" && <Cobros orgs={orgs} cobros={d.cobros || []} pf={pf} onPerfil={() => setPerfil(true)} />}
 
+      {cambiarCod && <CambiarCodigo actual={codigo} onClose={() => setCambiarCod(false)} onHecho={(c) => { setCambiarCod(false); avisar(`Tu código ahora es ${c}`); cargar(); }} />}
       <div style={{ color: "var(--muted)", fontSize: 12.5, textAlign: "center", marginTop: 22, lineHeight: 1.5 }}>Tu código {codigo} es el mismo con todos los organizadores.<br />Cuenta: {email}</div>
 
       {qr && <Hoja titulo={qr.nombre} onClose={() => setQr(null)}>
@@ -439,5 +441,40 @@ function MonederoStripe({ avisar }) {
           </div>))}
       </div>}
     </section>
+  );
+}
+
+/* ---------- Cambiar el código (nick) de RRPP: los enlaces antiguos siguen funcionando ---------- */
+function CambiarCodigo({ actual, onClose, onHecho }) {
+  const [v, setV] = useState(actual);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const limpio = v.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
+  const guardar = async (e) => {
+    e.preventDefault(); setErr("");
+    if (limpio.length < 3) return setErr("Usa entre 3 y 16 letras o números, sin espacios.");
+    setBusy(true);
+    try {
+      const { data, error } = await sbRRPP.rpc("rrpp_cambiar_codigo", { p_codigo: limpio });
+      if (error) throw error;
+      if (!data?.ok) {
+        setErr(data?.motivo === "ocupado" ? "Ese código ya lo usa otro RRPP. Prueba con otro."
+          : data?.motivo === "reciente" ? `Solo puedes cambiarlo una vez por semana. Podrás volver a cambiarlo el ${new Date(data.desde).toLocaleDateString("es-ES", { day: "numeric", month: "long" })}.`
+          : data?.motivo === "formato" ? "Usa entre 3 y 16 letras o números, sin espacios." : "No se ha podido cambiar.");
+        setBusy(false); return;
+      }
+      onHecho(data.codigo);
+    } catch { setErr(navigator.onLine ? "No se ha podido cambiar. Vuelve a intentarlo." : "Sin conexión."); setBusy(false); }
+  };
+  return (
+    <Hoja titulo="Cambiar mi código" onClose={onClose}>
+      <form onSubmit={guardar} noValidate>
+        <div style={{ color: "var(--muted)", fontSize: 14, lineHeight: 1.5, marginBottom: 12 }}>Es el nombre que sale en tus enlaces de venta (…?rp=<b style={{ color: "var(--text)" }}>{limpio || "TUCODIGO"}</b>). Es el mismo con todos tus organizadores.</div>
+        <Campo l="Tu nuevo código" v={v} on={(x) => setV(x.toUpperCase())} ac="off" sub="Entre 3 y 16 letras o números. Sin espacios ni símbolos." />
+        <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.45, marginBottom: 10 }}>Los enlaces que ya compartiste con tu código anterior seguirán funcionando y sumándote ventas. Solo puedes cambiarlo una vez por semana.</div>
+        {err && <div role="alert" style={{ color: "#ff6b6b", fontWeight: 800, marginBottom: 10 }}>{err}</div>}
+        <button type="submit" disabled={busy || limpio === actual} style={{ ...btn("var(--c)", T.tinta), width: "100%", padding: 15, fontSize: 16, opacity: busy || limpio === actual ? .5 : 1 }}>{busy ? "Guardando…" : `Usar ${limpio || "…"}`}</button>
+      </form>
+    </Hoja>
   );
 }
