@@ -27,8 +27,18 @@ import { pagos, gastosDe } from "./pagosApi";
 const PanelRRPP = React.lazy(() => import("./PanelRRPP"));
 const CuentaRRPP = React.lazy(() => import("./CuentaRRPP"));
 
+// Buscadores: solo se indexan las páginas de evento (/e) y de organizador (/o).
+// Compras, entradas, paneles de RRPP y puntos de venta llevan datos personales o enlaces privados: nunca se indexan.
+function noIndexar(ruta) {
+  if (/^\/(e|o)\//.test(ruta)) return;
+  let m = document.querySelector('meta[name="robots"]');
+  if (!m) { m = document.createElement("meta"); m.name = "robots"; document.head.appendChild(m); }
+  m.content = "noindex, nofollow";
+}
+
 export default function Publico() {
   const ruta = window.location.pathname;
+  noIndexar(ruta);
   // Portal de RRPP con cuenta: /rp (entrar o crear cuenta) y /rp/unirse/<token> (pedir colaborar con un organizador)
   const unirse = ruta.match(/^\/rp\/unirse\/([0-9a-f-]{36})\/?$/i);
   if (unirse || /^\/rp\/?$/.test(ruta)) return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><CuentaRRPP token={unirse ? unirse[1].toLowerCase() : null} /></React.Suspense>;
@@ -40,7 +50,7 @@ export default function Publico() {
   const cambio = ruta.match(/^\/cambio(?:\/(recuperar\/)?([0-9a-f-]{36}))?\/?$/i);
   if (cambio) return <React.Suspense fallback={<Mensaje titulo="Cargando…" />}><PaginaCambio acceso={cambio[2] && !cambio[1] ? cambio[2].toLowerCase() : null} recuperar={cambio[2] && cambio[1] ? cambio[2].toLowerCase() : null} /></React.Suspense>;
   const m = ruta.match(/^\/(e|o|mis-entradas|compra|r|b|p|rp)\/([^/?#]+)/);
-  if (!m) return <Mensaje titulo="Página no encontrada" />;
+  if (!m) return <Mensaje titulo="Página no encontrada" texto="El enlace no existe o ha caducado. Revisa que esté completo o pide uno nuevo al organizador."><a href="/" style={{ display: "inline-block", marginTop: 18, color: "#ff5a3c", fontWeight: 800 }}>Ir al inicio</a></Mensaje>;
   const v = decodeURIComponent(m[2]);
   if (m[1] === "e") return <PaginaEvento slug={v.toLowerCase()} />;
   if (m[1] === "o") return <PaginaOrganizacion slug={v.toLowerCase()} />;

@@ -329,9 +329,9 @@ export function InfoPrivacidad({ legal, organizador, previa }) {
         <p><b>Qué datos:</b> los que rellenas en el formulario (nombre, correo y los demás que pida este evento), los nombres de los asistentes y datos técnicos de la compra para evitar fraudes.</p>
         <p><b>Cuánto tiempo:</b> los datos de la compra, hasta {meses} meses después del evento (o más si una ley lo exige, por ejemplo para facturación). Los de novedades, hasta que te des de baja.</p>
         <p><b>Relaciones públicas:</b> si compras con el enlace o el código de un relaciones públicas del evento, o le pagas a él en mano, la venta queda a su nombre para calcular su comisión. Solo ve tu nombre y cuántas entradas compraste; nunca tu correo ni tu teléfono.</p>
-        <p><b>Quién más los trata:</b> TIXFAST, la plataforma de venta, como encargado del tratamiento, y sus proveedores de alojamiento y envío de correo, con contrato y dentro de la UE o países con protección equivalente. No vendemos tus datos.</p>
+        <p><b>Quién más los trata:</b> TIXFAST, la plataforma de venta, como encargado del tratamiento, y sus proveedores (Supabase para el alojamiento, Stripe para los pagos con tarjeta y Brevo para el envío de correos), con contrato y dentro de la UE o países con protección equivalente. No vendemos tus datos.</p>
         <p><b>Tus derechos:</b> puedes pedir acceso, rectificación, supresión, oposición, limitación y portabilidad escribiendo a {l.email ? <a href={`mailto:${l.email}`} style={{ color: "inherit" }}>{l.email}</a> : "el organizador"}. Si crees que no se respetan, puedes reclamar ante la Agencia Española de Protección de Datos (aepd.es).</p>
-        <p style={{ fontSize: 12.5, opacity: .7 }}>Versión {PRIVACIDAD_VERSION}</p>
+        <p style={{ fontSize: 12.5, opacity: .7 }}>Versión {PRIVACIDAD_VERSION} · <a href="/legal.html" target="_blank" rel="noopener" style={{ color: "inherit" }}>Aviso legal, condiciones y cookies de TIXFAST</a></p>
       </div>
     </div>
   );

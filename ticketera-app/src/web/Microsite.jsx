@@ -398,7 +398,7 @@ function Pie({ o, d, T }) {
             style={{ width: 48, height: 48, borderRadius: T.club ? 0 : 48, display: "grid", placeItems: "center", background: "var(--card)", border: "1px solid var(--line)", color: "var(--text)" }}><IcoRed n={r.k} /></a>)}
         </div>}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--muted)", fontSize: 12.5, fontWeight: 700, marginTop: 28 }}>Entradas con <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width="16" height="16" /></div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--muted)", fontSize: 12.5, fontWeight: 700, marginTop: 28, flexWrap: "wrap" }}>Entradas con <img src="/brand/tixfast_isotipo_app.svg" alt="TIXFAST" width="16" height="16" /><a href="/legal.html" style={{ color: "inherit", marginLeft: 10, padding: "12px 0" }}>Aviso legal, privacidad y cookies</a></div>
     </footer>
   );
 }

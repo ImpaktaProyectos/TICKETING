@@ -1,0 +1,28 @@
+# Comprobaciones automáticas antes de publicar: pruebas (incluye el test de estilo), compilación y dependencias.
+name: Calidad
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+jobs:
+  calidad:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ticketera-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ticketera-app/package-lock.json
+      - run: npm ci
+      - name: Pruebas
+        run: npm test
+      - name: Compilación
+        run: npx vite build
+      - name: Archivos de SEO y legales presentes
+        run: for f in robots.txt sitemap.xml legal.html 404.html; do test -f dist/$f || { echo "Falta $f"; exit 1; }; done
+      - name: Dependencias con fallos graves (aviso, no bloquea)
+        run: npm audit --omit=dev --audit-level=critical || true
