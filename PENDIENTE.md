@@ -121,3 +121,14 @@ refuerzos de la auditoría, ficha de bebidas, reservados en el portal) y las fun
 ## 4. Con calma (no urgente)
 - [ ] Subir versiones de `jspdf` (arrastra una librería con avisos de seguridad) y probar todos los PDF.
 - [ ] Textos legales para el lanzamiento público (privacidad, condiciones de la suscripción).
+
+## Auditoría de calidad (28/11/2026) — pendiente
+- [ ] Completar en `ticketera-app/public/legal.html` los datos del titular (razón social, NIF, domicilio, correo, registro) y confirmar la región UE de Supabase.
+- [ ] Revisión de los textos legales por un abogado antes del lanzamiento público.
+- [ ] Open Graph y JSON-LD (`Event`/`Organization`) por evento generados en el servidor (WhatsApp no ejecuta JavaScript).
+- [ ] `sitemap.xml` dinámico con los eventos y organizadores publicados.
+- [ ] Dividir los paquetes grandes (app, CRM, imprenta: 630–740 KB).
+- [ ] Comprobar en Vercel que `/compra/…`, `/mis-entradas/…` y demás rutas privadas devuelven `X-Robots-Tag: noindex`.
+- [ ] Activar «Leaked password protection» en Supabase.
+- [ ] Subir `jspdf` (fallo de seguridad en una dependencia) y volver a probar todos los PDF.
+- [ ] Compra de prueba real con Stripe (tarjeta 4242…).
