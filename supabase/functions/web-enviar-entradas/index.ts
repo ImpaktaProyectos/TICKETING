@@ -3,6 +3,7 @@
 // No necesita sesión: el «acceso» del pedido es el secreto. Límite: 3 envíos por pedido, 1 cada 2 minutos.
 // Proveedor: Brevo. La clave vive como secreto de la función (BREVO_API_KEY); si no está, no se envía nada.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
+import { citasPedido, enlaceGoogle } from "../_shared/calendario.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -15,6 +16,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ORIGEN_OK = /^https:\/\/(somostixfast\.vercel\.app|([a-z0-9-]+\.)*tixfast\.app)$/i;
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 // «inicio» se guarda como hora local sin zona (2026-12-12T23:30): se muestra tal cual (UTC = sin desplazar)
+// Botones «Añadir a mi calendario» (archivo .ics del servidor) y «Google Calendar»
+const calendario = (ev: any, acceso: string, enlace: string, color: string, pequeno = false) => {
+  const citas = citasPedido(ev, [], enlace);
+  if (!citas.length) return "";
+  const ics = `${Deno.env.get("SUPABASE_URL")}/functions/v1/calendario?a=${acceso}`;
+  const b = (href: string, t: string) => `<a href="${esc(href)}" style="display:inline-block;margin:${pequeno ? "6px 6px 0 0" : "8px 6px 0 0"};padding:${pequeno ? "8px 12px" : "11px 14px"};border-radius:12px;border:1px solid #d9dce1;color:#15171a;text-decoration:none;font-weight:800;font-size:${pequeno ? 13 : 14}px">${t}</a>`;
+  return `<div style="margin-top:${pequeno ? 4 : 12}px">${pequeno ? "" : `<div style="font-size:13px;color:#6f747d;font-weight:700">Para que no se te olvide (te avisamos un día antes y 3 horas antes):</div>`}${b(ics, "📅 Añadir a mi calendario")}${b(enlaceGoogle(citas[0]), "Google Calendar")}</div>`;
+};
 const fecha = (v: string | null) => { if (!v) return ""; const local = v.length <= 16; const d = new Date(local ? v + (v.length <= 10 ? "T12:00" : "") + "Z" : v); if (isNaN(+d)) return ""; return d.toLocaleString("es-ES", { weekday: "long", day: "numeric", month: "long", hour: v.length > 10 ? "2-digit" : undefined, minute: v.length > 10 ? "2-digit" : undefined, timeZone: local ? "UTC" : "Europe/Madrid" }); };
 
 Deno.serve(async (req) => {
@@ -40,7 +49,7 @@ Deno.serve(async (req) => {
     if (!marcado) return json({ ok: false, motivo: "espera" });
 
     const [{ data: e }, { data: f }, { data: xs }] = await Promise.all([
-      admin.from("ticket_eventos").select("nombre, inicio, fecha, recinto").eq("id", p.evento_id).single(),
+      admin.from("ticket_eventos").select("nombre, inicio, fecha, recinto, fin").eq("id", p.evento_id).single(),
       admin.from("ticket_web_eventos").select("direccion, flyer_url, diseno, slug").eq("evento_id", p.evento_id).single(),
       admin.from("ticket_web_entradas").select("numero, asistente, tramo_nombre, estado").eq("pedido_id", p.id).order("numero"),
     ]);
@@ -60,6 +69,7 @@ Deno.serve(async (req) => {
       <div style="margin:18px 0;border-top:1px solid #e6e8eb"></div>
       ${validas.map((x: any) => `<div style="padding:6px 0;font-size:15px"><b>${esc(x.asistente)}</b> · ${esc(x.tramo_nombre)} · nº ${String(x.numero).padStart(4, "0")}</div>`).join("")}
       <a href="${esc(enlace)}" style="display:block;text-align:center;background:${color};color:#fff;text-decoration:none;font-weight:900;font-size:17px;padding:16px;border-radius:14px;margin-top:18px">Ver mis entradas y el QR</a>
+      ${calendario({ ...e, direccion: f?.direccion }, acceso, enlace, color)}
       <div style="font-size:13px;color:#6f747d;margin-top:14px;line-height:1.5">Desde ese enlace puedes descargar el PDF. Las entradas son nominativas y de un solo uso: no compartas el QR. Pedido <b>${esc(p.codigo)}</b>.</div>
     </div>
   </div>
@@ -101,12 +111,12 @@ async function enviarCompra(admin: any, acceso: string, body: any, clave: string
 
   const [{ data: o }, { data: ps }] = await Promise.all([
     c.organizacion_id ? admin.from("ticket_web_organizaciones").select("nombre, logo_url, diseno").eq("id", c.organizacion_id).maybeSingle() : Promise.resolve({ data: null }),
-    admin.from("ticket_web_pedidos").select("id, evento_id").eq("compra_id", c.id),
+    admin.from("ticket_web_pedidos").select("id, evento_id, acceso").eq("compra_id", c.id),
   ]);
   const bloques: string[] = [];
   for (const p of (ps || [])) {
     const [{ data: e }, { data: f }, { data: xs }] = await Promise.all([
-      admin.from("ticket_eventos").select("nombre, inicio, fecha, recinto").eq("id", p.evento_id).single(),
+      admin.from("ticket_eventos").select("nombre, inicio, fecha, recinto, fin").eq("id", p.evento_id).single(),
       admin.from("ticket_web_eventos").select("direccion, flyer_url").eq("evento_id", p.evento_id).single(),
       admin.from("ticket_web_entradas").select("numero, asistente, tramo_nombre, estado").eq("pedido_id", p.id).order("numero"),
     ]);
@@ -115,7 +125,8 @@ async function enviarCompra(admin: any, acceso: string, body: any, clave: string
       ${f?.flyer_url ? `<img src="${esc(f.flyer_url)}" alt="" width="72" height="72" style="width:72px;height:72px;object-fit:cover;border-radius:12px">` : ""}
       <div><div style="font-size:19px;font-weight:900;line-height:1.2">${esc(e?.nombre)}</div>
       <div style="font-size:14px;color:#3b4048;margin:2px 0 6px">${esc(fecha(e?.inicio || e?.fecha))}${e?.recinto ? ` · ${esc(e.recinto)}` : ""}</div>
-      ${validas.map((x: any) => `<div style="font-size:14px;padding:2px 0"><b>${esc(x.asistente)}</b> · ${esc(x.tramo_nombre)} · nº ${String(x.numero).padStart(4, "0")}</div>`).join("")}</div></div>`);
+      ${validas.map((x: any) => `<div style="font-size:14px;padding:2px 0"><b>${esc(x.asistente)}</b> · ${esc(x.tramo_nombre)} · nº ${String(x.numero).padStart(4, "0")}</div>`).join("")}
+      ${calendario({ ...e, direccion: f?.direccion }, p.acceso, "", "", true)}</div></div>`);
   }
   const origen = ORIGEN_OK.test(String(body?.origen || "")) ? String(body.origen) : (Deno.env.get("SITE_URL") || "https://www.tixfast.app");
   const enlace = `${origen}/compra/${acceso}`;

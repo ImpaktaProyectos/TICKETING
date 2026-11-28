@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node src/crm/prevision.test.mjs && node src/crm/rentabilidad.test.mjs && node src/crm/stock.test.mjs && node src/crm/facturaPdf.test.mjs && node src/crm/facturarEntradasCalc.test.mjs && node src/crm/autorizacion.test.mjs && node src/comision.test.mjs && node src/crm/pvCalc.test.mjs && node src/crm/imprenta.test.mjs && node src/crm/fac/facturacion.test.mjs && node src/cierreNoche.test.mjs && node src/gastosPrevistos.test.mjs && node src/mensajesReservados.test.mjs && node src/eventos.test.mjs && node src/planes.test.mjs && node src/multipuesto/multipuesto.test.mjs && node src/reservasCalculo.test.mjs && node src/colaVentas.test.mjs && node src/estilo.test.mjs"
+    "test": "node src/crm/prevision.test.mjs && node src/crm/rentabilidad.test.mjs && node src/crm/stock.test.mjs && node src/crm/facturaPdf.test.mjs && node src/crm/facturarEntradasCalc.test.mjs && node src/crm/autorizacion.test.mjs && node src/comision.test.mjs && node src/crm/pvCalc.test.mjs && node src/crm/imprenta.test.mjs && node src/web/calendario.test.mjs && node src/crm/fac/facturacion.test.mjs && node src/cierreNoche.test.mjs && node src/gastosPrevistos.test.mjs && node src/mensajesReservados.test.mjs && node src/eventos.test.mjs && node src/planes.test.mjs && node src/multipuesto/multipuesto.test.mjs && node src/reservasCalculo.test.mjs && node src/colaVentas.test.mjs && node src/estilo.test.mjs"
   },
   "dependencies": {
     "@fontsource/inter": "^5.0.18",

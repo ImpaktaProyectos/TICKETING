@@ -136,7 +136,7 @@ export function Tramo({ t, sig, avisos, n, T, onN, offset = 0, top = false, onFi
     <div style={{ ...card, marginBottom: 10, display: "flex", flexDirection: "column", gap: 10, opacity: venta ? 1 : .6, borderColor: n ? "var(--c)" : "var(--line)", boxShadow: n ? "0 0 0 1px var(--c)" : "none" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          {top && venta && <div style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "color-mix(in srgb, var(--c) 18%, transparent)", color: "var(--c)", borderRadius: 30, padding: "3px 10px", fontWeight: 900, fontSize: 12, marginBottom: 6, display: "inline-flex", alignItems: "center", gap: 5 }}><Icono n="estrella" s={12} w={2.4} />El más elegido</div>}
+          {top && venta && <div style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "color-mix(in srgb, var(--c) 18%, transparent)", color: "var(--c)", borderRadius: 30, padding: "3px 10px", fontWeight: 900, fontSize: 12, marginBottom: 6 }}><Icono n="estrella" s={12} w={2.4} />El más elegido</div>}
           <div style={{ fontWeight: 900, fontSize: 18, textDecoration: t.estado === "agotado" ? "line-through" : "none" }}>{t.nombre}</div>
           {t.acceso === "dia" && t.dia ? <div style={{ color: "var(--c)", fontSize: 13.5, fontWeight: 800, marginTop: 2 }}>Entrada de día · {cap(fecha(t.dia, false))}</div>
             : t.acceso === "abono" && t.multi ? <div style={{ color: "var(--c)", fontSize: 13.5, fontWeight: 800, marginTop: 2 }}>Abono · todos los días</div> : null}

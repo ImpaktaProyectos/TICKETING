@@ -18,6 +18,7 @@ import PaginaOrganizacion, { MasFiestas } from "./Microsite";
 const PaginaReservas = React.lazy(() => import("./Reservas"));
 const WidgetReservas = React.lazy(() => import("./Reservas").then(m => ({ default: m.WidgetReservas })));
 import { Lanzamiento, useCola, paseDe } from "./Lanzamiento.jsx";
+import { citasPedido, enlaceGoogle } from "./calendario.js";
 import { Icono } from "../iconos";
 const PaginaBebidas = React.lazy(() => import("./Bebidas"));
 const PaginaPuesto = React.lazy(() => import("./Puesto"));
@@ -672,6 +673,7 @@ function MisEntradas({ acceso }) {
         {correo && correo !== "enviando" && <div role="status" style={{ ...card, marginBottom: 14, fontWeight: 700, fontSize: 14, borderColor: correo === "enviado" ? "#0f9d63" : "var(--line)" }}>
           {{ enviado: `Enviadas a ${p.email}. Si no las ves, mira en «Spam» o «Promociones».`, sin_correo: "El envío por correo aún no está activado. Descarga el PDF o guarda este enlace.", espera: "Acabamos de enviarlas: espera un par de minutos antes de pedirlo otra vez.", limite: "Ya se han enviado varias veces. Descarga el PDF o guarda este enlace." }[correo] || "No se ha podido enviar el correo. Descarga el PDF o guarda este enlace."}
         </div>}
+        <AnadirCalendario ev={ev} entradas={d.entradas} acceso={acceso} />
         <EntradasDePedido d={d} T={T} acceso={acceso} onCambio={cargar} />
         <div style={{ textAlign: "center", marginTop: 18 }}><a href={`/e/${ev.slug}`} style={{ color: "var(--muted)", fontWeight: 700 }}>Volver al evento</a></div>
       </div>
@@ -708,6 +710,31 @@ function EntradasDePedido({ d, T, acceso, onCambio }) {
           {ev.autorizacion_url ? <div style={{ marginTop: 6 }}>Menores de {ev.autorizacion_edad || 16}: <a href={ev.autorizacion_url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--c)", fontWeight: 800 }}>descarga la autorización</a>, rellénala y tráela impresa.</div> : null}
         </div>}
   </>);
+}
+
+/* ---------- Añadir al calendario: el del propio móvil (iPhone, Android, Outlook) y Google Calendar ---------- */
+// Una cita por evento (o por día, si son entradas de día), con aviso un día antes y tres horas antes.
+function AnadirCalendario({ ev, entradas, acceso }) {
+  if (!acceso || !ev) return null;
+  const citas = citasPedido(ev, entradas, `${window.location.origin}/mis-entradas/${acceso}`);
+  if (!citas.length) return null;
+  const ics = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/calendario?a=${acceso}`;
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const apple = /iPhone|iPad|iPod|Macintosh/.test(ua), android = /Android/.test(ua);
+  const boton = { ...btn("var(--card2)", "var(--text)"), flex: "1 1 160px", minHeight: 48, border: "1px solid var(--line)", fontSize: 15, textDecoration: "none", boxSizing: "border-box" };
+  const diaCorto = (c) => c.inicio.toLocaleDateString("es-ES", { weekday: "short", day: "numeric", timeZone: "Europe/Madrid" });
+  return (
+    <section style={{ ...card, marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+        <Icono n="calendario" s={20} />
+        <div><b style={{ fontSize: 16 }}>Añadir al calendario</b><div style={{ color: "var(--muted)", fontSize: 13 }}>Te avisamos un día antes y 3 horas antes.</div></div>
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <a href={ics} style={{ ...boton, ...(apple ? { order: -1 } : {}) }}>{apple ? "Calendario del iPhone" : android ? "Calendario del móvil" : "Calendario (Apple, Outlook)"}</a>
+        {citas.map((c, i) => <a key={i} href={enlaceGoogle(c)} target="_blank" rel="noopener noreferrer" style={boton}>Google Calendar{citas.length > 1 ? ` · ${diaCorto(c)}` : ""}</a>)}
+      </div>
+    </section>
+  );
 }
 
 /* ---------- «¿No puedes ir a la fiesta?»: cambio de nombre (de pago, el precio lo pone el organizador) ---------- */
@@ -803,6 +830,7 @@ function MisCompra({ acceso }) {
               </div>
             </div>
             <button onClick={() => descargar(p, i)} disabled={pdf != null} style={{ ...btn(T.d.color, T.tinta), width: "100%", marginBottom: 12 }}>{pdf === i ? "Creando PDF…" : `Descargar PDF de ${p.evento.nombre}`}</button>
+            <AnadirCalendario ev={p.evento} entradas={p.entradas} acceso={p.acceso} />
             <EntradasDePedido d={p} T={T} />
           </section>))}
         {o && <div style={{ textAlign: "center", marginTop: 18 }}><a href={`/o/${o.slug}`} style={{ color: "var(--muted)", fontWeight: 700 }}>Ver más eventos de {o.nombre}</a></div>}
