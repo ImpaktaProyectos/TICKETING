@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Mapa estático. Pendiente: generar las URL /e/<evento> y /o/<organizador> publicadas desde Supabase (ver docs/standards/web-quality.md). -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://somostixfast.vercel.app/</loc></url>
+  <url><loc>https://somostixfast.vercel.app/legal.html</loc></url>
+</urlset>

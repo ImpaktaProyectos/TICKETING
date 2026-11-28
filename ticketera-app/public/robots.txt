@@ -1,0 +1,16 @@
+# TIXFAST: solo se indexan las páginas públicas de eventos (/e/…), organizadores (/o/…) y los textos legales.
+# Las compras, entradas, paneles de RRPP, puntos de venta y la app (TPV/CRM) son privados.
+User-agent: *
+Allow: /e/
+Allow: /o/
+Allow: /legal.html
+Disallow: /compra/
+Disallow: /mis-entradas/
+Disallow: /r/
+Disallow: /b/
+Disallow: /p/
+Disallow: /pv/
+Disallow: /rp
+Disallow: /cambio
+
+Sitemap: https://somostixfast.vercel.app/sitemap.xml

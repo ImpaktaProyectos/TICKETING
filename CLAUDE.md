@@ -21,3 +21,9 @@ Todo en español de España, para usuarios no técnicos: textos claros, sin jerg
 - Subir `APP_VERSION` en `src/App.jsx` (formato `AAAA.MM.DDx`).
 - Cambios de base de datos: migración nueva en `supabase/migrations/` y probarla con una transacción que se deshace antes de publicar.
 - No subir a `main` sin que el usuario lo pida.
+
+## Estándares de calidad (legal, seguridad, SEO, rendimiento, accesibilidad)
+- Están en `docs/standards/web-quality.md`, con la **checklist antes de publicar**. Repasar qué apartados afectan a cada página, formulario, ruta o integración nueva.
+- Rutas privadas (compras, entradas, paneles): siempre `noindex`. Proveedor o dato personal nuevo: actualizar `public/legal.html`.
+- Analítica o píxeles de terceros: solo tras banner de consentimiento (hoy no hay ninguno, por eso no hay banner).
+- CI: `.github/workflows/calidad.yml` pasa pruebas y compilación en cada subida.
